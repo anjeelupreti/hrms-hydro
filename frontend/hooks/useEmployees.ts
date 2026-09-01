@@ -267,6 +267,10 @@ export type EmployeeStatusCounts = {
   total: number;
   active: number;
   on_leave: number;
+  /** Employed, not working, locked out. The server has always returned this —
+   *  it iterates `EmploymentStatus.choices` — so leaving it off the type was
+   *  what hid the count, not a missing endpoint. */
+  suspended: number;
   resigned: number;
   terminated: number;
 };

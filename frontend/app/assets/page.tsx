@@ -38,7 +38,7 @@ import EmptyState from "@/components/common/EmptyState";
 import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
 import PageHeader from "@/components/shell/PageHeader";
-import { useCan } from "@/hooks/useMe";
+import { useCan, useCanCreate, useCanDelete } from "@/hooks/useMe";
 import { useTextFilter } from "@/hooks/useTextFilter";
 import CountFilterBar from "@/components/common/CountFilterBar";
 import {
@@ -59,6 +59,10 @@ const CATEGORIES = ["laptop", "desktop", "monitor", "phone", "furniture", "vehic
 
 export default function AssetsPage() {
   const isHR = useCan("workplace.manage");
+  // Registering an asset and writing off an asset are the admin's; keeping the
+  // register current is not.
+  const canCreate = useCanCreate("workplace.manage");
+  const canDelete = useCanDelete("workplace.manage");
   const [status, setStatus] = useState<AssetStatus | "">("");
   const { data } = useAssets({ status: status || undefined });
   const { data: counts } = useAssetStatusCounts();

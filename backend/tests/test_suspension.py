@@ -343,3 +343,122 @@ def test_a_suspended_employee_cannot_be_rehired_back_into_access(worker, admin_u
 
     worker.user.refresh_from_db()
     assert worker.user.is_active is False, "the account must stay closed"
+
+
+# ── Being told ───────────────────────────────────────────────────────────
+
+
+def test_suspending_emails_the_person(worker, mailoutbox):
+    """The whole point of the email. They cannot sign in, so an in-app notice
+    is unreachable — this is the only channel they have."""
+    suspend(
+        worker,
+        starts_on=date.today(),
+        ends_on=date.today() + timedelta(days=14),
+        reason="Pending inquiry into the 14 Poush incident.",
+    )
+
+    assert len(mailoutbox) == 1
+    message = mailoutbox[0]
+    assert "suspended" in message.subject.lower()
+    assert "Pending inquiry" in message.body
+
+
+def test_the_notice_goes_to_the_personal_address_where_there_is_one(worker, mailoutbox):
+    """An office mailbox is issued by the company and is often closed alongside
+    the login, so a notice sent there can arrive nowhere."""
+    worker.personal_email = "sita.rai@gmail.com"
+    worker.office_email = "s.rai@company.com.np"
+    worker.save()
+
+    suspend(worker, starts_on=date.today(), reason="Inquiry")
+
+    assert mailoutbox[0].to == ["sita.rai@gmail.com"]
+
+
+def test_the_notice_is_sent_even_with_email_notifications_switched_off(worker, mailoutbox):
+    """`notify` respects the preference, which is right for a birthday greeting
+    and wrong here: somebody with email off would be locked out with no way to
+    read the in-app notice and no idea why."""
+    from notifications.models import NotificationPreference
+
+    NotificationPreference.objects.update_or_create(
+        user=worker.user, defaults={"email_enabled": False}
+    )
+
+    suspend(worker, starts_on=date.today(), reason="Inquiry")
+
+    assert len(mailoutbox) == 1
+
+
+def test_an_in_app_notice_waits_for_them_on_their_return(worker):
+    """They cannot read it now. They can read it the morning they come back."""
+    from notifications.models import Notification
+
+    suspend(worker, starts_on=date.today(), reason="Inquiry")
+
+    assert Notification.objects.filter(recipient=worker.user, verb="suspension").exists()
+
+
+def test_a_future_suspension_does_not_email_anybody_yet(worker, mailoutbox):
+    """Nothing has happened to them. The sweep will lock them on the day, and
+    telling them a fortnight early that they are suspended is wrong twice."""
+    suspend(worker, starts_on=date.today() + timedelta(days=14), reason="Scheduled")
+
+    assert mailoutbox == []
+
+
+def test_lifting_tells_them_it_is_over(worker, mailoutbox):
+    """Somebody reinstated who is not told simply keeps not signing in."""
+    suspension = suspend(worker, starts_on=date.today(), reason="Inquiry")
+    mailoutbox.clear()
+
+    lift(suspension, outcome=Suspension.Outcome.REINSTATED, note="Cleared.")
+
+    assert len(mailoutbox) == 1
+    assert "restored" in mailoutbox[0].body or "sign in again" in mailoutbox[0].body
+
+
+def test_a_dismissal_does_not_send_a_your_access_is_restored_note(worker, mailoutbox):
+    """Offboarding owns the exit letter. "Your suspension ended" would be a
+    strange way to learn you had been dismissed."""
+    suspension = suspend(worker, starts_on=date.today(), reason="Gross misconduct")
+    mailoutbox.clear()
+
+    lift(suspension, outcome=Suspension.Outcome.TERMINATED)
+
+    assert all("restored" not in m.body for m in mailoutbox)
+
+
+def test_the_manager_is_told_because_they_have_to_cover_the_work(
+    worker, mailoutbox, hr_user, company
+):
+    manager = Employee.objects.create(
+        user=hr_user, employee_code="EMP-MGR",
+        date_joined=date(2020, 1, 1), primary_company=company,
+    )
+    worker.manager = manager
+    worker.save()
+
+    suspend(worker, starts_on=date.today(), reason="Inquiry")
+
+    recipients = {address for message in mailoutbox for address in message.to}
+    assert hr_user.email in recipients
+
+
+def test_a_suspension_still_takes_effect_when_mail_is_broken(worker, monkeypatch):
+    """The notice runs inside the same transaction as the lock, so an
+    unguarded failure here would roll the suspension back — leaving somebody at
+    their desk who should not be, through the module's own notification path.
+    The lock outranks the notice."""
+    from core import email as email_module
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("smtp is down")
+
+    monkeypatch.setattr(email_module, "send_templated_mail", explode)
+
+    suspend(worker, starts_on=date.today(), reason="Inquiry")
+
+    worker.user.refresh_from_db()
+    assert worker.user.is_active is False

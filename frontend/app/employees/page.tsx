@@ -45,7 +45,7 @@ import PageContainer from "@/components/shell/PageContainer";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCreateConversation } from "@/hooks/useChat";
 import { useEmployees, useEmployeeStatusCounts } from "@/hooks/useEmployees";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate, useMe } from "@/hooks/useMe";
 import { employeeHref } from "@/lib/employeeProfile";
 import { useUIStore } from "@/lib/store/ui";
 import type { EmployeeListItem, EmploymentStatus } from "@/types/employees";
@@ -61,6 +61,10 @@ function initials(name: string) {
 function EmployeesContent() {
   const { data: me } = useMe();
   const canManage = useCan("people.manage");
+  // Editing and creating are different rights. An officer granted
+  // `people.manage` keeps the record current and does not add people —
+  // mirroring `accounts.policy.can_create`, which refuses it at the API.
+  const canCreate = useCanCreate("people.manage");
   const createConversation = useCreateConversation();
   const openChatConversation = useUIStore((s) => s.openChatConversation);
 
@@ -264,12 +268,12 @@ function EmployeesContent() {
             <Button component={Link} href="/employees/org-chart" startIcon={<AccountTreeIcon />}>
               Org chart
             </Button>
-            {canManage && (
+            {canCreate && (
               <Button startIcon={<UploadFileIcon />} onClick={() => setImporting(true)}>
                 Import
               </Button>
             )}
-            {canManage && (
+            {canCreate && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
                 Add Employee
               </Button>
@@ -344,6 +348,9 @@ function EmployeesContent() {
               { value: "", label: "All", count: statusCounts?.total },
               { value: "active", label: "Active", count: statusCounts?.active },
               { value: "on_leave", label: "On leave", count: statusCounts?.on_leave, tone: "info" },
+              // Not `danger`. A suspension usually ends with the person coming
+              // back, and colouring it like a termination reads as an exit.
+              { value: "suspended", label: "Suspended", count: statusCounts?.suspended, tone: "warning" },
               { value: "resigned", label: "Resigned", count: statusCounts?.resigned },
               { value: "terminated", label: "Terminated", count: statusCounts?.terminated, tone: "danger" },
             ]}

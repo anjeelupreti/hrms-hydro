@@ -53,6 +53,7 @@ import {
   useExpenseStatusCounts,
   useExpenseTrend,
 } from "@/hooks/useExpenses";
+import { useCheckBudget } from "@/hooks/useExpenseBudgets";
 import { useCan, useMe } from "@/hooks/useMe";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -426,6 +427,40 @@ function NewClaimDialog({ onClose }: { onClose: () => void }) {
   const [receipt, setReceipt] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * What this claim would run into, asked while it is being typed.
+   *
+   * The server refuses an over-budget claim on submit, which is correct and
+   * still leaves somebody filling in a form, attaching a receipt and pressing
+   * Submit before anything tells them the money was never there. This asks the
+   * same question the same way, one step earlier.
+   *
+   * Debounced, because it fires on every keystroke in the amount field.
+   */
+  const checkBudget = useCheckBudget();
+  const [verdict, setVerdict] = useState<{ allowed: boolean; warn: boolean; message: string } | null>(
+    null
+  );
+
+  useEffect(() => {
+    if (!amount || Number(amount) <= 0) {
+      setVerdict(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      checkBudget
+        .mutateAsync({ category, amount, expense_date: expenseDate })
+        // Silent on failure. A budget hint that cannot be fetched must not
+        // stop somebody claiming — the server still enforces on submit.
+        .then((result) => setVerdict(result))
+        .catch(() => setVerdict(null));
+    }, 400);
+    return () => clearTimeout(timer);
+    // `checkBudget` is a stable mutation object; including it would re-run the
+    // effect on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amount, category, expenseDate]);
+
   async function handleSave() {
     setError(null);
     if (!title.trim() || !amount) {
@@ -456,6 +491,14 @@ function NewClaimDialog({ onClose }: { onClose: () => void }) {
             {error}
           </Alert>
         )}
+        {/* The ceiling, while somebody is still deciding what to claim. Red
+            when the server would refuse it, amber when it would go through and
+            be flagged. */}
+        {verdict && verdict.message ? (
+          <Alert severity={verdict.allowed ? "warning" : "error"} sx={{ mb: 2 }}>
+            {verdict.message}
+          </Alert>
+        ) : null}
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField label="Title" fullWidth value={title} onChange={(e) => setTitle(e.target.value)} />
           <TextField select label="Category" fullWidth value={category} onChange={(e) => setCategory(e.target.value as ExpenseCategory)}>
@@ -476,7 +519,11 @@ function NewClaimDialog({ onClose }: { onClose: () => void }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={createClaim.isPending}>
+        <Button
+          variant="contained"
+          onClick={handleSave}
+          disabled={createClaim.isPending || verdict?.allowed === false}
+        >
           Submit
         </Button>
       </DialogActions>

@@ -31,7 +31,7 @@ import EventDialog from "@/components/events/EventDialog";
 import Breadcrumbs from "@/components/shell/Breadcrumbs";
 import PageContainer from "@/components/shell/PageContainer";
 import { useEvent, useEventTimeline } from "@/hooks/useEvents";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate } from "@/hooks/useMe";
 import { EVENT_KINDS, EVENT_STATUSES, type EventListItem } from "@/types/events";
 
 /**
@@ -59,11 +59,10 @@ const STATUS_TONE: Record<string, "normal" | "caution" | "alarm" | "muted"> = {
 };
 
 export default function EventsPage() {
-  const { data: me } = useMe();
   const canManage = useCan("workplace.manage");
   // Creating and deleting are refused by the API for an officer regardless;
   // this only decides whether the button is offered.
-  const isAdmin = me?.role === "owner" || me?.role === "hr_admin" || Boolean(me?.is_superuser);
+  const canCreate = useCanCreate("workplace.manage");
 
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState("");
@@ -96,7 +95,7 @@ export default function EventsPage() {
             who was in them and what came of them.
           </Typography>
         </Box>
-        {isAdmin && canManage ? (
+        {canCreate ? (
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
             New event
           </Button>
@@ -188,7 +187,7 @@ export default function EventsPage() {
       <EventDialog
         open={creating}
         event={null}
-        canEdit={Boolean(isAdmin && canManage)}
+        canEdit={canCreate}
         onClose={() => setCreating(false)}
       />
       <EventDialog

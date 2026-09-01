@@ -27,7 +27,7 @@ import PageHeader from "@/components/shell/PageHeader";
 import ProgramDialog from "@/components/training/ProgramDialog";
 import { DELIVERY_LABEL, ENROLLMENT_META, formatSessionTime } from "@/components/training/trainingMeta";
 import { useEnrollments, usePrograms } from "@/hooks/useTraining";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate, useMe } from "@/hooks/useMe";
 import ListPagination from "@/components/common/ListPagination";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -45,6 +45,9 @@ export default function TrainingPage() {
   });
   const programs = programPage?.results;
   const isHR = useCan("workplace.manage");
+  // A programme is a new thing; enrolling in one is not. See the verb split in
+  // `accounts/policy.py`.
+  const canCreate = useCanCreate("workplace.manage");
 
   const [dialog, setDialog] = useState<{ open: boolean; program: TrainingProgram | null }>({
     open: false,
@@ -93,7 +96,7 @@ export default function TrainingPage() {
                 ]}
               />
             )}
-            {isHR && (
+            {canCreate && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialog({ open: true, program: null })}>
                 New Program
               </Button>

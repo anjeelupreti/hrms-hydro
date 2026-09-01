@@ -53,6 +53,38 @@ export function usePermissions(): string[] {
 }
 
 /**
+ * May this user bring a *new* record of this kind into existence?
+ *
+ * **The browser's half of the verb split**, mirroring `accounts.policy.can_create`
+ * clause for clause: holding the capability is required, and the role decides
+ * whether holding it extends as far as creating. An HR officer with
+ * `people.manage` may edit an employee and may not add one.
+ *
+ * Here rather than as `me?.role === "hr_admin" || …` on each page, because that
+ * is the fifty-one-site pattern `accounts/policy.py` was written to end,
+ * reappearing on the other side of the wire. The API refuses regardless; this
+ * is only so a button that would be refused is not offered — a form somebody
+ * fills in and is then told they may not submit is the "looks broken rather
+ * than secure" failure.
+ *
+ * If this and `can_create` ever disagree, the server is right.
+ */
+export function useCanCreate(permission: string): boolean {
+  const { data: me } = useMe();
+  if (!me?.permissions?.includes(permission)) return false;
+  return me.is_superuser || me.role === "owner" || me.role === "hr_admin";
+}
+
+/** The same, for deletion. A separate function because the server keeps them
+ *  separate — the two sets are equal today and deliberately not derived from
+ *  one another, since deletion is the act with no undo. */
+export function useCanDelete(permission: string): boolean {
+  const { data: me } = useMe();
+  if (!me?.permissions?.includes(permission)) return false;
+  return me.is_superuser || me.role === "owner" || me.role === "hr_admin";
+}
+
+/**
  * What a role is called to the person holding it.
  *
  * Four roles, so a two-way ternary cannot render them: `"HR Admin"` or

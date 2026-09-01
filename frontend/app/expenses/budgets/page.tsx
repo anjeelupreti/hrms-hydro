@@ -42,7 +42,7 @@ import {
   type BudgetFormValues,
   type ExpenseBudget,
 } from "@/hooks/useExpenseBudgets";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate, useCanDelete } from "@/hooks/useMe";
 
 /**
  * The ceilings on spending, and how close each one is.
@@ -82,9 +82,9 @@ const EMPTY: BudgetFormValues = {
 };
 
 export default function ExpenseBudgetsPage() {
-  const { data: me } = useMe();
   const canManage = useCan("expenses.manage");
-  const isAdmin = me?.role === "owner" || me?.role === "hr_admin" || Boolean(me?.is_superuser);
+  const canCreate = useCanCreate("expenses.manage");
+  const canDelete = useCanDelete("expenses.manage");
 
   const { data, isLoading } = useExpenseBudgets();
   const save = useSaveBudget();
@@ -153,7 +153,7 @@ export default function ExpenseBudgetsPage() {
             specific rule that matches a claim is the one that applies.
           </Typography>
         </Box>
-        {isAdmin && canManage ? (
+        {canCreate ? (
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => start(null)}>
             Set a budget
           </Button>
@@ -200,7 +200,7 @@ export default function ExpenseBudgetsPage() {
                             <EditIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
-                        {isAdmin ? (
+                        {canDelete ? (
                           <Tooltip title="Remove">
                             <IconButton size="small" onClick={() => remove.mutate(budget.id)}>
                               <DeleteOutlineIcon fontSize="small" />

@@ -43,7 +43,7 @@ import {
   useSuspend,
   useSuspensions,
 } from "@/hooks/useEmployeeRecords";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate, useCanDelete } from "@/hooks/useMe";
 import {
   AWARD_KINDS,
   DISCIPLINARY_SEVERITIES,
@@ -71,12 +71,12 @@ import {
 
 function useCanWrite() {
   // Creating and deleting are refused by the API for an officer regardless;
-  // this only decides whether the button is offered. See the verb section of
-  // `accounts/policy.py`.
-  const { data: me } = useMe();
+  // these only decide whether the button is offered. See the verb section of
+  // `accounts/policy.py`, which these mirror clause for clause.
   const canManage = useCan("people.manage");
-  const isAdmin = me?.role === "owner" || me?.role === "hr_admin" || Boolean(me?.is_superuser);
-  return { canManage, isAdmin };
+  const canCreate = useCanCreate("people.manage");
+  const canDelete = useCanDelete("people.manage");
+  return { canManage, canCreate, canDelete };
 }
 
 /* ── Awards ──────────────────────────────────────────────────────────────── */
@@ -94,7 +94,7 @@ export function AwardsPanel({ employeeId }: { employeeId: number }) {
   const { data, isLoading } = useAwards(employeeId);
   const save = useSaveAward();
   const remove = useDeleteAward();
-  const { canManage, isAdmin } = useCanWrite();
+  const { canManage, canCreate, canDelete } = useCanWrite();
 
   const [editing, setEditing] = useState<Award | null>(null);
   const [open, setOpen] = useState(false);
@@ -150,7 +150,7 @@ export function AwardsPanel({ employeeId }: { employeeId: number }) {
               Awards and recognition
             </Typography>
           </Stack>
-          {isAdmin && canManage ? (
+          {canCreate ? (
             <Button size="small" startIcon={<AddIcon />} onClick={() => start(null)}>
               Record one
             </Button>
@@ -203,7 +203,7 @@ export function AwardsPanel({ employeeId }: { employeeId: number }) {
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    {isAdmin ? (
+                    {canDelete ? (
                       <Tooltip title="Remove">
                         <IconButton size="small" onClick={() => remove.mutate(award.id)}>
                           <DeleteOutlineIcon fontSize="small" />
@@ -343,7 +343,7 @@ export function DisciplinaryPanel({ employeeId }: { employeeId: number }) {
   const { data, isLoading } = useDisciplinaryActions(employeeId);
   const save = useSaveDisciplinaryAction();
   const remove = useDeleteDisciplinaryAction();
-  const { canManage, isAdmin } = useCanWrite();
+  const { canManage, canCreate, canDelete } = useCanWrite();
 
   const [editing, setEditing] = useState<DisciplinaryAction | null>(null);
   const [open, setOpen] = useState(false);
@@ -405,7 +405,7 @@ export function DisciplinaryPanel({ employeeId }: { employeeId: number }) {
               Disciplinary record
             </Typography>
           </Stack>
-          {isAdmin && canManage ? (
+          {canCreate ? (
             <Button size="small" startIcon={<AddIcon />} onClick={() => start(null)}>
               Issue one
             </Button>
@@ -478,7 +478,7 @@ export function DisciplinaryPanel({ employeeId }: { employeeId: number }) {
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    {isAdmin ? (
+                    {canDelete ? (
                       <Tooltip title="Remove">
                         <IconButton size="small" onClick={() => remove.mutate(action.id)}>
                           <DeleteOutlineIcon fontSize="small" />
@@ -637,7 +637,7 @@ export function SuspensionPanel({ employeeId }: { employeeId: number }) {
   const { data, isLoading } = useSuspensions(employeeId);
   const suspend = useSuspend();
   const lift = useLiftSuspension();
-  const { canManage, isAdmin } = useCanWrite();
+  const { canManage, canCreate, canDelete } = useCanWrite();
 
   const [open, setOpen] = useState(false);
   const [startsOn, setStartsOn] = useState("");
@@ -694,7 +694,7 @@ export function SuspensionPanel({ employeeId }: { employeeId: number }) {
               Suspension
             </Typography>
           </Stack>
-          {isAdmin && canManage && !live ? (
+          {canCreate && !live ? (
             <Button size="small" color="error" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
               Suspend
             </Button>

@@ -3,7 +3,12 @@
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import BadgeIcon from "@mui/icons-material/Badge";
+import BloodtypeIcon from "@mui/icons-material/Bloodtype";
+import BusinessCenterIcon from "@mui/icons-material/BusinessCenter";
+import HomeIcon from "@mui/icons-material/Home";
+import SmartphoneIcon from "@mui/icons-material/Smartphone";
 import BlockIcon from "@mui/icons-material/Block";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ContactPhoneIcon from "@mui/icons-material/ContactPhone";
@@ -424,10 +429,55 @@ function ProfileInner() {
                   <Stack spacing={1.5} sx={{ mt: 1, color: "text.secondary" }}>
                     <Row icon={<EmailIcon fontSize="small" />} value={p.email} />
                     <Row icon={<PhoneIcon fontSize="small" />} value={p.phone || "—"} />
+                    {/* The four channels, where the record has them.
+                        An office number and mailbox are issued by the company
+                        and revoked on the last day; a personal number and
+                        address belong to the person and are the only way to
+                        reach a leaver about a final settlement. They were
+                        editable on the form and shown nowhere, which made them
+                        write-only. Only rendered where the server sent them —
+                        a colleague gets the profile payload, not the record. */}
+                    {record?.office_phone ? (
+                      <Row
+                        icon={<BusinessCenterIcon fontSize="small" />}
+                        value={`${record.office_phone} · office`}
+                      />
+                    ) : null}
+                    {record?.office_email ? (
+                      <Row
+                        icon={<AlternateEmailIcon fontSize="small" />}
+                        value={`${record.office_email} · office`}
+                      />
+                    ) : null}
+                    {record?.personal_phone ? (
+                      <Row
+                        icon={<SmartphoneIcon fontSize="small" />}
+                        value={`${record.personal_phone} · personal`}
+                      />
+                    ) : null}
                     <Row
                       icon={<LocationOnIcon fontSize="small" />}
-                      value={[p.address, p.city, p.country].filter(Boolean).join(", ") || "—"}
+                      value={
+                        record?.permanent_address ||
+                        [p.address, p.city, p.country].filter(Boolean).join(", ") ||
+                        "—"
+                      }
                     />
+                    {/* Only when it differs. Showing "temporary: <same as
+                        permanent>" is a row that answers nothing. */}
+                    {record?.temporary_address &&
+                    record.temporary_address !== record.permanent_address ? (
+                      <Row
+                        icon={<HomeIcon fontSize="small" />}
+                        value={`${record.temporary_address} · currently`}
+                      />
+                    ) : null}
+                    {record?.blood_group ? (
+                      <Row
+                        icon={<BloodtypeIcon fontSize="small" />}
+                        value={`${record.blood_group} · on file for site emergencies`}
+                      />
+                    ) : null}
                     <Row
                       icon={<SupervisorAccountIcon fontSize="small" />}
                       value={

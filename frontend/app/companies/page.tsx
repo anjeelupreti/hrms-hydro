@@ -27,7 +27,7 @@ import CompanyFormDialog from "@/components/companies/CompanyFormDialog";
 import Breadcrumbs from "@/components/shell/Breadcrumbs";
 import PageContainer from "@/components/shell/PageContainer";
 import { useCompanies, useDeleteCompany } from "@/hooks/useCompanies";
-import { useCan, useMe } from "@/hooks/useMe";
+import { useCan, useCanCreate, useCanDelete } from "@/hooks/useMe";
 import type { Company } from "@/types/companies";
 
 /**
@@ -57,12 +57,12 @@ function capacity(company: Company) {
 }
 
 export default function CompaniesPage() {
-  const { data: me } = useMe();
   const canManage = useCan("settings.manage");
   // Creating and deleting are the admin's; an officer may keep the details
-  // current. The API enforces this independently — this only stops the page
+  // current. The API enforces this independently — these only stop the page
   // offering a button that would come back 403.
-  const isAdmin = me?.role === "owner" || me?.role === "hr_admin" || Boolean(me?.is_superuser);
+  const canCreate = useCanCreate("settings.manage");
+  const canDelete = useCanDelete("settings.manage");
 
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Company | null>(null);
@@ -115,7 +115,7 @@ export default function CompaniesPage() {
             company and may work for any number of others.
           </Typography>
         </Box>
-        {isAdmin && canManage ? (
+        {canCreate ? (
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             Add company
           </Button>
@@ -168,7 +168,7 @@ export default function CompaniesPage() {
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      {isAdmin ? (
+                      {canDelete ? (
                         <Tooltip
                           title={
                             company.employee_count > 0

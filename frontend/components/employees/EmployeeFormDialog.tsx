@@ -53,6 +53,18 @@ const FIELD_LABELS: Record<string, string> = {
   manager: "Manager",
 };
 
+/**
+ * The statuses somebody may be *set* to by hand.
+ *
+ * **`suspended` is deliberately absent.** It is derived from a `Suspension`
+ * record — the interval, the reason and the account lock all move together —
+ * so offering it here would let a dropdown put somebody on the roster as
+ * suspended with no record saying since when, and still able to sign in.
+ * Suspending is done from the Conduct tab.
+ *
+ * The reverse matters more: editing a suspended person's phone number must not
+ * quietly clear their suspension. See how the field is rendered below.
+ */
 const EMPLOYMENT_STATUSES: { value: EmployeeFormValues["employment_status"]; label: string }[] = [
   { value: "active", label: "Active" },
   { value: "on_leave", label: "On Leave" },
@@ -232,6 +244,9 @@ function EmployeeForm({
   const [values, setValues] = useState<EmployeeFormValues>(() => buildInitialValues(employee));
   // The two lookups behind post and role. Small enough to load whole rather
   // than search — a company has a dozen posts, not a thousand.
+  // Derived from the record rather than from the form's own value, which an
+  // operator could have already changed.
+  const isSuspended = employee?.employment_status === "suspended";
   const { data: posts } = useCorporatePosts();
   const { data: roles } = useCorporateRoles();
   // Presence, not permission: the serializer removes the sensitive group
@@ -398,7 +413,22 @@ function EmployeeForm({
               onChange={(e) =>
                 set("employment_status", e.target.value as EmployeeFormValues["employment_status"])
               }
+              disabled={isSuspended}
+              helperText={
+                isSuspended
+                  ? "Suspended. Lift the suspension on the Conduct tab to change this."
+                  : undefined
+              }
             >
+              {/* A suspended employee's status has no matching option above,
+                  so the select would render blank and the first save would
+                  silently move them to whatever the operator picked — undoing
+                  a suspension by editing a phone number. The option is added
+                  and the field disabled instead: it says what is true and
+                  refuses to change it. */}
+              {isSuspended ? (
+                <MenuItem value="suspended">Suspended</MenuItem>
+              ) : null}
               {EMPLOYMENT_STATUSES.map((s) => (
                 <MenuItem key={s.value} value={s.value}>
                   {s.label}

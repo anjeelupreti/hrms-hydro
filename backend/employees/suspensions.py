@@ -25,11 +25,14 @@ they change together.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from django.db import transaction
 
 from employees.models import Employee, Suspension
+
+logger = logging.getLogger(__name__)
 
 
 class SuspensionError(Exception):
@@ -97,6 +100,39 @@ def suspend(employee, *, starts_on, ends_on=None, reason, actor=None):
     # serialising it straight back — which the viewset does — would report a
     # suspension that is not in force on a person who has just been locked out.
     suspension.refresh_from_db()
+
+    # After the lock, not before: an email saying "you are suspended" that goes
+    # out and is then rolled back by a failed save is worse than no email.
+    if suspension.is_active:
+        until = (
+            f"until {suspension.ends_on:%d %B %Y}"
+            if suspension.ends_on
+            else "until further notice"
+        )
+        _tell(
+            employee,
+            subject="You have been suspended",
+            heading="Your access has been suspended",
+            paragraphs=[
+                f"You have been suspended {until}. You will not be able to sign "
+                "in to the HRMS while the suspension is in force.",
+                "If you believe this is a mistake, or you need anything from "
+                "your record in the meantime, contact HR.",
+            ],
+            facts=[
+                {"label": "From", "value": f"{suspension.starts_on:%d %B %Y}"},
+                {
+                    "label": "Until",
+                    "value": (
+                        f"{suspension.ends_on:%d %B %Y}"
+                        if suspension.ends_on
+                        else "Further notice"
+                    ),
+                },
+                {"label": "Reason", "value": suspension.reason},
+            ],
+        )
+        _tell_manager(employee, f"suspended {until}.")
     return suspension
 
 
@@ -133,6 +169,31 @@ def lift(suspension, *, outcome, note="", actor=None, on_date=None):
         employee.employment_status = Employee.EmploymentStatus.TERMINATED
         employee.save(update_fields=["employment_status", "updated_at"])
     _sync(employee)
+
+    # Being told it is over matters as much as being told it began. Somebody
+    # reinstated who is not told simply keeps not signing in.
+    if outcome == Suspension.Outcome.TERMINATED:
+        # Offboarding owns the exit letter; a note here saying "your suspension
+        # ended" would be a strange way to learn you had been dismissed.
+        _tell_manager(employee, "suspension ended in termination.")
+    else:
+        reinstated = outcome == Suspension.Outcome.REINSTATED
+        _tell(
+            employee,
+            subject="Your suspension has been lifted",
+            heading="Your access has been restored",
+            paragraphs=[
+                "Your suspension has ended and you can sign in again."
+                if reinstated
+                else "The suspension has been withdrawn and your access is restored.",
+                note or "Contact HR if you have any questions.",
+            ],
+            facts=[
+                {"label": "Outcome", "value": suspension.get_outcome_display()},
+                {"label": "Ended", "value": f"{on_date:%d %B %Y}"},
+            ],
+        )
+        _tell_manager(employee, f"suspension lifted — {suspension.get_outcome_display().lower()}.")
     return suspension
 
 
@@ -211,3 +272,104 @@ def sweep(on_date: date | None = None) -> int:
         if _sync(employee):
             touched += 1
     return touched
+
+
+# ── Telling them ─────────────────────────────────────────────────────────
+
+
+def _address_for(employee):
+    """Where to write to somebody who cannot sign in.
+
+    Their **personal** address first. An office mailbox is issued by the
+    company and is frequently the first thing closed alongside the login, so a
+    suspension notice sent there can arrive nowhere — and this is the one
+    message that must not.
+    """
+    return (
+        employee.personal_email
+        or employee.user.email
+        or employee.office_email
+    )
+
+
+def _tell(employee, *, subject, heading, paragraphs, facts=None):
+    """Email the employee, and leave an in-app record for when they return.
+
+    **The email is sent directly rather than through `notifications.notify`,
+    and that is deliberate.** `notify` respects the recipient's email
+    preference, which is the right rule for a birthday greeting and the wrong
+    one here: somebody who has switched email off is locked out with no way to
+    read an in-app notice and no idea why. A suspension notice is not a
+    courtesy on top of the record — for the length of the suspension it is the
+    only channel they have.
+
+    The in-app row is still written, unconditionally, so the notice is waiting
+    on the record when they are reinstated.
+
+    Fail-soft throughout. `send_templated_mail` never raises, and the
+    notification row is guarded, because a suspension that failed to save
+    because the mail server was down would leave somebody at their desk who
+    should not be.
+    """
+    from core.email import send_templated_mail
+    from notifications.models import Notification
+
+    # **The whole body is guarded, and that is the point of the function.**
+    #
+    # `suspend` and `lift` are atomic, and this is called inside them — so
+    # anything raised here does not merely lose the notice, it rolls back the
+    # lock. A mail server that is down would leave somebody at their desk who
+    # should not be, which is the failure this module exists to prevent,
+    # arriving through its own notification path.
+    #
+    # `send_templated_mail` already promises never to raise; this does not
+    # depend on that promise holding for every future edit to it.
+    try:
+        address = _address_for(employee)
+        name = employee.user.get_full_name() or employee.user.get_username()
+
+        if address:
+            send_templated_mail(
+                subject,
+                [address],
+                heading=heading,
+                greeting=f"Hi {employee.user.get_short_name() or name},",
+                paragraphs=paragraphs,
+                facts=facts or [],
+            )
+        else:
+            logger.warning(
+                "No email on file for %s — suspension notice not delivered.",
+                employee.employee_code,
+            )
+
+        Notification.objects.create(
+            recipient=employee.user,
+            verb="suspension",
+            message=f"{heading}. {paragraphs[0] if paragraphs else ''}".strip(),
+        )
+    except Exception:  # noqa: BLE001 — see above: the lock outranks the notice
+        logger.exception("Suspension notice failed for employee %s", employee.pk)
+
+
+def _tell_manager(employee, message):
+    """The manager, who has to cover the work.
+
+    Through `notify`, so their own preferences apply — unlike the employee,
+    they can sign in and read it either way.
+    """
+    from notifications.services import notify
+
+    manager = employee.manager
+    if manager is None or manager.user_id == employee.user_id:
+        return
+    name = employee.user.get_full_name() or employee.user.get_username()
+    try:
+        notify(
+            manager.user,
+            "suspension_report",
+            f"{name}: {message}",
+            email_subject="A member of your team has been suspended",
+        )
+    except Exception:  # noqa: BLE001 — same reasoning as `_tell`
+        logger.exception("Could not tell %s's manager about the suspension", employee.pk)
