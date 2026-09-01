@@ -5,18 +5,22 @@ from rest_framework import filters, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
-from accounts.permissions import IsHRAdminOrReadOnly
+from accounts.permissions import IsHRAdmin, IsHRAdminOrReadOnly
+from accounts.serializers import EmployeeExperienceSerializer
 from accounts.policy import Perm, can
 from attendance.permissions import _requesting_employee
 from core.exports import XlsxExportMixin, xlsx_response
 from core.filters import IdsLookupMixin
 from core.viewsets import AuditViewSetMixin
 from employees import services
+from employees.suspensions import SuspensionError
+from employees.suspensions import lift as lift_suspension
+from employees.suspensions import suspend
 from employees.imports import (
     EXAMPLE_ROW,
     GENDER_CHOICES,
@@ -28,6 +32,11 @@ from employees.imports import (
     preview_employees,
 )
 from employees.models import (
+    Award,
+    CorporatePost,
+    CorporateRole,
+    DisciplinaryAction,
+    Suspension,
     Department,
     Dependant,
     Designation,
@@ -41,6 +50,12 @@ from employees.models import (
 from employees.offboarding import outstanding_items
 from employees.scoping import scope_to_visible
 from employees.serializers import (
+    AwardSerializer,
+    CorporatePostSerializer,
+    CorporateRoleSerializer,
+    DisciplinaryActionSerializer,
+    LiftSuspensionSerializer,
+    SuspensionSerializer,
     DecisionSerializer,
     DepartmentSerializer,
     DependantSerializer,
@@ -602,17 +617,11 @@ class EmployeeViewSet(IdsLookupMixin, XlsxExportMixin, AuditViewSetMixin, ModelV
                     else None
                 ),
                 "manager_id": emp.manager_id,
-                "experiences": [
-                    {
-                        "id": exp.id,
-                        "title": exp.title,
-                        "company": exp.company,
-                        "start_year": exp.start_year,
-                        "end_year": exp.end_year,
-                        "description": exp.description,
-                    }
-                    for exp in emp.experiences.all()
-                ],
+                # Through the serializer rather than a dict literal — see the
+                # matching note in `accounts.serializers.MyProfileSerializer`.
+                "experiences": EmployeeExperienceSerializer(
+                    emp.experiences.all(), many=True
+                ).data,
             }
         )
 
@@ -880,3 +889,183 @@ class OffboardingSummaryView(APIView):
             raise PermissionDenied("You cannot see this employee's exit summary.")
 
         return Response(outstanding_items(employee))
+
+
+# ── The lookups behind post and role ─────────────────────────────────────
+
+
+class CorporatePostViewSet(AuditViewSetMixin, ModelViewSet):
+    """Establishment positions — the chairs people are appointed to.
+
+    Readable by anyone signed in: a colleague's profile names their post, and
+    hiding the list would only render it as a number. Writing needs
+    `settings.manage`, and creating or deleting additionally needs an admin
+    role — the same split every other lookup gets.
+    """
+
+    serializer_class = CorporatePostSerializer
+    permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
+    required_permission = Perm.SETTINGS_MANAGE
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "code"]
+    ordering_fields = ["rank", "name", "code"]
+    # Named on the view, not left to `Meta.ordering`: `OrderingFilter` leaves an
+    # annotated queryset unordered when the view declares no default, and
+    # paging an unordered list is how one row shows up on two pages.
+    ordering = ["rank", "name"]
+
+    def get_queryset(self):
+        return CorporatePost.objects.annotate(employee_count=Count("employees", distinct=True))
+
+
+class CorporateRoleViewSet(AuditViewSetMixin, ModelViewSet):
+    """What people are actually responsible for. See `CorporatePostViewSet`."""
+
+    serializer_class = CorporateRoleSerializer
+    permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
+    required_permission = Perm.SETTINGS_MANAGE
+    filter_backends = [
+        django_filters.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["company", "is_active"]
+    search_fields = ["name", "code"]
+    ordering_fields = ["name", "code"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return CorporateRole.objects.select_related("company").annotate(
+            employee_count=Count("employees", distinct=True)
+        )
+
+
+# ── Suspension ───────────────────────────────────────────────────────────
+
+
+class SuspensionViewSet(AuditViewSetMixin, ModelViewSet):
+    """Who is locked out, since when, and how it ended.
+
+    **Creating one goes through `employees.suspensions.suspend`** rather than
+    through the serializer's `save`, because recording the row is only a third
+    of the job: the employment status and the account's own `is_active` flag
+    move with it, and a viewset that wrote just the row would leave a person
+    marked suspended and still able to sign in.
+
+    **Ending one is an action, not a PATCH**, for the same reason and one more:
+    an outcome is required. "The suspension is over" and "the suspension became
+    a dismissal" are different facts, and a nullable field on an update lets
+    the second be recorded as the first by omission.
+
+    An employee sees their own — being told you are suspended is not optional —
+    and nobody else's.
+    """
+
+    serializer_class = SuspensionSerializer
+    permission_classes = [IsAuthenticated, IsHRAdmin]
+    required_permission = Perm.PEOPLE_MANAGE
+    filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["employee", "is_active", "outcome"]
+    ordering_fields = ["starts_on", "ends_on"]
+
+    def get_permissions(self):
+        # Reading your own is not an HR act. The queryset below is what limits
+        # it to your own; this only stops `IsHRAdmin` refusing the request
+        # before the queryset is consulted.
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = Suspension.objects.select_related("employee__user", "lifted_by")
+        if can(self.request.user, Perm.PEOPLE_MANAGE):
+            return qs
+        own = getattr(self.request.user, "employee", None)
+        return qs.filter(employee=own) if own else qs.none()
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        employee = serializer.validated_data["employee"]
+        try:
+            suspension = suspend(
+                employee,
+                starts_on=serializer.validated_data["starts_on"],
+                ends_on=serializer.validated_data.get("ends_on"),
+                reason=serializer.validated_data["reason"],
+                actor=request.user,
+            )
+        except SuspensionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            self.get_serializer(suspension).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"])
+    def lift(self, request, *args, **kwargs):
+        """End it, and say how."""
+        suspension = self.get_object()
+        if not suspension.is_active and suspension.outcome != Suspension.Outcome.PENDING:
+            return Response(
+                {"detail": "This suspension has already been closed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        form = LiftSuspensionSerializer(data=request.data)
+        form.is_valid(raise_exception=True)
+        try:
+            lift_suspension(
+                suspension,
+                outcome=form.validated_data["outcome"],
+                note=form.validated_data.get("note", ""),
+                actor=request.user,
+            )
+        except SuspensionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        suspension.refresh_from_db()
+        return Response(self.get_serializer(suspension).data)
+
+
+# ── Recognition, and its opposite ────────────────────────────────────────
+
+
+class _EmployeeHRRecordViewSet(AuditViewSetMixin, ModelViewSet):
+    """A per-employee list that only HR writes.
+
+    Distinct from `_EmployeeRecordViewSet`, which lets somebody maintain their
+    own next of kin. An award and a written warning are both things the company
+    records *about* a person: they may read their own — a disciplinary file
+    nobody is allowed to see is not due process — and may not write either.
+    """
+
+    permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
+    required_permission = Perm.PEOPLE_MANAGE
+    model = None
+
+    def get_queryset(self):
+        qs = self.model.objects.select_related("employee__user")
+        if not can(self.request.user, Perm.PEOPLE_MANAGE):
+            own = getattr(self.request.user, "employee", None)
+            qs = qs.filter(employee=own) if own else qs.none()
+        requested = self.request.query_params.get("employee")
+        if requested and str(requested).isdigit():
+            qs = qs.filter(employee_id=int(requested))
+        return qs
+
+
+class AwardViewSet(_EmployeeHRRecordViewSet):
+    serializer_class = AwardSerializer
+    model = Award
+    filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["employee", "kind"]
+    ordering_fields = ["awarded_on"]
+
+
+class DisciplinaryActionViewSet(_EmployeeHRRecordViewSet):
+    serializer_class = DisciplinaryActionSerializer
+    model = DisciplinaryAction
+    filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["employee", "severity", "status"]
+    ordering_fields = ["issued_on", "incident_date"]
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("suspension")

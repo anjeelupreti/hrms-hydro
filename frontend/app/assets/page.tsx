@@ -3,6 +3,7 @@
 import AddIcon from "@mui/icons-material/Add";
 import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
 import EditIcon from "@mui/icons-material/Edit";
+import HistoryIcon from "@mui/icons-material/History";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DevicesIcon from "@mui/icons-material/Devices";
 import KeyboardReturnIcon from "@mui/icons-material/KeyboardReturn";
@@ -29,6 +30,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
+import AssetHistory from "@/components/assets/AssetHistory";
 import AssetPhotos from "@/components/assets/AssetPhotos";
 import ListInsight from "@/components/common/ListInsight";
 import StateChip, { toneFor } from "@/components/common/StateChip";
@@ -67,6 +69,7 @@ export default function AssetsPage() {
   const [editing, setEditing] = useState<Asset | null>(null);
   const [assignFor, setAssignFor] = useState<Asset | null>(null);
   const [photosFor, setPhotosFor] = useState<Asset | null>(null);
+  const [historyFor, setHistoryFor] = useState<Asset | null>(null);
 
   const assets = data?.results ?? [];
   const { query, setQuery, filtered, isEmptyResult } = useTextFilter(assets, (a) => [
@@ -281,6 +284,15 @@ export default function AssetsPage() {
                         </Tooltip>
                       )
                     )}
+                    {/* Everything that has happened to it — who held it
+                        when, what was repaired, what it came back like. Open
+                        to everybody who can see the row: "who had this when it
+                        broke" is not an HR question. */}
+                    <Tooltip title="History">
+                      <IconButton size="small" onClick={() => setHistoryFor(a)}>
+                        <HistoryIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     {/* Edit before delete. Deleting was the *only* way to
                         correct a wrong serial, and it takes the assignment
                         history with it. */}
@@ -317,6 +329,7 @@ export default function AssetsPage() {
       </TableContainer>
 
       <AssetPhotos asset={photosFor} canEdit={isHR} onClose={() => setPhotosFor(null)} />
+      <AssetHistory asset={historyFor} canEdit={isHR} onClose={() => setHistoryFor(null)} />
 
       {creating && <AssetDialog onClose={() => setCreating(false)} />}
       {editing && (

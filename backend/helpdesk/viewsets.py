@@ -47,13 +47,17 @@ class TicketViewSet(
         filters.SearchFilter,
         filters.OrderingFilter,
     ]
-    filterset_fields = ["status", "category", "priority", "assignee"]
+    filterset_fields = [
+        "status", "category", "priority", "assignee", "target_department",
+    ]
     search_fields = ["subject", "description", "requester__user__first_name", "requester__user__last_name"]
     ordering_fields = ["created_at", "priority", "status"]
     ordering = ["created_at"]
 
     def get_queryset(self):
-        qs = Ticket.objects.select_related("requester__user", "assignee__user").prefetch_related(
+        qs = Ticket.objects.select_related(
+            "requester__user", "assignee__user", "target_department"
+        ).prefetch_related("watchers__user").prefetch_related(
             "comments__created_by"
         )
         if _is_hr(self.request.user):
@@ -61,7 +65,10 @@ class TicketViewSet(
         me = _requesting_employee(self.request.user)
         if me is None:
             return qs.none()
-        return qs.filter(Q(requester=me) | Q(assignee=me)).distinct()
+        # A watcher was added precisely so they could follow it, so they see
+        # it too. Without this the field would be decoration: somebody named on
+        # a ticket, unable to open it.
+        return qs.filter(Q(requester=me) | Q(assignee=me) | Q(watchers=me)).distinct()
 
     def create(self, request, *args, **kwargs):
         me = _requesting_employee(request.user)

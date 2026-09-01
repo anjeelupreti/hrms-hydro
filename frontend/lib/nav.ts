@@ -105,6 +105,20 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: ["events", "holidays", "schedule"],
       },
       {
+        // Beside the calendar without being it. A calendar answers "what else
+        // is on that day"; this answers "what has this company done, and what
+        // is coming" — which is read as a timeline, not a grid.
+        href: "/events",
+        permission: "workplace.manage",
+        label: "Events",
+        icon: EventIcon,
+        module: "collaboration",
+        keywords: [
+          "event", "events", "board meeting", "agm", "ceremony", "drill",
+          "inspection", "audit", "public hearing", "stakeholders", "minutes",
+        ],
+      },
+      {
         href: "/meetings",
         label: "Meetings",
         icon: EventIcon,

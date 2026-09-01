@@ -1,11 +1,14 @@
 import json
 
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from core.totp import consume_backup_code, verify_code
 from employees.models import EmployeeExperience
+
+User = get_user_model()
 
 
 def _enforce_2fa(user, otp):
@@ -139,17 +142,12 @@ class MyProfileSerializer(serializers.Serializer):
         # is for, and it applies its own visibility rules and access log.
         data["citizenship_front_on_file"] = bool(employee.citizenship_front)
         data["citizenship_back_on_file"] = bool(employee.citizenship_back)
-        data["experiences"] = [
-            {
-                "id": exp.id,
-                "title": exp.title,
-                "company": exp.company,
-                "start_year": exp.start_year,
-                "end_year": exp.end_year,
-                "description": exp.description,
-            }
-            for exp in employee.experiences.all()
-        ]
+        # Through the serializer rather than a dict literal: this payload and
+        # the employee record page were building the same six keys by hand, so
+        # a seventh field added to the model appeared on neither.
+        data["experiences"] = EmployeeExperienceSerializer(
+            employee.experiences.all(), many=True
+        ).data
         data["activity"] = [
             {
                 "id": log.id,
@@ -187,9 +185,19 @@ class MyProfileSerializer(serializers.Serializer):
 
 
 class EmployeeExperienceSerializer(serializers.ModelSerializer):
+    """One post somebody has held.
+
+    `kind` separates a job at a previous employer from a post held inside this
+    company — the same six facts with different provenance. See
+    `EmployeeExperience` for why that is a field rather than a second model.
+    """
+
     class Meta:
         model = EmployeeExperience
-        fields = ["id", "title", "company", "start_year", "end_year", "description"]
+        fields = [
+            "id", "kind", "title", "company", "start_year", "end_year",
+            "description", "is_verified",
+        ]
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -232,6 +240,41 @@ class HRMSTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
 
     def validate(self, attrs):
+        # A suspended account is already refused — `employees.suspensions` sets
+        # `User.is_active`, and SimpleJWT will not issue a token for an
+        # inactive user. But it refuses with "No active account found with the
+        # given credentials", which is indistinguishable from a typo, so
+        # somebody who has been suspended spends the morning resetting a
+        # password that was never wrong. This says the true thing instead.
+        #
+        # Checked *before* `super()`, because the parent raises on the inactive
+        # flag and never reaches this line otherwise. Safe to answer without a
+        # verified password: it is keyed on the username somebody typed, and
+        # tells them only what their own HR already told them.
+        self._explain_suspension(attrs.get(User.USERNAME_FIELD, ""))
         data = super().validate(attrs)  # verifies password, sets self.user
         _enforce_2fa(self.user, self.initial_data.get("otp", ""))
         return data
+
+    @staticmethod
+    def _explain_suspension(username):
+        from employees.suspensions import active_suspension
+
+        user = User.objects.filter(**{User.USERNAME_FIELD: username}).first()
+        if user is None or user.is_active:
+            return
+        employee = getattr(user, "employee", None)
+        if employee is None:
+            return
+        suspension = active_suspension(employee)
+        if suspension is None:
+            return
+        until = (
+            f"until {suspension.ends_on:%d %b %Y}"
+            if suspension.ends_on
+            else "until further notice"
+        )
+        raise AuthenticationFailed({
+            "detail": f"This account is suspended {until}. Contact HR.",
+            "code": "account_suspended",
+        })

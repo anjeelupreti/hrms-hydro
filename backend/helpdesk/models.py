@@ -35,6 +35,36 @@ class Ticket(AuditModel):
     requester = models.ForeignKey(
         "employees.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="tickets_raised"
     )
+    #: The desk this ticket is *for*, as opposed to the person working it.
+    #:
+    #: **Two fields, because they answer different questions and change at
+    #: different times.** A ticket is raised *at* somebody — IT, HR, Finance,
+    #: the site electrical team — and that is chosen by the person raising it,
+    #: who knows what their problem is about and not who is on shift. The
+    #: assignee is chosen afterwards, by whoever runs that desk, and changes
+    #: again when it is handed on or somebody is on leave.
+    #:
+    #: With only an assignee, a new ticket has to be routed by whoever happens
+    #: to look at the unassigned queue — so it either sits there, or lands on
+    #: one person who becomes the routing table.
+    target_department = models.ForeignKey(
+        "employees.Department",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="helpdesk_tickets",
+        help_text="Which desk this is for. Chosen when the ticket is raised.",
+    )
+    #: Anybody else who needs to see it — the person's manager, a second
+    #: engineer, the site chief. They are not handling it, so this is not a
+    #: second assignee; it is who else the notifications go to and who else can
+    #: read a ticket that is otherwise private to the two parties.
+    watchers = models.ManyToManyField(
+        "employees.Employee",
+        blank=True,
+        related_name="watched_tickets",
+        help_text="Also kept in the loop. Not handling it.",
+    )
     assignee = models.ForeignKey(
         "employees.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="tickets_assigned"
     )

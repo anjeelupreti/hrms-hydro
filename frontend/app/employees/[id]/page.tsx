@@ -4,12 +4,14 @@ import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import BadgeIcon from "@mui/icons-material/Badge";
+import BlockIcon from "@mui/icons-material/Block";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import ContactPhoneIcon from "@mui/icons-material/ContactPhone";
 import DescriptionIcon from "@mui/icons-material/Description";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
 import FolderIcon from "@mui/icons-material/Folder";
+import GavelIcon from "@mui/icons-material/Gavel";
 import GroupsIcon from "@mui/icons-material/Groups";
 import HistoryIcon from "@mui/icons-material/History";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
@@ -21,6 +23,7 @@ import SchoolIcon from "@mui/icons-material/School";
 import SupervisorAccountIcon from "@mui/icons-material/SupervisorAccount";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
+import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -41,6 +44,11 @@ import { Suspense, useState, type ReactNode } from "react";
 import DateText from "@/components/common/DateText";
 import StateChip, { EMPLOYMENT_TONE } from "@/components/common/StateChip";
 import ActivityFeed from "@/components/employees/ActivityFeed";
+import {
+  AwardsPanel,
+  DisciplinaryPanel,
+  SuspensionPanel,
+} from "@/components/employees/ConductPanels";
 import AtAGlance from "@/components/employees/AtAGlance";
 import ChangeRequestPanel from "@/components/employees/ChangeRequestPanel";
 import EmployeeFormDialog from "@/components/employees/EmployeeFormDialog";
@@ -65,7 +73,8 @@ import PageContainer from "@/components/shell/PageContainer";
 import { useEmployeeDetail, useEmployeeLogs } from "@/hooks/useEmployees";
 import { useEmployeeProfile } from "@/hooks/useEmployeeProfile";
 import { useCan, useMe } from "@/hooks/useMe";
-import { useMyProfile } from "@/hooks/useProfile";
+import { useLifecycleEvents } from "@/hooks/useLifecycle";
+import { useMyProfile, type ExperienceKind, type ProfileExperience } from "@/hooks/useProfile";
 import { employeeHref } from "@/lib/employeeProfile";
 
 /**
@@ -126,6 +135,7 @@ const TABS = [
   { slug: "training", label: "Training", icon: <SchoolIcon fontSize="small" />, access: "full" },
   { slug: "projects", label: "Projects", icon: <FolderIcon fontSize="small" />, access: "full" },
   { slug: "personal", label: "Personal", icon: <ContactPhoneIcon fontSize="small" />, access: "full" },
+  { slug: "conduct", label: "Conduct", icon: <GavelIcon fontSize="small" />, access: "full" },
   { slug: "lifecycle", label: "Lifecycle", icon: <TimelineIcon fontSize="small" />, access: "full" },
   { slug: "activity", label: "Activity", icon: <HistoryIcon fontSize="small" />, access: "full" },
 ] as const;
@@ -164,6 +174,7 @@ function ProfileInner() {
   // "somebody else's self-service", and pretending otherwise would show HR
   // their own bank details on a colleague's page.
   const { data: mine } = useMyProfile(isSelf);
+  const { data: lifecycle } = useLifecycleEvents(seesEverything ? { employee: id } : {});
 
   const tabs = TABS.filter((t) => t.access === "all" || seesEverything);
   const requested = (searchParams.get("tab") ?? "").toLowerCase();
@@ -176,9 +187,29 @@ function ProfileInner() {
   const index = Math.min(tab, tabs.length - 1);
   const active = tabs[index]?.slug ?? "overview";
 
+  /**
+   * Open a tab by slug — the only way a tab is selected on this page.
+   *
+   * The open tab goes in the address bar, so a link to somebody's payroll is a
+   * link to somebody's payroll. Named, not numeric: `?tab=1` breaks the moment
+   * a tab is inserted. The banner above and the tab strip below both come
+   * through here, so neither can update the URL in a way the other does not.
+   */
+  function goToTab(slug: string) {
+    const index = tabs.findIndex((t) => t.slug === slug);
+    if (index < 0) return;
+    setTab(index);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", slug);
+    router.replace(`${employeeHref(id)}?${next.toString()}`, { scroll: false });
+  }
+
   const [editing, setEditing] = useState(false);
   const [editingSelf, setEditingSelf] = useState(false);
-  const [addingExp, setAddingExp] = useState(false);
+  // Which kind of experience is being added, or null. A boolean could not say
+  // whether the dialog was opened from "Held here" or "Previous employment",
+  // and the dialog needs to know — see `ExperienceDialog`.
+  const [addingExp, setAddingExp] = useState<ExperienceKind | null>(null);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [lifecycleOpen, setLifecycleOpen] = useState(false);
 
@@ -203,6 +234,36 @@ function ProfileInner() {
           Employees
         </Button>
       )}
+
+      {/* Above the record, not inside a tab. Somebody opening a colleague's
+          profile to ask them something needs to know they are locked out
+          before they read anything else, and a chip alone cannot say until
+          when. Only where the server sent one — a colleague is not told. */}
+      {record?.active_suspension ? (
+        <Alert
+          severity="warning"
+          icon={<BlockIcon />}
+          sx={{ mb: 2 }}
+          action={
+            canManage ? (
+              <Button size="small" onClick={() => goToTab("conduct")}>
+                Manage
+              </Button>
+            ) : null
+          }
+        >
+          <strong>Suspended</strong> since{" "}
+          <DateText value={record.active_suspension.starts_on} />
+          {record.active_suspension.ends_on ? (
+            <>
+              , until <DateText value={record.active_suspension.ends_on} />
+            </>
+          ) : (
+            " — until further notice"
+          )}
+          . They cannot sign in. {record.active_suspension.reason}
+        </Alert>
+      ) : null}
 
       <Card sx={{ mb: 2, overflow: "hidden" }}>
         <Box
@@ -260,6 +321,14 @@ function ProfileInner() {
                 {(record?.secondary_company_names ?? []).map((name) => (
                   <Chip key={name} size="small" variant="outlined" label={`also ${name}`} />
                 ))}
+                {/* The chair and the work. Two chips because they are two
+                    facts — see `Employee.corporate_post`. */}
+                {record?.corporate_post_name ? (
+                  <Chip size="small" variant="outlined" label={record.corporate_post_name} />
+                ) : null}
+                {record?.corporate_role_name ? (
+                  <Chip size="small" variant="outlined" label={record.corporate_role_name} />
+                ) : null}
               </Stack>
             </Box>
             {isSelf ? (
@@ -332,15 +401,7 @@ function ProfileInner() {
 
       <Tabs
         value={index}
-        onChange={(_e, value: number) => {
-          setTab(value);
-          // The open tab goes in the address bar, so a link to somebody's
-          // payroll is a link to somebody's payroll. Named, not numeric:
-          // `?tab=1` breaks the moment a tab is inserted.
-          const next = new URLSearchParams(searchParams.toString());
-          next.set("tab", tabs[value].slug);
-          router.replace(`${employeeHref(id)}?${next.toString()}`, { scroll: false });
-        }}
+        onChange={(_e, value: number) => goToTab(tabs[value].slug)}
         variant="scrollable"
         scrollButtons="auto"
         sx={{ mb: 2 }}
@@ -414,57 +475,28 @@ function ProfileInner() {
                   department={p.department_name}
                 />
               ) : null}
-              <Card sx={{ mb: 2 }}>
-                <CardContent>
-                  <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between" }}>
-                    <Typography variant="overline" color="text.secondary">
-                      Work experience
-                    </Typography>
-                    {isSelf ? (
-                      <Button size="small" onClick={() => setAddingExp(true)}>
-                        Add
-                      </Button>
-                    ) : null}
-                  </Stack>
-                  {p.experiences.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      No experience listed.
-                    </Typography>
-                  ) : (
-                    <Stack spacing={2} sx={{ mt: 1 }} divider={<Divider flexItem />}>
-                      {p.experiences.map((exp) => (
-                        <Stack key={exp.id} direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
-                          <Avatar
-                            variant="rounded"
-                            sx={{
-                              bgcolor: "transparent",
-                              color: "primary.main",
-                              border: "1.5px solid",
-                              borderColor: "primary.main",
-                              width: 40,
-                              height: 40,
-                            }}
-                          >
-                            <WorkspacePremiumIcon fontSize="small" />
-                          </Avatar>
-                          <Box sx={{ flex: 1, minWidth: 0 }}>
-                            <Typography variant="subtitle2">{exp.title}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {exp.company}
-                              {exp.start_year ? ` · ${exp.start_year} – ${exp.end_year ?? "Present"}` : ""}
-                            </Typography>
-                            {exp.description && (
-                              <Typography variant="body2" sx={{ mt: 0.5 }}>
-                                {exp.description}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Stack>
-                      ))}
-                    </Stack>
-                  )}
-                </CardContent>
-              </Card>
+              {/* ── Two sections, near each other and not merged ────────
+                  A post held here and a job somewhere before are the same six
+                  facts with different provenance: one is what this company
+                  knows first-hand and wrote itself, the other is what somebody
+                  told us at interview. Running them together makes a career
+                  history in which the reader cannot tell which half the
+                  company can actually vouch for. */}
+              <ExperienceSection
+                title="Held here"
+                caption="Posts inside this company."
+                experiences={p.experiences.filter((e) => e.kind === "internal")}
+                emptyText="No internal posts recorded."
+                onAdd={isSelf || canManage ? () => setAddingExp("internal") : undefined}
+              />
+              <ExperienceSection
+                title="Previous employment"
+                caption="Before joining. Self-declared until HR verifies it."
+                experiences={p.experiences.filter((e) => e.kind !== "internal")}
+                emptyText="No previous employment listed."
+                onAdd={isSelf ? () => setAddingExp("previous") : undefined}
+                showVerification
+              />
               <Card>
                 <CardContent>
                   <Typography variant="overline" color="text.secondary">
@@ -512,6 +544,18 @@ function ProfileInner() {
         </Stack>
       ) : null}
 
+      {active === "conduct" ? (
+        <Stack spacing={3}>
+          {/* Read at the same moment — an appraisal, a promotion decision, an
+              exit — but kept as three lists. One chronological stream would
+              put a long-service award next to a written warning with nothing
+              but an icon to tell them apart. */}
+          <SuspensionPanel employeeId={id} />
+          <AwardsPanel employeeId={id} />
+          <DisciplinaryPanel employeeId={id} />
+        </Stack>
+      ) : null}
+
       {active === "lifecycle" ? (
         <Stack spacing={2}>
           {isLeaving ? (
@@ -532,6 +576,58 @@ function ProfileInner() {
             currentTitle={p.designation_title ?? "—"}
             department={p.department_name}
           />
+
+          {/* The workflow half, which had no home at all. `PositionTimeline`
+              draws the spans and `Record history` lists field changes; neither
+              shows the *events* that produced them, so a promotion awaiting
+              approval was invisible on the record it was about. */}
+          <Card>
+            <CardContent>
+              <Typography variant="overline" color="text.secondary">
+                Lifecycle events
+              </Typography>
+              {(lifecycle?.results ?? []).length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
+                  No promotions, transfers or exits have been raised.
+                </Typography>
+              ) : (
+                <Stack spacing={1.5} sx={{ mt: 1 }} divider={<Divider flexItem />}>
+                  {(lifecycle?.results ?? []).map((event) => (
+                    <Stack
+                      key={event.id}
+                      direction="row"
+                      spacing={1}
+                      sx={{ alignItems: "baseline", flexWrap: "wrap" }}
+                    >
+                      <Chip
+                        size="small"
+                        label={event.event_type.replace("_", " ")}
+                        sx={{ textTransform: "capitalize" }}
+                      />
+                      <StateChip
+                        label={event.status.replace("_", " ")}
+                        tone={LIFECYCLE_TONE[event.status] ?? "muted"}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        {[
+                          event.new_designation_title,
+                          event.new_department_name,
+                          event.award_title,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || event.reason}
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Typography variant="caption" color="text.secondary">
+                        effective <DateText value={event.effective_date} />
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent>
               <Typography variant="overline" color="text.secondary">
@@ -593,7 +689,9 @@ function ProfileInner() {
       {editingSelf && mine ? (
         <EditProfileDialog profile={mine} onClose={() => setEditingSelf(false)} />
       ) : null}
-      {addingExp ? <ExperienceDialog onClose={() => setAddingExp(false)} /> : null}
+      {addingExp ? (
+        <ExperienceDialog kind={addingExp} onClose={() => setAddingExp(null)} />
+      ) : null}
     </PageContainer>
   );
 }
@@ -619,5 +717,108 @@ function Stat({ value, label }: { value: string; label: string }) {
         {label}
       </Typography>
     </Box>
+  );
+}
+
+
+/**
+ * The tone for a lifecycle event's status. Beside the component that reads it
+ * rather than in `StateChip`, because these five states belong to one workflow
+ * and nothing else on the page uses them.
+ */
+const LIFECYCLE_TONE: Record<string, "normal" | "caution" | "alarm" | "muted"> = {
+  pending_approval: "caution",
+  approved: "normal",
+  applied: "normal",
+  rejected: "alarm",
+  cancelled: "muted",
+};
+
+/**
+ * One block of work history.
+ *
+ * Rendered twice — once for posts held here and once for previous employment —
+ * so the two read as related without being merged. `showVerification` is only
+ * meaningful on the second: an internal post is a fact this system wrote
+ * itself, and a "verified" tick on it would be the company vouching for its
+ * own database.
+ */
+function ExperienceSection({
+  title,
+  caption,
+  experiences,
+  emptyText,
+  onAdd,
+  showVerification = false,
+}: {
+  title: string;
+  caption: string;
+  experiences: ProfileExperience[];
+  emptyText: string;
+  onAdd?: () => void;
+  showVerification?: boolean;
+}) {
+  return (
+    <Card sx={{ mb: 2 }}>
+      <CardContent>
+        <Stack direction="row" sx={{ alignItems: "flex-start", justifyContent: "space-between" }}>
+          <Box>
+            <Typography variant="overline" color="text.secondary">
+              {title}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: -0.5 }}>
+              {caption}
+            </Typography>
+          </Box>
+          {onAdd ? (
+            <Button size="small" onClick={onAdd}>
+              Add
+            </Button>
+          ) : null}
+        </Stack>
+        {experiences.length === 0 ? (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
+            {emptyText}
+          </Typography>
+        ) : (
+          <Stack spacing={2} sx={{ mt: 1.5 }} divider={<Divider flexItem />}>
+            {experiences.map((exp) => (
+              <Stack key={exp.id} direction="row" spacing={1.5} sx={{ alignItems: "flex-start" }}>
+                <Avatar
+                  variant="rounded"
+                  sx={{
+                    bgcolor: "transparent",
+                    color: "primary.main",
+                    border: "1.5px solid",
+                    borderColor: "primary.main",
+                    width: 40,
+                    height: 40,
+                  }}
+                >
+                  <WorkspacePremiumIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <Typography variant="subtitle2">{exp.title}</Typography>
+                    {showVerification && exp.is_verified ? (
+                      <Chip size="small" variant="outlined" color="success" label="Verified" />
+                    ) : null}
+                  </Stack>
+                  <Typography variant="body2" color="text.secondary">
+                    {exp.company}
+                    {exp.start_year ? ` · ${exp.start_year} – ${exp.end_year ?? "Present"}` : ""}
+                  </Typography>
+                  {exp.description && (
+                    <Typography variant="body2" sx={{ mt: 0.5 }}>
+                      {exp.description}
+                    </Typography>
+                  )}
+                </Box>
+              </Stack>
+            ))}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }

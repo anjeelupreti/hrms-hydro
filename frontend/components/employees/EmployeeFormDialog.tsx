@@ -33,6 +33,7 @@ import {
   useEmployeeLogs,
   useUpdateEmployee,
 } from "@/hooks/useEmployees";
+import { BLOOD_GROUPS } from "@/types/employees";
 import type {
   EmployeeDetail,
   EmployeeFormValues,
@@ -42,6 +43,8 @@ import type {
 import DateField from "@/components/common/DateField";
 import ImageUpload from "@/components/common/ImageUpload";
 import { CompanyPicker, DepartmentPicker, DesignationPicker } from "@/components/common/pickers";
+import SecondaryCompanyField from "@/components/companies/SecondaryCompanyField";
+import { useCorporatePosts, useCorporateRoles } from "@/hooks/useEmployeeRecords";
 
 const FIELD_LABELS: Record<string, string> = {
   employment_status: "Status",
@@ -97,6 +100,15 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
       manager: null,
       primary_company: null,
       secondary_companies: [],
+      corporate_post: null,
+      corporate_role: null,
+      blood_group: "",
+      permanent_address: "",
+      temporary_address: "",
+      office_phone: "",
+      office_email: "",
+      personal_phone: "",
+      personal_email: "",
       bank_name: "",
       bank_branch: "",
       bank_account_name: "",
@@ -129,6 +141,15 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
     manager: employee.manager,
     primary_company: employee.primary_company ?? null,
     secondary_companies: employee.secondary_companies ?? [],
+    corporate_post: employee.corporate_post ?? null,
+    corporate_role: employee.corporate_role ?? null,
+    blood_group: employee.blood_group ?? "",
+    permanent_address: employee.permanent_address ?? "",
+    temporary_address: employee.temporary_address ?? "",
+    office_phone: employee.office_phone ?? "",
+    office_email: employee.office_email ?? "",
+    personal_phone: employee.personal_phone ?? "",
+    personal_email: employee.personal_email ?? "",
     // Absent rather than empty when the caller may not see them: the serializer
     // strips the whole sensitive group in `to_representation`, so `?? ""` here
     // would turn "you cannot see this" into "this is blank" and a save would
@@ -209,6 +230,10 @@ function EmployeeForm({
 }) {
   const isEditing = employeeId !== null;
   const [values, setValues] = useState<EmployeeFormValues>(() => buildInitialValues(employee));
+  // The two lookups behind post and role. Small enough to load whole rather
+  // than search — a company has a dozen posts, not a thousand.
+  const { data: posts } = useCorporatePosts();
+  const { data: roles } = useCorporateRoles();
   // Presence, not permission: the serializer removes the sensitive group
   // entirely for callers who may not read it, so the field simply is not there.
   // On a new employee there is no record to strip, so the section is offered.
@@ -398,6 +423,56 @@ function EmployeeForm({
             />
           </Grid>
 
+          {/* ── The chair and the work ─────────────────────────────────
+              The post is what somebody is appointed to and what their grade
+              follows; the role is what they are responsible for. They move
+              independently — two Deputy Managers hold different roles, and
+              somebody promoted out of Senior Engineer usually keeps running
+              the same site — which is why they are two fields. */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              select
+              label="Corporate post"
+              fullWidth
+              value={values.corporate_post ?? ""}
+              onChange={(e) =>
+                set("corporate_post", e.target.value === "" ? null : Number(e.target.value))
+              }
+              helperText="The establishment position — grade and seniority follow this."
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {(posts?.results ?? []).map((post) => (
+                <MenuItem key={post.id} value={post.id}>
+                  {post.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              select
+              label="Corporate role"
+              fullWidth
+              value={values.corporate_role ?? ""}
+              onChange={(e) =>
+                set("corporate_role", e.target.value === "" ? null : Number(e.target.value))
+              }
+              helperText="What they are actually responsible for."
+            >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
+              {(roles?.results ?? []).map((role) => (
+                <MenuItem key={role.id} value={role.id}>
+                  {role.name}
+                  {role.company_name ? ` · ${role.company_name}` : ""}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+
           {/* ── Which company, of the group's several ──────────────────
               One is employment and the other is not. `primary_company` is who
               pays them — it appears on their payslip and there is exactly one.
@@ -426,14 +501,101 @@ function EmployeeForm({
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
-            <CompanyPicker
-              label="Also works for"
-              multiple
+            <SecondaryCompanyField
+              primaryCompanyId={values.primary_company}
               value={values.secondary_companies}
               onChange={(ids) => set("secondary_companies", ids)}
-              excludeIds={values.primary_company != null ? [values.primary_company] : undefined}
-              helperText="Other group companies. No payroll attaches to these."
             />
+          </Grid>
+        </Grid>
+
+        {/* ── How to reach them, and where they live ──────────────────────
+            Four channels, because two of them belong to the company. An office
+            number and an office mailbox are issued and revoked; a personal
+            number and a private address survive the employment and are the only
+            way to reach a leaver about their final settlement. Collapsing them
+            means offboarding either strands the record or publishes a private
+            mobile in the staff directory. */}
+        <Divider sx={{ my: 3 }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Contact and address
+        </Typography>
+        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Office cell"
+              fullWidth
+              value={values.office_phone}
+              onChange={(e) => set("office_phone", e.target.value)}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Office email"
+              type="email"
+              fullWidth
+              value={values.office_email}
+              onChange={(e) => set("office_email", e.target.value)}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Personal cell"
+              fullWidth
+              value={values.personal_phone}
+              onChange={(e) => set("personal_phone", e.target.value)}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Personal email"
+              type="email"
+              fullWidth
+              value={values.personal_email}
+              onChange={(e) => set("personal_email", e.target.value)}
+              helperText="How a leaver is reached about their final settlement."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Permanent address"
+              fullWidth
+              value={values.permanent_address}
+              onChange={(e) => set("permanent_address", e.target.value)}
+              helperText="As on the citizenship certificate."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              label="Temporary address"
+              fullWidth
+              value={values.temporary_address}
+              onChange={(e) => set("temporary_address", e.target.value)}
+              helperText="Current residence, if it differs."
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 4 }}>
+            {/* Asked for by the safety side. A powerhouse is an hour from a
+                hospital, and the group on file is the difference between a
+                transfusion starting on arrival and starting after a
+                cross-match. */}
+            <TextField
+              select
+              label="Blood group"
+              fullWidth
+              value={values.blood_group}
+              onChange={(e) => set("blood_group", e.target.value as EmployeeFormValues["blood_group"])}
+              helperText="On file for site emergencies."
+            >
+              <MenuItem value="">
+                <em>Not recorded</em>
+              </MenuItem>
+              {BLOOD_GROUPS.map((group) => (
+                <MenuItem key={group} value={group}>
+                  {group}
+                </MenuItem>
+              ))}
+            </TextField>
           </Grid>
         </Grid>
 

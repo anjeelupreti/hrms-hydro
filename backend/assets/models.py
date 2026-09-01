@@ -70,6 +70,64 @@ class AssetAssignment(AuditModel):
         return f"{self.asset_id} -> {self.employee_id}"
 
 
+class AssetEvent(models.Model):
+    """One thing that happened to an asset.
+
+    **Why this exists beside `AssetAssignment`.** The assignment table answers
+    "who held it, and between which dates" and nothing else. Everything else an
+    asset does — going in for repair, coming back, being written off, changing
+    hands with a dent that was not there before — was a `status` field being
+    overwritten, so the record said what is true now and could not say what
+    happened. "Who had this laptop when the screen broke" was unanswerable from
+    the system, which is the one question an asset register is kept for.
+
+    **Append-only, and written by the service rather than by a view.** An entry
+    describes what occurred; editing it would make it a description of what
+    somebody later wished had occurred. Corrections are new entries.
+
+    A `custodian` is recorded on the entry itself rather than read back from
+    the assignment table at display time: an asset can go to maintenance while
+    assigned, and the person it was taken from is part of what happened.
+    """
+
+    class Kind(models.TextChoices):
+        ACQUIRED = "acquired", "Acquired"
+        ASSIGNED = "assigned", "Assigned"
+        RETURNED = "returned", "Returned"
+        MAINTENANCE = "maintenance", "Sent for maintenance"
+        REPAIRED = "repaired", "Back from maintenance"
+        STATUS = "status", "Status changed"
+        NOTE = "note", "Note"
+        RETIRED = "retired", "Retired"
+        LOST = "lost", "Reported lost"
+
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="events")
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.NOTE)
+    #: Who was holding it when this happened. Null for anything that occurred
+    #: while the asset was in the store.
+    custodian = models.ForeignKey(
+        "employees.Employee", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="asset_events",
+    )
+    #: For a status change. Free text rather than a pair of FKs to the choices,
+    #: because a label that has since been renamed should still read as what it
+    #: said at the time.
+    from_value = models.CharField(max_length=60, blank=True)
+    to_value = models.CharField(max_length=60, blank=True)
+    note = models.TextField(blank=True)
+    occurred_on = models.DateField()
+    actor = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-occurred_on", "-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.asset_id}: {self.kind} on {self.occurred_on}"
+
+
 class AssetPhoto(AuditModel):
     """A picture of an asset, at a moment.
 

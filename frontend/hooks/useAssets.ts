@@ -31,6 +31,37 @@ export type AssetPhoto = {
   created_at: string;
 };
 
+/** What kinds of thing an asset's history records. `assigned` and `returned`
+ *  are written by the assign and return actions; the rest are recorded by
+ *  hand. */
+export type AssetEventKind =
+  | "acquired"
+  | "assigned"
+  | "returned"
+  | "maintenance"
+  | "repaired"
+  | "status"
+  | "note"
+  | "retired"
+  | "lost";
+
+export type AssetEvent = {
+  id: number;
+  asset: number;
+  kind: AssetEventKind;
+  kind_display: string;
+  /** Who was holding it when this happened. Written on the entry rather than
+   *  read back from the asset, which by the time of a return is empty. */
+  custodian: number | null;
+  custodian_name: string | null;
+  from_value: string;
+  to_value: string;
+  note: string;
+  occurred_on: string;
+  actor_name: string;
+  created_at: string;
+};
+
 export type AssetAssignment = {
   id: number;
   employee: number;
@@ -76,6 +107,44 @@ export function useAssetAssignments(assetId: number | null) {
     queryKey: ["assets", "assignments", assetId],
     queryFn: () => fetchJson<AssetAssignment[]>(`${B}/${assetId}/assignments/`),
     enabled: assetId != null,
+  });
+}
+
+/**
+ * Everything that has happened to one asset.
+ *
+ * Distinct from `useAssetAssignments`, which only answers "who held it and
+ * between which dates". Repairs, write-offs and the condition something came
+ * back in are not assignments and had nowhere to live.
+ */
+export function useAssetHistory(assetId: number | null) {
+  return useQuery({
+    queryKey: ["assets", "history", assetId],
+    queryFn: () => fetchJson<AssetEvent[]>(`${B}/${assetId}/history/`),
+    enabled: assetId != null,
+  });
+}
+
+export function useAddAssetEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      assetId,
+      ...body
+    }: {
+      assetId: number;
+      kind: AssetEventKind;
+      note?: string;
+      occurred_on?: string;
+    }) =>
+      fetchJson<AssetEvent>(`${B}/${assetId}/history/`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    meta: { successMessage: "Recorded" },
+    // The asset itself may have moved with it — maintenance and retirement
+    // both change its status — so the list is invalidated alongside.
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["assets"] }),
   });
 }
 

@@ -8,8 +8,10 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from accounts.policy import Perm, can
-from assets.models import Asset, AssetAssignment, AssetPhoto
+from assets.history import record
+from assets.models import Asset, AssetAssignment, AssetEvent, AssetPhoto
 from assets.serializers import (
+    AssetEventSerializer,
     AssetAssignmentSerializer,
     AssetPhotoSerializer,
     AssetSerializer,
@@ -74,17 +76,32 @@ class AssetViewSet(StatusCountsMixin, AuditViewSetMixin, ModelViewSet):
         employee = Employee.objects.filter(pk=request.data.get("employee")).first()
         if employee is None:
             return Response({"detail": "Employee not found."}, status=400)
+        assigned_at = request.data.get("assigned_at") or timezone.localdate()
         AssetAssignment.objects.create(
             asset=asset,
             employee=employee,
-            assigned_at=request.data.get("assigned_at") or timezone.localdate(),
+            assigned_at=assigned_at,
             note=request.data.get("note", ""),
             created_by=request.user,
             updated_by=request.user,
         )
+        previous_status = asset.status
         asset.assigned_to = employee
         asset.status = Asset.Status.ASSIGNED
         asset.save(update_fields=["assigned_to", "status"])
+        # Recorded here rather than reconstructed from the assignment table
+        # later: the history has to be able to say who held it *at the time*,
+        # and a row that is later closed and reopened loses that.
+        record(
+            asset,
+            AssetEvent.Kind.ASSIGNED,
+            actor=request.user,
+            custodian=employee,
+            from_value=previous_status,
+            to_value=asset.status,
+            note=request.data.get("note", ""),
+            on=assigned_at,
+        )
         return Response(self.get_serializer(asset).data)
 
     @action(detail=True, methods=["post"], url_path="return")
@@ -96,12 +113,25 @@ class AssetViewSet(StatusCountsMixin, AuditViewSetMixin, ModelViewSet):
         open_assignment = asset.assignments.filter(returned_at__isnull=True).first()
         if open_assignment is None:
             return Response({"detail": "Asset isn't currently assigned."}, status=400)
-        open_assignment.returned_at = request.data.get("returned_at") or timezone.localdate()
+        returned_at = request.data.get("returned_at") or timezone.localdate()
+        open_assignment.returned_at = returned_at
         open_assignment.updated_by = request.user
         open_assignment.save(update_fields=["returned_at", "updated_by"])
+        holder = asset.assigned_to
+        previous_status = asset.status
         asset.assigned_to = None
         asset.status = Asset.Status.AVAILABLE
         asset.save(update_fields=["assigned_to", "status"])
+        record(
+            asset,
+            AssetEvent.Kind.RETURNED,
+            actor=request.user,
+            custodian=holder,
+            from_value=previous_status,
+            to_value=asset.status,
+            note=request.data.get("note", ""),
+            on=returned_at,
+        )
         return Response(self.get_serializer(asset).data)
 
     @action(detail=True, methods=["get"])
@@ -109,6 +139,56 @@ class AssetViewSet(StatusCountsMixin, AuditViewSetMixin, ModelViewSet):
         asset = self.get_object()
         qs = asset.assignments.select_related("employee__user")
         return Response(AssetAssignmentSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["get", "post"])
+    def history(self, request, *args, **kwargs):
+        """Everything that has happened to this asset.
+
+        `GET` returns the log. `POST` adds an entry by hand, which is what
+        records the things no button covers — sent for repair, came back with a
+        cracked case, written off after a flood at the powerhouse.
+        """
+        asset = self.get_object()
+        if request.method == "GET":
+            events = asset.events.select_related("custodian__user", "actor")
+            return Response(AssetEventSerializer(events, many=True).data)
+
+        deny = self._deny_if_not_hr(request)
+        if deny:
+            return deny
+
+        kind = request.data.get("kind") or AssetEvent.Kind.NOTE
+        if kind not in AssetEvent.Kind.values:
+            return Response({"detail": f"No such kind: {kind}."}, status=400)
+
+        # A maintenance or retirement entry moves the asset's own status too.
+        # Recording one without the other is how the register comes to say
+        # "available" about a laptop that is in a repair shop.
+        moves_status = {
+            AssetEvent.Kind.MAINTENANCE: Asset.Status.MAINTENANCE,
+            AssetEvent.Kind.REPAIRED: Asset.Status.ASSIGNED
+            if asset.assigned_to
+            else Asset.Status.AVAILABLE,
+            AssetEvent.Kind.RETIRED: Asset.Status.RETIRED,
+            AssetEvent.Kind.LOST: Asset.Status.RETIRED,
+        }
+        previous_status = asset.status
+        new_status = moves_status.get(kind)
+        if new_status and new_status != previous_status:
+            asset.status = new_status
+            asset.save(update_fields=["status"])
+
+        event = record(
+            asset,
+            kind,
+            actor=request.user,
+            custodian=asset.assigned_to,
+            from_value=previous_status if new_status else "",
+            to_value=asset.status if new_status else "",
+            note=request.data.get("note", ""),
+            on=request.data.get("occurred_on") or None,
+        )
+        return Response(AssetEventSerializer(event).data, status=201)
 
     @action(detail=False, methods=["get"])
     def mine(self, request, *args, **kwargs):

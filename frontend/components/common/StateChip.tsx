@@ -139,6 +139,10 @@ export function toneFor(status: string | null | undefined): ChipTone {
 export const EMPLOYMENT_TONE: Record<string, ChipTone> = {
   active: "normal",
   on_leave: "caution",
+  // Not `alarm`. A suspension is a live state that usually ends in the person
+  // coming back, and colouring it the same as a termination reads as an exit
+  // to anybody scanning the roster.
+  suspended: "caution",
   resigned: "muted",
   terminated: "alarm",
 };

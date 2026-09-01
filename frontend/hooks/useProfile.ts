@@ -3,8 +3,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/query/fetchJson";
 
+/** Somewhere else before joining, or a post held inside this company. The
+ *  same six facts with different provenance — see `EmployeeExperience`. */
+export type ExperienceKind = "previous" | "internal";
+
 export type ProfileExperience = {
   id: number;
+  kind: ExperienceKind;
+  is_verified: boolean;
   title: string;
   company: string;
   start_year: number | null;

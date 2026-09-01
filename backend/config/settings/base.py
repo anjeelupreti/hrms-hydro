@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "organization",
     "companies",
     "crm",
+    "events",
     "projects",
     "dashboard",
     "chat",
@@ -370,6 +371,12 @@ CELERY_BEAT_SCHEDULE = {
         # opening their mail finds "your probation ends in a week" above
         # "happy birthday" rather than under it.
         "schedule": crontab(hour=6, minute=30),
+    },
+    "sweep-suspensions": {
+        "task": "employees.tasks.sweep_suspensions",
+        # Before the working day. A suspension that ended last night should be
+        # lifted by the time the person tries to sign in, not at lunchtime.
+        "schedule": crontab(hour=0, minute=20),
     },
     "apply-due-lifecycle-events": {
         "task": "employees.tasks.apply_due_lifecycle_events",

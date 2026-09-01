@@ -16,6 +16,19 @@ export type Ticket = {
   requester_name: string | null;
   assignee: number | null;
   assignee_name: string | null;
+  /**
+   * The desk this is *for*, as opposed to the person working it.
+   *
+   * Chosen by whoever raises the ticket, who knows what their problem is about
+   * and not who is on shift. The assignee is chosen afterwards, by whoever runs
+   * that desk. With only an assignee, a new ticket is routed by whoever happens
+   * to look at the unassigned queue.
+   */
+  target_department: number | null;
+  target_department_name: string | null;
+  /** Also kept in the loop, and able to open it. Not handling it. */
+  watchers: number[];
+  watcher_names: (string | null)[];
   comments: TicketComment[];
   resolved_at: string | null;
   created_at: string;
@@ -47,7 +60,14 @@ export function useTickets(filters: { status?: string; category?: string; priori
 export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (values: { subject: string; description?: string; category: string; priority: string }) =>
+    mutationFn: (values: {
+      subject: string;
+      description?: string;
+      category: string;
+      priority: string;
+      /** Which desk it is for — chosen when the ticket is raised. */
+      target_department?: number | null;
+    }) =>
       fetchJson<Ticket>(`${B}/`, { method: "POST", body: JSON.stringify(values) }),
     meta: { successMessage: "Ticket opened" },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tickets"] }),
@@ -57,7 +77,15 @@ export function useCreateTicket() {
 export function useUpdateTicket() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...body }: { id: number; status?: string; assignee?: number | null; priority?: string; category?: string }) =>
+    mutationFn: ({ id, ...body }: {
+      id: number;
+      status?: string;
+      assignee?: number | null;
+      priority?: string;
+      category?: string;
+      target_department?: number | null;
+      watchers?: number[];
+    }) =>
       fetchJson<Ticket>(`${B}/${id}/`, { method: "PATCH", body: JSON.stringify(body) }),
     meta: { successMessage: "Ticket updated" },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["tickets"] }),

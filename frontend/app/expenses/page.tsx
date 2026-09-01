@@ -6,6 +6,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import PaidIcon from "@mui/icons-material/Paid";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import SavingsIcon from "@mui/icons-material/Savings";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -135,6 +136,15 @@ export default function ExpensesPage() {
                   },
                 ]}
               />
+            )}
+            {/* The ceilings, where somebody with `expenses.manage` sets them.
+                Beside the claim button because this is the page they are
+                already on when a refusal makes them ask where the limit came
+                from. */}
+            {isHR && (
+              <Button component={Link} href="/expenses/budgets" startIcon={<SavingsIcon />}>
+                Budgets
+              </Button>
             )}
             {me?.employee_id && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
@@ -358,7 +368,11 @@ export default function ExpensesPage() {
                       and HR reviews and marks them paid. Attach a receipt when you submit.
                     </Typography>
                     {me?.employee_id ? (
-                      <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+                      <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => setDialogOpen(true)}
+                      >
                         Submit your first claim
                       </Button>
                     ) : (

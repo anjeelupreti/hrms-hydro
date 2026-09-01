@@ -5,6 +5,7 @@ import Box from "@mui/material/Box";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import type { Theme } from "@mui/material/styles";
+import NextLink from "next/link";
 import type { ReactNode } from "react";
 
 /**
@@ -75,6 +76,7 @@ export default function StaffCard({
   tone = "default",
   badge,
   width,
+  href,
   onOpen,
 }: {
   name: string;
@@ -99,14 +101,28 @@ export default function StaffCard({
   badge?: ReactNode;
   /** Fixed width for a scrolling strip; omit to fill a grid cell. */
   width?: number;
+  /**
+   * Where the card goes. **Prefer this over `onOpen`.**
+   *
+   * The whole card becomes a real anchor, so middle-click, ⌘-click and "copy
+   * link address" all work — none of which a click handler gives you, and all
+   * of which people expect from a row that navigates. `onOpen` stays for the
+   * cases where there is no address to link to.
+   */
+  href?: string;
   onOpen?: () => void;
 }) {
   const celebrate = tone === "celebrate";
   const rows = facts.slice(0, maxFacts);
+  const interactive = Boolean(href || onOpen);
 
   return (
     <Box
-      component={onOpen ? "button" : "div"}
+      // An anchor where there is an address, a button where there is only a
+      // handler, and a plain div otherwise. `NextLink` rather than a bare `a`
+      // so the navigation is client-side like every other link in the app.
+      component={href ? NextLink : onOpen ? "button" : "div"}
+      href={href as string}
       onClick={onOpen}
       sx={{
         width: width ?? "100%",
@@ -123,9 +139,13 @@ export default function StaffCard({
         // card, rather than by filling the whole thing.
         borderColor: celebrate ? "primary.main" : "divider",
         bgcolor: "background.paper",
-        cursor: onOpen ? "pointer" : "default",
+        cursor: interactive ? "pointer" : "default",
+        // An anchor brings its own colour and underline; the card supplies its
+        // own, so both are cleared rather than left to fight the theme.
+        color: "inherit",
+        textDecoration: "none",
         transition: "transform .2s, box-shadow .2s, border-color .2s",
-        "&:hover": onOpen
+        "&:hover": interactive
           ? { transform: "translateY(-3px)", boxShadow: 4, borderColor: "primary.main" }
           : undefined,
       }}

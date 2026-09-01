@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from assets.models import Asset, AssetAssignment, AssetPhoto
+from assets.models import Asset, AssetAssignment, AssetEvent, AssetPhoto
 
 
 def _emp_name(emp):
@@ -73,3 +73,30 @@ class AssetSerializer(serializers.ModelSerializer):
     def get_cover_url(self, obj):
         first = obj.photos.first()
         return f"/media/{first.image.name}" if first and first.image else None
+
+
+class AssetEventSerializer(serializers.ModelSerializer):
+    """One line of an asset's history."""
+
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+    custodian_name = serializers.SerializerMethodField()
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AssetEvent
+        fields = [
+            "id", "asset", "kind", "kind_display", "custodian", "custodian_name",
+            "from_value", "to_value", "note", "occurred_on", "actor_name", "created_at",
+        ]
+        read_only_fields = ["created_at"]
+
+    def get_custodian_name(self, obj):
+        if obj.custodian is None:
+            return None
+        user = obj.custodian.user
+        return user.get_full_name() or user.get_username()
+
+    def get_actor_name(self, obj):
+        if obj.actor is None:
+            return "System"
+        return obj.actor.get_full_name() or obj.actor.get_username()

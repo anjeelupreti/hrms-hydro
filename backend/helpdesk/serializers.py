@@ -27,12 +27,17 @@ class TicketSerializer(serializers.ModelSerializer):
     comments = TicketCommentSerializer(many=True, read_only=True)
     requester_name = serializers.SerializerMethodField()
     assignee_name = serializers.SerializerMethodField()
+    target_department_name = serializers.CharField(
+        source="target_department.name", read_only=True, default=None
+    )
+    watcher_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
         fields = [
             "id", "subject", "description", "category", "priority", "status",
             "requester", "requester_name", "assignee", "assignee_name",
+            "target_department", "target_department_name", "watchers", "watcher_names",
             "comments", "resolved_at", "created_at",
         ]
         read_only_fields = [
@@ -45,3 +50,6 @@ class TicketSerializer(serializers.ModelSerializer):
 
     def get_assignee_name(self, obj):
         return _emp_name(obj.assignee)
+
+    def get_watcher_names(self, obj):
+        return [_emp_name(w) for w in obj.watchers.all()]

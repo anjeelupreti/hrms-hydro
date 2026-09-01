@@ -38,7 +38,7 @@ import {
   type TicketStatus,
 } from "@/hooks/useHelpdesk";
 
-import { EmployeePicker } from "@/components/common/pickers";
+import { DepartmentPicker, EmployeePicker } from "@/components/common/pickers";
 
 const CATEGORIES = ["it", "hr", "facilities", "payroll", "other"];
 const PRIORITIES = ["low", "medium", "high", "urgent"];
@@ -166,6 +166,7 @@ export default function HelpdeskPage() {
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                       {t.category.toUpperCase()} · {t.requester_name ?? "—"}
+                      {t.target_department_name ? ` · ${t.target_department_name}` : ""}
                       {t.assignee_name ? ` → ${t.assignee_name}` : ""}
                       {t.comments.length ? ` · ${t.comments.length} comment(s)` : ""}
                     </Typography>
@@ -200,12 +201,21 @@ function TicketDialog({ onClose }: { onClose: () => void }) {
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("it");
   const [priority, setPriority] = useState("medium");
+  // Which desk this is for. Chosen here, at the one moment somebody knows what
+  // their problem is about — see `Ticket.target_department`.
+  const [targetDepartment, setTargetDepartment] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     setError(null);
     try {
-      await create.mutateAsync({ subject, description, category, priority });
+      await create.mutateAsync({
+        subject,
+        description,
+        category,
+        priority,
+        target_department: targetDepartment,
+      });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not open ticket.");
@@ -228,6 +238,12 @@ function TicketDialog({ onClose }: { onClose: () => void }) {
               {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>{p}</MenuItem>)}
             </TextField>
           </Stack>
+          <DepartmentPicker
+            label="Send it to"
+            value={targetDepartment}
+            onChange={setTargetDepartment}
+            helperText="Which desk handles this. Somebody there picks it up."
+          />
         </Stack>
       </DialogContent>
       <DialogActions>
@@ -271,12 +287,32 @@ function TicketDetailDialog({
             <TextField select size="small" label="Priority" value={ticket.priority} onChange={(e) => update.mutate({ id: ticket.id, priority: e.target.value })} sx={{ minWidth: 120 }}>
               {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>{p}</MenuItem>)}
             </TextField>
+            {/* Two controls, because they answer different questions and
+                change at different times. The desk is where the ticket
+                belongs; the assignee is who is on it today. */}
+            <DepartmentPicker
+              label="Desk"
+              value={ticket.target_department ?? null}
+              onChange={(id) => update.mutate({ id: ticket.id, target_department: id })}
+              size="small"
+              sx={{ minWidth: 180 }}
+            />
             <EmployeePicker
               label="Assignee"
               value={ticket.assignee ?? null}
               onChange={(id) => id !== null && update.mutate({ id: ticket.id, assignee: id })}
               size="small"
               sx={{ minWidth: 220 }}
+            />
+            {/* Not a second assignee — who else can read it and hears about
+                it. A manager, a second engineer, the site chief. */}
+            <EmployeePicker
+              label="Also keep in the loop"
+              multiple
+              value={ticket.watchers ?? []}
+              onChange={(ids) => update.mutate({ id: ticket.id, watchers: ids })}
+              size="small"
+              sx={{ minWidth: 260 }}
             />
           </Stack>
         )}

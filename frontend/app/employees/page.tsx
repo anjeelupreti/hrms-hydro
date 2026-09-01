@@ -411,7 +411,7 @@ function EmployeesContent() {
                 photo={person.photo}
                 role={person.designation_title}
                 code={person.employee_code}
-                maxFacts={6}
+                maxFacts={8}
                 facts={[
                   { label: "Team", value: person.department_name ?? "—" },
                   {
@@ -423,12 +423,16 @@ function EmployeesContent() {
                       person.employment_status.replace(/_/g, " ").charAt(0).toUpperCase() +
                       person.employment_status.replace(/_/g, " ").slice(1),
                   },
+                  { label: "Post", value: person.corporate_post_name ?? "—" },
+                  { label: "Role", value: person.corporate_role_name ?? "—" },
                   { label: "Reports to", value: person.manager_name ?? "—" },
                   { label: "Joined", value: person.date_joined ? <DateText value={person.date_joined} /> : "—" },
                   { label: "Email", value: person.email || "—" },
                   { label: "Phone", value: person.phone || "—" },
                 ]}
-                onOpen={() => router.push(employeeHref(person.id))}
+                // An address rather than a handler, so a card behaves like the
+                // link it looks like: ⌘-click opens a colleague in a new tab.
+                href={employeeHref(person.id)}
               />
             ))}
           </Box>

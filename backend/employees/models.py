@@ -72,10 +72,73 @@ class Designation(AuditModel):
         return self.title
 
 
+class CorporatePost(AuditModel):
+    """An establishment position — the chair somebody is appointed to.
+
+    Deputy Manager, Senior Engineer, Level 7 Officer. This is what a grade, a
+    pay band and seniority follow, and it is the half of somebody's title that
+    survives them moving between sites.
+
+    Separate from `Designation`, which is the job title as the outside world
+    reads it, and from `CorporateRole`, which is what they are actually
+    responsible for. See `Employee.corporate_post` for why the three are not
+    one field.
+    """
+
+    name = models.CharField(max_length=120, unique=True)
+    code = models.CharField(max_length=20, unique=True)
+    #: Seniority. **Lower is more senior** — rank 1 is the top of the company,
+    #: the same convention `Designation.rank` uses, because a reader comparing
+    #: the two lists must not have to remember which way each one counts.
+    rank = models.PositiveSmallIntegerField(
+        default=0, help_text="Seniority — 1 is the most senior. 0 means unranked and sorts last."
+    )
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["rank", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class CorporateRole(AuditModel):
+    """What somebody is actually responsible for.
+
+    Head of Electrical Maintenance, Project Manager for Sanjen, Company
+    Secretary. Independent of the post: two Deputy Managers hold different
+    roles, and somebody promoted out of Senior Engineer usually keeps running
+    the same site.
+    """
+
+    name = models.CharField(max_length=150, unique=True)
+    code = models.CharField(max_length=20, unique=True)
+    description = models.TextField(blank=True)
+    #: The company this role belongs to, where it belongs to one. A group
+    #: running several project companies has a "Project Manager" per project,
+    #: and they are different jobs.
+    company = models.ForeignKey(
+        "companies.Company", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="corporate_roles",
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Employee(AuditModel):
     class EmploymentStatus(models.TextChoices):
         ACTIVE = "active", "Active"
         ON_LEAVE = "on_leave", "On Leave"
+        #: Employed, not working, and locked out. See `Suspension` — the status
+        #: is derived from that record rather than set by hand, so "suspended"
+        #: on the roster and "cannot sign in" can never disagree.
+        SUSPENDED = "suspended", "Suspended"
         RESIGNED = "resigned", "Resigned"
         TERMINATED = "terminated", "Terminated"
 
@@ -89,6 +152,16 @@ class Employee(AuditModel):
         MARRIED = "married", "Married"
         DIVORCED = "divorced", "Divorced"
         WIDOWED = "widowed", "Widowed"
+
+    class BloodGroup(models.TextChoices):
+        A_POS = "A+", "A+"
+        A_NEG = "A-", "A-"
+        B_POS = "B+", "B+"
+        B_NEG = "B-", "B-"
+        AB_POS = "AB+", "AB+"
+        AB_NEG = "AB-", "AB-"
+        O_POS = "O+", "O+"
+        O_NEG = "O-", "O-"
 
     class BankAccountType(models.TextChoices):
         """A salary account is a distinct product here, not a label.
@@ -126,9 +199,48 @@ class Employee(AuditModel):
         default="50% 50%",
         help_text="CSS object-position for the cover crop, e.g. '50% 30%'.",
     )
+    #: The number people actually ring. Kept as the general-purpose one; the
+    #: four channels below say *which* number, for the cases where it matters.
     phone = models.CharField(max_length=20, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
     gender = models.CharField(max_length=10, choices=Gender.choices, blank=True)
+
+    #: Asked for by the safety side, not by HR.
+    #:
+    #: A powerhouse and a headrace tunnel are places where somebody gets hurt,
+    #: an hour from a hospital. The blood group on file is the difference
+    #: between a transfusion starting when they arrive and starting after a
+    #: cross-match. Free-form choices rather than text: "O+ve", "O positive"
+    #: and "o+" are the same fact and must not sort into three groups.
+    blood_group = models.CharField(
+        max_length=5, choices=BloodGroup.choices, blank=True,
+        help_text="On file for site emergencies.",
+    )
+
+    # ── The two addresses, and they are genuinely two ────────────────────
+    #
+    # Permanent is the address on the citizenship certificate — where somebody
+    # is *from*, which is what statutory filings and formal letters use.
+    # Temporary is where they currently live, which is where a courier goes and
+    # which changes when they are posted to a site. One `address` field
+    # answered whichever question was asked last.
+    permanent_address = models.CharField(max_length=255, blank=True)
+    temporary_address = models.CharField(
+        max_length=255, blank=True, help_text="Current residence, if it differs."
+    )
+
+    # ── Four channels, because two of them belong to the company ─────────
+    #
+    # An office number and an office mailbox are issued, revoked on the last
+    # day, and appear in the directory. A personal number and a private address
+    # belong to the person, survive their employment, and are the only way to
+    # reach a leaver about their final settlement. Collapsing them into one
+    # pair means offboarding either strands the record or publishes a private
+    # mobile in the staff directory.
+    office_phone = models.CharField(max_length=30, blank=True, verbose_name="Office cell")
+    office_email = models.EmailField(blank=True)
+    personal_phone = models.CharField(max_length=30, blank=True, verbose_name="Personal cell")
+    personal_email = models.EmailField(blank=True)
 
     # Profile / "about me" fields — self-editable, surfaced on the rich
     # profile page. `skills` is a simple JSON list of strings (a full
@@ -257,6 +369,33 @@ class Employee(AuditModel):
     designation = models.ForeignKey(
         Designation, null=True, blank=True, on_delete=models.SET_NULL, related_name="employees"
     )
+
+    # ── Post and role, which are not the same thing ───────────────────────
+    #
+    # **The post is the chair; the role is the work.** A company of this kind
+    # appoints people to an establishment *post* — Deputy Manager, Senior
+    # Engineer, Level 7 Officer — which is what their grade, their pay band and
+    # their seniority follow. What they are actually responsible for is the
+    # *role*: Head of Electrical Maintenance, Project Manager for Sanjen,
+    # Company Secretary.
+    #
+    # They move independently, which is the whole reason for two fields. Two
+    # Deputy Managers hold different roles; somebody promoted from Senior
+    # Engineer to Deputy Manager frequently keeps running the same site. A
+    # single "designation" field forces one of those facts to be a lie, and the
+    # one that loses is whichever was typed second.
+    corporate_post = models.ForeignKey(
+        "CorporatePost", null=True, blank=True, on_delete=models.SET_NULL, related_name="employees"
+    )
+    corporate_role = models.ForeignKey(
+        "CorporateRole", null=True, blank=True, on_delete=models.SET_NULL, related_name="employees"
+    )
+
+    #: **This is where the org chart comes from.** `employees/org-chart` walks
+    #: `manager` upward and `direct_reports` downward; nothing else feeds it.
+    #: A person with no manager is a root of the chart, which is correct for
+    #: the chief executive and a mistake for everybody else — the one place it
+    #: can be set is the employee form.
     manager = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="direct_reports"
     )
@@ -290,22 +429,224 @@ class Employee(AuditModel):
 
 
 class EmployeeExperience(models.Model):
-    """A structured work-history entry on an employee's profile. Kept as its
-    own model (not a JSON blob) so entries can be added/removed
-    individually and later reported on."""
+    """A post somebody has held — here, or somewhere before here.
+
+    Kept as its own model (not a JSON blob) so entries can be added and removed
+    individually and later reported on.
+
+    **Why `kind` rather than two models.** A job at a previous employer and a
+    post held inside this company carry the same six facts, so two tables would
+    be the same columns twice and every reader would have to union them to
+    answer "what has this person done". They are shown as two sections, which
+    is the part that actually differs: one is what the company knows
+    first-hand, the other is what somebody told us at interview.
+    """
+
+    class Kind(models.TextChoices):
+        #: Somewhere else, before joining. Self-declared.
+        PREVIOUS = "previous", "Previous employment"
+        #: A post held inside this company.
+        INTERNAL = "internal", "Held here"
 
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="experiences")
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.PREVIOUS)
     title = models.CharField(max_length=150)
     company = models.CharField(max_length=150, blank=True)
     start_year = models.PositiveIntegerField(null=True, blank=True)
     end_year = models.PositiveIntegerField(null=True, blank=True)  # null = present
     description = models.TextField(blank=True)
+    #: Whether HR has checked it against a document. Only meaningful on a
+    #: `PREVIOUS` entry — an internal post is a fact this system wrote itself.
+    is_verified = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-start_year", "-id"]
 
     def __str__(self):
         return f"{self.title} @ {self.company}"
+
+
+class Suspension(AuditModel):
+    """Employed, not working, and locked out.
+
+    **Why a record rather than a status field.** "Suspended" needs three things
+    a `CharField` cannot hold: when it started, when it ends, and how it ended.
+    Without them, lifting a suspension means somebody remembering to, and
+    "suspended since when?" is answerable only from a chat log.
+
+    **The interval is the point.** A suspension is normally *until a date* —
+    pending an inquiry, for a fixed number of days — and `ends_on` is what lets
+    it lift itself. Left empty it is indefinite, which is a deliberate and much
+    rarer thing to record: it means nobody has decided yet, and it sits on the
+    roster until somebody does.
+
+    **It can end in termination**, which is why `outcome` exists. A suspension
+    that ends is not the same event as one that becomes a dismissal, and
+    reporting on "how many inquiries ended in dismissal" needs the difference
+    written down rather than inferred from a status change that happened on
+    roughly the same day.
+
+    **The lock-out is `User.is_active`**, set by `employees/suspensions.py`.
+    SimpleJWT checks that flag on every request, so a suspension takes effect
+    on the next call rather than whenever the fifteen-minute access token
+    happens to expire. Nothing else in the product needs to know.
+    """
+
+    class Outcome(models.TextChoices):
+        #: Running, or ended without anybody recording what happened.
+        PENDING = "pending", "Pending"
+        REINSTATED = "reinstated", "Reinstated"
+        TERMINATED = "terminated", "Ended in termination"
+        #: The inquiry found nothing. Distinct from reinstated: one is "your
+        #: time is served", the other is "this should not have happened".
+        WITHDRAWN = "withdrawn", "Withdrawn"
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="suspensions")
+    starts_on = models.DateField()
+    #: Empty means indefinite — until somebody decides. A date means the
+    #: suspension lifts itself on the morning after it.
+    ends_on = models.DateField(
+        null=True, blank=True, help_text="Leave empty for an indefinite suspension."
+    )
+    reason = models.TextField()
+    #: Whether the person is *currently* locked out under this record.
+    #:
+    #: Derived and written by `employees/suspensions.py`, never set by hand. It
+    #: is stored rather than computed on read because the lock it drives is a
+    #: flag on `User`, and the two have to change together or they drift.
+    is_active = models.BooleanField(default=False)
+    outcome = models.CharField(max_length=20, choices=Outcome.choices, default=Outcome.PENDING)
+    outcome_note = models.TextField(blank=True)
+    lifted_on = models.DateField(null=True, blank=True)
+    lifted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+
+    class Meta:
+        ordering = ["-starts_on", "-id"]
+
+    def __str__(self):
+        window = f"{self.starts_on} - {self.ends_on or 'indefinite'}"
+        return f"{self.employee.employee_code} suspended {window}"
+
+    def covers(self, on_date):
+        """Is this suspension in force on that date?
+
+        `lifted_on` is checked before the interval, and that ordering is the
+        whole of it. Lifting sets `ends_on` to today so the record reads
+        sensibly, and a plain `on_date <= ends_on` then says the suspension is
+        still running for the rest of the day it was lifted — so somebody
+        reinstated at ten in the morning stays locked out until midnight. Once
+        it is lifted it is over.
+        """
+        if self.lifted_on is not None and self.lifted_on <= on_date:
+            return False
+        if on_date < self.starts_on:
+            return False
+        return self.ends_on is None or on_date <= self.ends_on
+
+
+class Award(AuditModel):
+    """Something the company gave somebody for doing well.
+
+    Its own record rather than a `LifecycleEvent` of type `award`. That model
+    is a *workflow* — a request that gets approved and then changes a field —
+    and an award changes no field: it is a fact about the past with a citation,
+    a date and usually a certificate attached. Reporting on "who has been
+    recognised, and for what" over a lifecycle table means filtering out four
+    other event types and every rejected request among them.
+    """
+
+    class Kind(models.TextChoices):
+        PERFORMANCE = "performance", "Performance"
+        LONG_SERVICE = "long_service", "Long service"
+        SAFETY = "safety", "Safety"
+        INNOVATION = "innovation", "Innovation"
+        TEAMWORK = "teamwork", "Teamwork"
+        OTHER = "other", "Other"
+
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="awards")
+    title = models.CharField(max_length=200)
+    kind = models.CharField(max_length=20, choices=Kind.choices, default=Kind.OTHER)
+    awarded_on = models.DateField()
+    #: Who gave it. Free text because it is frequently a body rather than a
+    #: user of this system — a ministry, a client, the board.
+    awarded_by = models.CharField(max_length=200, blank=True)
+    #: The sentence read out. Worth its own field rather than folding into a
+    #: description: it is what gets reprinted on a certificate.
+    citation = models.TextField(blank=True)
+    #: Where there was one. Cash, a scholarship, extra leave — recorded as text
+    #: because it is not always money and this is not a payroll instruction.
+    reward = models.CharField(max_length=200, blank=True)
+    certificate = models.FileField(upload_to="employees/awards/", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-awarded_on", "-id"]
+
+    def __str__(self):
+        return f"{self.title} - {self.employee.employee_code}"
+
+
+class DisciplinaryAction(AuditModel):
+    """A formal step taken against somebody, and how it ended.
+
+    **Separate from `Suspension`, although one severity is suspension.** A
+    suspension is a *state* — it locks an account and has to lift itself. A
+    disciplinary action is the *decision*, which may or may not produce one.
+    Recording them together would mean either a verbal warning pointlessly
+    carrying an interval, or a lock-out that depends on somebody picking the
+    right severity from a dropdown.
+    """
+
+    class Severity(models.TextChoices):
+        VERBAL = "verbal", "Verbal warning"
+        WRITTEN = "written", "Written warning"
+        FINAL = "final", "Final warning"
+        SUSPENSION = "suspension", "Suspension"
+        DEMOTION = "demotion", "Demotion"
+        DISMISSAL = "dismissal", "Dismissal"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        UNDER_REVIEW = "under_review", "Under review"
+        UPHELD = "upheld", "Upheld"
+        #: The employee appealed and won, or the inquiry found nothing.
+        OVERTURNED = "overturned", "Overturned"
+        CLOSED = "closed", "Closed"
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="disciplinary_actions"
+    )
+    subject = models.CharField(max_length=200)
+    severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.VERBAL)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    incident_date = models.DateField()
+    issued_on = models.DateField()
+    description = models.TextField(blank=True)
+    #: What the person said. Held on the record rather than in an attachment,
+    #: because a file nobody opens is not a right of reply.
+    employee_response = models.TextField(blank=True)
+    action_taken = models.TextField(blank=True)
+    #: When this stops counting against them. A warning that never expires is a
+    #: dismissal on the instalment plan.
+    expires_on = models.DateField(
+        null=True, blank=True,
+        help_text="After this date the action no longer counts against them.",
+    )
+    #: Set where the action produced one, so the two records point at each
+    #: other rather than being joined by their dates.
+    suspension = models.OneToOneField(
+        Suspension, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="disciplinary_action",
+    )
+    document = models.FileField(upload_to="employees/disciplinary/", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-issued_on", "-id"]
+
+    def __str__(self):
+        return f"{self.get_severity_display()} - {self.employee.employee_code}: {self.subject}"
 
 
 class EmployeeLog(models.Model):

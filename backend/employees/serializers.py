@@ -7,6 +7,11 @@ from rest_framework import serializers
 from accounts.policy import Perm, can
 from accounts.provisioning import AccountError, provision_account
 from employees.models import (
+    Award,
+    CorporatePost,
+    CorporateRole,
+    DisciplinaryAction,
+    Suspension,
     Department,
     Dependant,
     Designation,
@@ -46,6 +51,15 @@ class EmployeeListSerializer(serializers.ModelSerializer):
     primary_company_name = serializers.CharField(
         source="primary_company.name", read_only=True, default=None
     )
+    # The chair and the work — see `Employee.corporate_post` for why they are
+    # two fields. Both on the list because the roster is the screen people scan
+    # to find "who is the Deputy Manager running Sanjen".
+    corporate_post_name = serializers.CharField(
+        source="corporate_post.name", read_only=True, default=None
+    )
+    corporate_role_name = serializers.CharField(
+        source="corporate_role.name", read_only=True, default=None
+    )
     # Carried for the card layout, which has room for more than a table row
     # does and was showing less. All three come off rows already joined, so
     # they cost nothing extra per employee.
@@ -65,6 +79,8 @@ class EmployeeListSerializer(serializers.ModelSerializer):
             "designation_title",
             "primary_company",
             "primary_company_name",
+            "corporate_post_name",
+            "corporate_role_name",
             "employment_status",
             "date_joined",
             "manager",
@@ -105,6 +121,17 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     #: Named, not just id'd. The profile shows "also works for Sanjen
     #: Jalavidyut", and a list of primary keys is not that.
     secondary_company_names = serializers.SerializerMethodField()
+    corporate_post_name = serializers.CharField(
+        source="corporate_post.name", read_only=True, default=None
+    )
+    corporate_role_name = serializers.CharField(
+        source="corporate_role.name", read_only=True, default=None
+    )
+    #: The suspension in force right now, if there is one. Inlined rather than
+    #: left to a second request, because every surface that shows the status
+    #: also has to show why and until when — a bare "Suspended" chip with no
+    #: date is the thing people ask HR about.
+    active_suspension = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -129,6 +156,18 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             "primary_company_name",
             "secondary_companies",
             "secondary_company_names",
+            "corporate_post",
+            "corporate_post_name",
+            "corporate_role",
+            "corporate_role_name",
+            "blood_group",
+            "permanent_address",
+            "temporary_address",
+            "office_phone",
+            "office_email",
+            "personal_phone",
+            "personal_email",
+            "active_suspension",
             # ── Sensitive: stripped for anyone who is not HR or the owner.
             # See `SENSITIVE_FIELDS` and `to_representation` below.
             "bank_name",
@@ -175,6 +214,19 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
     def get_secondary_company_names(self, obj):
         return [company.name for company in obj.secondary_companies.all()]
+
+    def get_active_suspension(self, obj):
+        from employees.suspensions import active_suspension
+
+        suspension = active_suspension(obj)
+        if suspension is None:
+            return None
+        return {
+            "id": suspension.id,
+            "starts_on": suspension.starts_on,
+            "ends_on": suspension.ends_on,
+            "reason": suspension.reason,
+        }
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -259,6 +311,15 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
             "manager",
             "primary_company",
             "secondary_companies",
+            "corporate_post",
+            "corporate_role",
+            "blood_group",
+            "permanent_address",
+            "temporary_address",
+            "office_phone",
+            "office_email",
+            "personal_phone",
+            "personal_email",
             # The name on the citizenship certificate, which is the one payroll
             # and the statutory filings have to agree with.
             "legal_first_name",
@@ -636,3 +697,127 @@ class EmployeeChangeRequestSerializer(serializers.ModelSerializer):
 
     def get_decided_by_name(self, obj):
         return self._name(obj.decided_by)
+
+
+# ── The lookups behind post and role ─────────────────────────────────────
+
+
+class CorporatePostSerializer(serializers.ModelSerializer):
+    employee_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = CorporatePost
+        fields = ["id", "name", "code", "rank", "description", "is_active", "employee_count"]
+
+
+class CorporateRoleSerializer(serializers.ModelSerializer):
+    company_name = serializers.CharField(source="company.name", read_only=True, default=None)
+    employee_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = CorporateRole
+        fields = [
+            "id", "name", "code", "description", "company", "company_name",
+            "is_active", "employee_count",
+        ]
+
+
+# ── Suspension ───────────────────────────────────────────────────────────
+
+
+class SuspensionSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
+    lifted_by_name = serializers.SerializerMethodField()
+    outcome_display = serializers.CharField(source="get_outcome_display", read_only=True)
+
+    class Meta:
+        model = Suspension
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "starts_on", "ends_on", "reason",
+            "is_active", "outcome", "outcome_display", "outcome_note",
+            "lifted_on", "lifted_by", "lifted_by_name",
+            "created_at", "updated_at",
+        ]
+        # Everything about *ending* a suspension is written by the `lift`
+        # action, never by a PATCH. Two ways to close one is how an account
+        # comes to be unlocked with the record still saying it is suspended.
+        read_only_fields = [
+            "is_active", "outcome", "outcome_note", "lifted_on", "lifted_by",
+            "created_at", "updated_at",
+        ]
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
+
+    def get_lifted_by_name(self, obj):
+        if obj.lifted_by is None:
+            return None
+        return obj.lifted_by.get_full_name() or obj.lifted_by.get_username()
+
+
+class LiftSuspensionSerializer(serializers.Serializer):
+    """Ending one. `outcome` is required — see `suspensions.lift`."""
+
+    outcome = serializers.ChoiceField(
+        choices=[c for c in Suspension.Outcome.choices if c[0] != Suspension.Outcome.PENDING]
+    )
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+# ── Recognition, and its opposite ────────────────────────────────────────
+
+
+class AwardSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = Award
+        fields = [
+            "id", "employee", "employee_name", "title", "kind", "kind_display",
+            "awarded_on", "awarded_by", "citation", "reward", "certificate",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
+
+
+class DisciplinaryActionSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    severity_display = serializers.CharField(source="get_severity_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    #: Whether it still counts against them today. Computed here rather than in
+    #: the browser, because "has it expired" is a date comparison the server is
+    #: already making for reports and the two must not disagree.
+    is_current = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DisciplinaryAction
+        fields = [
+            "id", "employee", "employee_name", "subject",
+            "severity", "severity_display", "status", "status_display",
+            "incident_date", "issued_on", "description", "employee_response",
+            "action_taken", "expires_on", "suspension", "document", "is_current",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
+
+    def get_is_current(self, obj):
+        from datetime import date
+
+        if obj.status in (
+            DisciplinaryAction.Status.OVERTURNED,
+            DisciplinaryAction.Status.CLOSED,
+        ):
+            return False
+        return obj.expires_on is None or obj.expires_on >= date.today()

@@ -1,4 +1,5 @@
-from datetime import timedelta
+from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
@@ -10,15 +11,17 @@ from rest_framework.decorators import action
 from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
+from accounts.permissions import IsHRAdmin
 from accounts.policy import Perm, can
 from attendance.permissions import _requesting_employee
 from core.exports import XlsxExportMixin
 from core.viewsets import AuditViewSetMixin
-from expenses import services
-from expenses.models import ExpenseClaim
+from expenses import budgets, services
+from expenses.models import ExpenseBudget, ExpenseClaim
 from expenses.serializers import (
+    ExpenseBudgetSerializer,
     ExpenseClaimSerializer,
     ExpenseDecisionSerializer,
     ReimburseSerializer,
@@ -83,9 +86,70 @@ class ExpenseClaimViewSet(
             )
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # Checked before the row is written, so a refused claim leaves nothing
+        # behind. A budget that only bites at approval time means somebody
+        # fills in a form, attaches a receipt, waits three days and is then
+        # told the money was never there.
+        verdict = budgets.check(
+            employee,
+            category=serializer.validated_data.get("category", ExpenseClaim.Category.OTHER),
+            amount=serializer.validated_data["amount"],
+            on_date=serializer.validated_data["expense_date"],
+        )
+        if not verdict.allowed:
+            return Response(
+                {"detail": verdict.message, "code": "over_budget"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         claim = serializer.save(employee=employee, created_by=request.user, updated_by=request.user)
         services.submit_claim(claim)
-        return Response(self.get_serializer(claim).data, status=status.HTTP_201_CREATED)
+        data = self.get_serializer(claim).data
+        # Carried on the created claim rather than swallowed: the submitter is
+        # entitled to know their claim went in over budget, and the approver
+        # needs it on the record rather than in a notification they may miss.
+        if verdict.warn:
+            data["budget_warning"] = verdict.message
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="check-budget")
+    def check_budget(self, request, *args, **kwargs):
+        """What a claim *would* run into, before anybody fills the form in.
+
+        The form calls this as the amount and category change, so the ceiling
+        is visible while somebody is deciding what to claim rather than after
+        they have pressed Submit.
+        """
+        employee = _requesting_employee(request.user)
+        if employee is None:
+            return Response({"allowed": True, "warn": False, "message": ""})
+        try:
+            amount = Decimal(str(request.data.get("amount") or "0"))
+        except (InvalidOperation, TypeError):
+            return Response({"allowed": True, "warn": False, "message": ""})
+
+        raw_date = request.data.get("expense_date")
+        try:
+            on_date = date.fromisoformat(raw_date) if raw_date else timezone.localdate()
+        except ValueError:
+            on_date = timezone.localdate()
+
+        verdict = budgets.check(
+            employee,
+            category=request.data.get("category") or ExpenseClaim.Category.OTHER,
+            amount=amount,
+            on_date=on_date,
+        )
+        return Response({
+            "allowed": verdict.allowed,
+            "warn": verdict.warn,
+            "message": verdict.message,
+            # Same shape as every other money field in the API — see the note
+            # on `ExpenseBudgetSerializer.spent`.
+            "remaining": f"{verdict.remaining:.2f}" if verdict.remaining is not None else None,
+            "budget": verdict.budget.name if verdict.budget else None,
+        })
 
     def _hr_guard(self, request):
         return None if _is_hr(request.user) else Response(status=status.HTTP_403_FORBIDDEN)
@@ -238,3 +302,23 @@ class ExpenseClaimViewSet(
                 "months": [buckets[k] for k in sorted(buckets)],
             }
         )
+
+
+class ExpenseBudgetViewSet(AuditViewSetMixin, ModelViewSet):
+    """The ceilings, and how close each one is.
+
+    Readable by anyone with `expenses.manage` — an approver deciding on a claim
+    needs to see what is left, and hiding it would make the refusal message the
+    only place the number ever appears. Setting one is an admin act; an officer
+    may keep the figures current.
+    """
+
+    serializer_class = ExpenseBudgetSerializer
+    permission_classes = [IsAuthenticated, IsHRAdmin]
+    required_permission = Perm.EXPENSES_MANAGE
+    filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["category", "department", "employee", "period", "is_active"]
+    ordering_fields = ["name", "amount"]
+
+    def get_queryset(self):
+        return ExpenseBudget.objects.select_related("department", "employee__user")
