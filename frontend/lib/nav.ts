@@ -109,7 +109,11 @@ export const NAV_GROUPS: NavGroup[] = [
         // is on that day"; this answers "what has this company done, and what
         // is coming" — which is read as a timeline, not a grid.
         href: "/events",
-        permission: "workplace.manage",
+        // No permission. Reading an event is open to anybody signed in — see
+        // `EventViewSet` — and gating the row here would also gate `canOpen`,
+        // refusing somebody a page the API would have served them. Creating and
+        // editing are gated on the page and, properly, at the API.
+        
         label: "Events",
         icon: EventIcon,
         module: "collaboration",
@@ -408,6 +412,10 @@ export function visibleGroups(permissions: readonly string[]): NavGroup[] {
  */
 const ROUTE_PERMISSIONS: Record<string, string> = {
   "/mail": "mail.access",
+  // Nested under `/expenses`, which is open to everybody because everybody
+  // submits claims. Without this the longest-match lookup inherits that and
+  // any employee could open a page whose every request 403s.
+  "/expenses/budgets": "expenses.manage",
 };
 
 /** Whether this user may open a given path at all — used by the route guard. */

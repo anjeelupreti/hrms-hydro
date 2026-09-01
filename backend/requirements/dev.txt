@@ -4,7 +4,7 @@ django-extensions>=3.2,<3.3
 ipython>=8.27,<8.28
 
 # --- Testing -------------------------------------------------------------
-# pytest-django over Django's own runner because the tenant fixtures below
+# pytest-django over Django's own runner because the fixtures below
 # need function-scoped schema creation, which fixtures express far better
 # than TestCase inheritance.
 pytest>=8.3,<9.0

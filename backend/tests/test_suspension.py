@@ -319,3 +319,27 @@ def test_the_profile_says_why_and_until_when(admin_client, worker):
     assert active is not None
     assert active["reason"] == "Pending inquiry"
     assert active["ends_on"] == date.today() + timedelta(days=7)
+
+
+# ── The seams with everything else that closes an account ────────────────
+
+
+def test_a_suspended_employee_cannot_be_rehired_back_into_access(worker, admin_user):
+    """The one door the lock does not own.
+
+    A suspension leaves the status at `suspended` and the login closed, which
+    from `rehire`'s side looks exactly like somebody who has left. Rehiring one
+    would set them active and hand the account back through `restore_access`,
+    with the suspension record still saying it is in force — the exact state
+    this module exists to make impossible.
+    """
+    from employees.services import RehireError, rehire
+
+    suspend(worker, starts_on=date.today(), reason="Pending inquiry")
+    worker.refresh_from_db()
+
+    with pytest.raises(RehireError, match="suspended, not a leaver"):
+        rehire(worker, actor=admin_user)
+
+    worker.user.refresh_from_db()
+    assert worker.user.is_active is False, "the account must stay closed"

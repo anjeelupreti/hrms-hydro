@@ -48,8 +48,8 @@ ROUTES=(
   /employees/1 /companies
   /attendance /attendance/calendar /attendance/1 /leave /wfh /timesheets
   /payroll /payroll/loans /payroll/components /payroll/tax-slabs
-  /expenses /assets /helpdesk /documents /training /checklists
-  /goals /surveys /reviews /meetings /announcements /mail /calendar
+  /expenses /expenses/budgets /assets /helpdesk /documents /training /checklists
+  /goals /surveys /reviews /meetings /announcements /mail /calendar /events
   # `/crm` itself is a redirect stub with nothing to render — its target,
   # /crm/clients, is checked directly below.
   /recruitment /crm/clients /crm/deals /crm/invoices

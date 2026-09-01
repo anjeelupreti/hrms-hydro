@@ -208,6 +208,18 @@ def rehire(employee, actor, date_joined=None, note=""):
     if employee.employment_status == Employee.EmploymentStatus.ACTIVE:
         raise RehireError(f"{employee.employee_code} is already active.")
 
+    # **Suspended is not "gone".** A suspension leaves the status at `suspended`
+    # and the login closed, which from here looks exactly like somebody who has
+    # left — so rehiring one would set them active and hand the account back
+    # through `restore_access`, with the suspension record still saying it is in
+    # force. That is the one state `employees/suspensions.py` exists to make
+    # impossible, reached through a door it does not own.
+    if employee.employment_status == Employee.EmploymentStatus.SUSPENDED:
+        raise RehireError(
+            f"{employee.employee_code} is suspended, not a leaver. "
+            "Lift the suspension instead — that is what returns their access."
+        )
+
     previous = employee.employment_status
 
     with transaction.atomic():
