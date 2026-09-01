@@ -1,0 +1,46 @@
+# Render Blueprint. Commit this at the repo root (or set rootDir below) and
+# create the service from "New + -> Blueprint" so the config is version-controlled.
+#
+# Note: no `databases:` block here on purpose. Render's free Postgres expires
+# 30 days after creation. Point DATABASE_URL at Neon instead.
+
+services:
+  - type: web
+    name: myapp-api
+    runtime: python
+    plan: free
+    region: oregon # oregon | frankfurt | singapore — pick the one nearest your DB
+    rootDir: backend # drop this if the Django project is at the repo root
+    buildCommand: "./build.sh"
+    # 512 MB RAM and 0.1 CPU on the free plan. Two workers with threads beats
+    # four workers: threads are cheap, worker processes each cost ~80-120 MB.
+    startCommand: >-
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:$PORT
+      --workers 2
+      --threads 4
+      --timeout 60
+      --access-logfile -
+      --error-logfile -
+    healthCheckPath: /healthz/
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true # Render generates and stores a random value
+      - key: DJANGO_DEBUG
+        value: "false"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Set these in the dashboard, not here — they are secrets or change per env.
+      - key: DATABASE_URL
+        sync: false # Neon POOLED connection string
+      - key: FRONTEND_ORIGINS
+        sync: false # https://myapp.vercel.app,https://myapp.com
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false # myapp-api.onrender.com,api.myapp.com
+      - key: CORS_ORIGIN_REGEXES
+        sync: false # ^https://myapp-git-[\w-]+\.vercel\.app$

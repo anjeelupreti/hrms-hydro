@@ -1,0 +1,262 @@
+# Compose project name, set explicitly.
+#
+# Without this, Compose names the project after the *directory* — `deployment` —
+# which gives containers like `deployment-postgres-1` and volumes like
+# `deployment_postgres_data`. Any other project whose compose also lives in a
+# folder called `deployment` produces the same names and silently shares the
+# same volume. That is not theoretical: this database was once replaced by
+# another project's, with no error and matching table names.
+name: hrms
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: hrms
+      POSTGRES_USER: hrms
+      POSTGRES_PASSWORD: hrms
+    ports:
+      # The conventional port on both sides, so `psql -p 5432` and every
+      # GUI client work without being told otherwise. If you *do* run a
+      # native Postgres, change the left-hand number here and `DB_PORT`
+      # in `backend/.env` together — they are the same fact twice.
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hrms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      # Host 16380, not 6379. Windows reserves 6081-7059 in blocks for
+      # Hyper-V dynamic ports, which swallows 6379 and 6380 alike, so the
+      # host port has to clear that whole span. Containers still reach each
+      # other on 6379 via the service name — only the host mapping moved.
+      - "16380:6379"
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "8025:8025" # web UI
+      - "1025:1025" # SMTP
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deployment/backend/Dockerfile.dev
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    env_file:
+      - ../backend/.env
+    environment:
+      DB_HOST: postgres
+      # Stated beside DB_HOST rather than inherited. Inside this network
+      # Postgres is `postgres:5432`; on the host it is `127.0.0.1:5432`.
+      # Those agree today, and this line is what keeps the container right
+      # if the host mapping ever has to move again.
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
+      # defaults to `localhost`, and inside a container that is the container
+      # itself — nothing listens on 1025 there. MailHog is a separate service,
+      # so it has to be addressed by its compose name, exactly like `DB_HOST`
+      # and `REDIS_URL` above.
+      #
+      # The failure was silent in the worst way: until this was fixed, an
+      # unreachable mail server raised straight out of `notify()`, so a
+      # broadcast reached every admin in-app and *then* answered 500.
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: 1025
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      # Chat WebSockets (Django Channels) — separate Redis DB from Celery.
+      # `runserver` serves ASGI automatically because `daphne` is installed
+      # (see backend/config/settings/base.py).
+      CHANNEL_LAYERS_REDIS_URL: redis://redis:6379/2
+    volumes:
+      - ../backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  celery-worker:
+    build:
+      context: ../backend
+      dockerfile: ../deployment/backend/Dockerfile.dev
+    command: celery -A config worker -l info
+    env_file:
+      - ../backend/.env
+    environment:
+      DB_HOST: postgres
+      # Stated beside DB_HOST rather than inherited. Inside this network
+      # Postgres is `postgres:5432`; on the host it is `127.0.0.1:5432`.
+      # Those agree today, and this line is what keeps the container right
+      # if the host mapping ever has to move again.
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
+      # defaults to `localhost`, and inside a container that is the container
+      # itself — nothing listens on 1025 there. MailHog is a separate service,
+      # so it has to be addressed by its compose name, exactly like `DB_HOST`
+      # and `REDIS_URL` above.
+      #
+      # The failure was silent in the worst way: until this was fixed, an
+      # unreachable mail server raised straight out of `notify()`, so a
+      # broadcast reached every admin in-app and *then* answered 500.
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: 1025
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    volumes:
+      - ../backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: ../deployment/backend/Dockerfile.dev
+    command: celery -A config beat -l info
+    env_file:
+      - ../backend/.env
+    environment:
+      DB_HOST: postgres
+      # Stated beside DB_HOST rather than inherited. Inside this network
+      # Postgres is `postgres:5432`; on the host it is `127.0.0.1:5432`.
+      # Those agree today, and this line is what keeps the container right
+      # if the host mapping ever has to move again.
+      DB_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
+      # defaults to `localhost`, and inside a container that is the container
+      # itself — nothing listens on 1025 there. MailHog is a separate service,
+      # so it has to be addressed by its compose name, exactly like `DB_HOST`
+      # and `REDIS_URL` above.
+      #
+      # The failure was silent in the worst way: until this was fixed, an
+      # unreachable mail server raised straight out of `notify()`, so a
+      # broadcast reached every admin in-app and *then* answered 500.
+      EMAIL_HOST: mailhog
+      EMAIL_PORT: 1025
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    volumes:
+      - ../backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    # The dev server dies on this machine — Turbopack plus a polling watcher
+    # over a Windows bind mount is heavy enough that Docker reaps it, and it
+    # exits 0 so nothing looks wrong. A half-hour of a session has gone into
+    # noticing that "my change isn't showing" meant "the server is not running".
+    # Bringing it back automatically is not a fix for the memory use; it is a
+    # fix for the *silence*.
+    restart: unless-stopped
+    environment:
+      # **Two URLs, and they are deliberately different.**
+      #
+      # `NEXT_PUBLIC_*` is compiled into the browser bundle, so it has to be
+      # the address a *browser on the host* can reach — the published port.
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      # This one is used by the BFF routes, which run **inside this container**.
+      # There, `localhost` is the container itself, so the default of
+      # 127.0.0.1:8000 makes Next.js call itself and every login returns 500
+      # with `ECONNREFUSED 127.0.0.1:8000`. It has to be the compose service.
+      DJANGO_API_BASE_URL: http://backend:8000
+      # 🔴 **These do nothing here, and believing they did cost hours.**
+      #
+      # The problem is real: Docker Desktop on Windows does not deliver inotify
+      # events across a bind mount, so the watcher never fires and the browser
+      # keeps serving the previous build — the code is right, the file is right,
+      # and the change looks like it was never made.
+      #
+      # But `WATCHPACK_POLLING` and `CHOKIDAR_USEPOLLING` are **webpack and
+      # chokidar** variables, and this is Next 16, where Turbopack is the
+      # default bundler (`node_modules/next/dist/docs/.../08-turbopack.md`:
+      # "Turbopack is now the default bundler… No configuration is needed").
+      # Turbopack has its own watcher and no documented polling option, so
+      # nothing reads either of these.
+      #
+      # Kept, not deleted: they cost nothing, and they become correct again the
+      # day anything here runs webpack. The comment is the fix — the previous
+      # one asserted these solved the problem, which is why every "I don't see
+      # my changes" moment this month ended in a container restart instead of a
+      # diagnosis. **The actual fix is to run Next on the host** (S4 in
+      # docs/checklist.md), where file events work natively.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      # Poll every two seconds rather than the default few hundred
+      # milliseconds. Polling means *stat every watched file, every tick*, and
+      # at the default rate over a Next project's file count that is a constant
+      # load with nothing to show for it — nobody edits a file twice a second.
+      WATCHPACK_POLLING_INTERVAL: "2000"
+      # 🔴 **Cap the heap, or the container eats the VM and is killed.**
+      #
+      # Node sizes its heap from the memory it can see, so in an 8 GB VM it
+      # will happily grow past 5.5 GB before collecting seriously — and it did:
+      # the dev server was repeatedly OOM-killed mid-session, reporting
+      # `ENOMEM: not enough memory, scandir` from the watcher on the way down.
+      # The failure is nastier than a crash, because a half-dead server keeps
+      # answering with the *previous* build, so a change that was applied
+      # correctly looks like it was never made.
+      #
+      # 3 GB is well clear of what a compile actually needs and forces GC long
+      # before the VM is in trouble.
+      NODE_OPTIONS: "--max-old-space-size=3072"
+    volumes:
+      - ../frontend:/app
+      # 🔴 **The build cache must not live on the bind mount.**
+      #
+      # Turbopack reads and writes `.next/dev` constantly, and on Docker Desktop
+      # for Windows every one of those operations crosses the host filesystem
+      # boundary. Next.js detects this and says so on boot — *"Slow filesystem
+      # detected… if /app/.next/dev is a network drive, consider moving it to a
+      # local folder"* — and the cost is not subtle: a single page was taking
+      # **220 seconds** to compile.
+      #
+      # That is not merely slow, it is *misleading*. Edit a file, refresh before
+      # the recompile lands, and the browser serves the previous build — so the
+      # change looks like it was never applied. Every "I don't see my changes"
+      # report on this project traces back here or to the watcher above.
+      #
+      # A named volume keeps the cache inside the Linux VM where the container
+      # actually runs. Nothing in it is source, so losing it costs one rebuild.
+      - hrms_frontend_next:/app/.next
+    ports:
+      - "3000:3000"
+    depends_on:
+      # Not `service_healthy` — the frontend is useful while the backend boots,
+      # and Next.js recompiles on demand anyway.
+      - backend
+
+volumes:
+  hrms_frontend_next:
+    # Named for the same reason as the database below: compose would otherwise
+    # derive it from the `deployment/` folder name and collide with any other
+    # project laid out the same way.
+    name: hrms_frontend_next
+  postgres_data:
+    # Named explicitly. Compose derives volume names from the *project
+    # directory*, and this compose lives in a folder called `deployment` — so
+    # the default name was `deployment_postgres_data`, which any other project
+    # whose compose also sits in a `deployment/` folder would claim too.
+    # That collision is not theoretical: it is how this database was silently
+    # replaced by another project's, with matching table names and no error.
+    name: hrms_postgres_data

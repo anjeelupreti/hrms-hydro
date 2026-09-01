@@ -1,0 +1,61 @@
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.test"
+python_files = ["test_*.py", "*_test.py"]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: takes more than a couple of seconds",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+exclude = [
+    "venv",
+    ".venv",
+    "*/migrations/*",
+    "staticfiles",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "DJ",   # flake8-django
+    "C4",   # comprehensions
+]
+ignore = [
+    "E501",   # line length is handled by the formatter, not the linter
+    "B008",   # function call in default arg — normal in DRF/Django signatures
+    "DJ001",  # null=True on CharField — used deliberately in a few places
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Settings modules legitimately use star-imports and long literal blocks.
+"config/settings/*.py" = ["F403", "F405", "E402"]
+# Test files reuse fixture names as arguments, which shadows by design.
+"tests/**/*.py" = ["F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "accounts", "assets", "attendance", "chat", "checklists", "companies",
+    "config", "core", "crm", "dashboard", "documents", "employees", "expenses",
+    "goals", "helpdesk", "leave", "mail", "notifications", "organization",
+    "payroll", "personal", "projects", "recruitment", "reports", "surveys",
+    "timesheets", "training", "wfh",
+]
+
+[tool.coverage.run]
+source = ["."]
+omit = [
+    "*/migrations/*",
+    "*/tests/*",
+    "venv/*",
+    ".venv/*",
+    "manage.py",
+    "config/asgi.py",
+    "config/wsgi.py",
+]

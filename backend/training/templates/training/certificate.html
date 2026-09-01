@@ -1,0 +1,79 @@
+{% autoescape on %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: A4 landscape; margin: 0; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Georgia", "Times New Roman", serif;
+      color: #1e293b;
+    }
+    .sheet {
+      width: 297mm;
+      height: 210mm;
+      padding: 18mm;
+      position: relative;
+    }
+    .frame {
+      height: 100%;
+      border: 3px solid #4f46e5;
+      border-radius: 10px;
+      padding: 14mm;
+      text-align: center;
+      position: relative;
+      background:
+        radial-gradient(circle at top left, rgba(124,58,237,0.06), transparent 40%),
+        radial-gradient(circle at bottom right, rgba(249,115,22,0.06), transparent 40%);
+    }
+    .frame::after {
+      content: "";
+      position: absolute;
+      inset: 6px;
+      border: 1px solid #c7d2fe;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+    .brand { color: #4f46e5; font-size: 15px; letter-spacing: 3px; text-transform: uppercase; font-weight: bold; }
+    .title { font-size: 40px; font-weight: bold; margin: 18px 0 4px; color: #0f172a; }
+    .subtitle { font-size: 14px; color: #64748b; letter-spacing: 1px; }
+    .awardee { font-size: 34px; color: #4f46e5; margin: 26px 0 6px; font-style: italic; }
+    .rule { width: 55%; margin: 0 auto 18px; border-bottom: 1px solid #cbd5e1; }
+    .body-text { font-size: 15px; color: #334155; line-height: 1.7; max-width: 200mm; margin: 0 auto; }
+    .program { font-weight: bold; color: #0f172a; }
+    .meta { margin-top: 26px; font-size: 12px; color: #64748b; }
+    .signatures { position: absolute; bottom: 16mm; left: 14mm; right: 14mm; display: flex; justify-content: space-between; }
+    .sig { width: 60mm; text-align: center; }
+    .sig .line { border-top: 1px solid #94a3b8; padding-top: 6px; font-size: 12px; color: #475569; }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="frame">
+      <div class="brand">HRMS &middot; Learning &amp; Development</div>
+      <div class="title">Certificate of Completion</div>
+      <div class="subtitle">This is proudly presented to</div>
+
+      <div class="awardee">{{ employee_name }}</div>
+      <div class="rule"></div>
+
+      <p class="body-text">
+        for successfully completing the training program
+        <span class="program">&ldquo;{{ program.title }}&rdquo;</span>{% if duration_hours %},
+        comprising {{ duration_hours }} hour{{ duration_hours|pluralize }} of instruction{% endif %}{% if score is not None %},
+        with an assessment score of <strong>{{ score }}</strong>{% endif %}.
+      </p>
+
+      <div class="meta">
+        Completed on {{ completed_on|date:"F j, Y" }} &nbsp;&middot;&nbsp; Employee ID {{ employee_code }}
+      </div>
+
+      <div class="signatures">
+        <div class="sig"><div class="line">Trainer{% if session.trainer %} &mdash; {{ session.trainer.user.get_full_name }}{% endif %}</div></div>
+        <div class="sig"><div class="line">Human Resources</div></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>{% endautoescape %}

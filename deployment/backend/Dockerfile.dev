@@ -1,0 +1,24 @@
+FROM python:3.12-bullseye
+
+# TZ matches `settings.TIME_ZONE`. Django exports its own zone to the process
+# on startup, so this is not what makes the *application* agree with itself —
+# it is so the container's own tooling (`date`, a shell script, anything that
+# runs before Django loads) reports the same day the product does.
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Asia/Kathmandu
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/ requirements/
+RUN pip install --no-cache-dir -r requirements/dev.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

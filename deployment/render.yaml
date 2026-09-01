@@ -1,0 +1,122 @@
+# Render blueprint — one Docker image, three services (web / worker / beat)
+# differing only by start command, plus managed Postgres + Redis. Deploy with
+# Render's "New > Blueprint" pointed at this file. Secrets (SECRET_KEY, SMTP,
+# payment keys, SENTRY_DSN, AWS_*) are set in the Render dashboard / synced
+# env group — never committed here.
+#
+# The frontend deploys separately on Vercel (native Next.js build), not here —
+# see deployment/README.md. This blueprint is backend + data only.
+
+databases:
+  - name: hrms-postgres
+    databaseName: hrms
+    user: hrms
+    plan: starter
+
+services:
+  # --- Redis (Celery broker/result + Channels layer) ---
+  - type: redis
+    name: hrms-redis
+    plan: starter
+    ipAllowList: []   # only reachable from Render services
+
+  # --- Web (ASGI: HTTP + websockets) ---
+  - type: web
+    name: hrms-backend
+    runtime: docker
+    dockerfilePath: ./deployment/backend/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/v1/health/
+    preDeployCommand: python manage.py migrate
+    dockerCommand: sh -c "daphne -b 0.0.0.0 -p $PORT config.asgi:application"
+    envVars: &backend_env
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      # The zone the product answers "today" in. Django exports it to the
+      # process itself, so the application is consistent either way; TZ is set
+      # alongside it so the container's own tooling agrees too.
+      - key: DJANGO_TIME_ZONE
+        value: Asia/Kathmandu
+      - key: TZ
+        value: Asia/Kathmandu
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        sync: false           # set to your domains in the dashboard
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hrms-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: hrms-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: hrms-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: hrms-redis
+          property: connectionString
+      # Secrets — set in the dashboard (sync:false keeps them out of git):
+      - key: FIELD_ENCRYPTION_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_ENVIRONMENT
+        value: production
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: EMAIL_USE_TLS
+        sync: false
+      - key: AWS_STORAGE_BUCKET_NAME
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_S3_REGION_NAME
+        sync: false
+      - key: AWS_S3_ENDPOINT_URL
+        sync: false
+      - key: FRONTEND_BASE_URL
+        sync: false
+
+  # --- Celery worker (background tasks) ---
+  - type: worker
+    name: hrms-celery-worker
+    runtime: docker
+    dockerfilePath: ./deployment/backend/Dockerfile
+    dockerContext: .
+    plan: starter
+    dockerCommand: celery -A config worker -l info
+    envVars: *backend_env
+
+  # --- Celery beat (fan-out schedules: accrual, reminders, payroll drafts) ---
+  - type: worker
+    name: hrms-celery-beat
+    runtime: docker
+    dockerfilePath: ./deployment/backend/Dockerfile
+    dockerContext: .
+    plan: starter
+    dockerCommand: celery -A config beat -l info
+    envVars: *backend_env

@@ -1,0 +1,122 @@
+{% comment %}
+The offer letter, as the candidate receives it.
+
+**A letter, not a form.** The payslip template is a dense grid because a payslip
+is a reconciliation — somebody checks it line by line. An offer is read once, by
+a person deciding whether to change jobs, and it is the first document the
+company ever sends them. So it is set as prose with the terms in one block:
+addressed to them, signed by the company, and short enough to read in full.
+
+**The terms table is the same six facts the response page shows.** They have to
+agree — the letter is the artefact a dispute turns on, and a PDF that says one
+salary while the page says another is worse than having no letter.
+
+**No product branding.** This is the company's letter to their candidate, on the
+company's name. The HR software has no business appearing on it, the same
+reasoning that keeps the careers board and the response page in the company's
+name rather than ours.
+{% endcomment %}<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 2.2cm; }
+  body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; color: #1f2937; font-size: 12px; line-height: 1.65; }
+  .header { border-bottom: 2px solid #111827; padding-bottom: 14px; margin-bottom: 26px; }
+  .company-name { font-size: 19px; font-weight: 700; letter-spacing: -0.2px; }
+  .company-address { font-size: 10px; color: #6b7280; margin-top: 3px; white-space: pre-line; }
+  .logo { max-height: 44px; max-width: 160px; margin-bottom: 6px; }
+  .dateline { text-align: right; font-size: 11px; color: #6b7280; margin-bottom: 22px; }
+  .addressee { margin-bottom: 20px; }
+  .addressee .name { font-weight: 700; font-size: 13px; }
+  h1 { font-size: 15px; margin: 0 0 16px; letter-spacing: -0.2px; }
+  p { margin: 0 0 12px; }
+  table.terms { width: 100%; border-collapse: collapse; margin: 20px 0 22px; }
+  table.terms th { text-align: left; font-size: 10px; text-transform: uppercase;
+                   letter-spacing: 0.06em; color: #6b7280; padding: 0 0 6px;
+                   border-bottom: 1px solid #e5e7eb; }
+  table.terms td { padding: 9px 0; border-bottom: 1px solid #f3f4f6; }
+  table.terms td.label { color: #6b7280; width: 42%; }
+  table.terms td.value { font-weight: 700; text-align: right; }
+  .respond { margin: 22px 0; padding: 12px 14px; background: #f9fafb;
+             border-left: 3px solid #111827; font-size: 11px; }
+  .respond .url { font-family: "DejaVu Sans Mono", monospace; font-size: 10px;
+                  color: #374151; word-break: break-all; }
+  .sign { margin-top: 34px; }
+  .sign .line { margin-top: 34px; border-top: 1px solid #9ca3af; width: 220px; padding-top: 5px;
+                font-size: 11px; color: #6b7280; }
+  .footer { margin-top: 30px; padding-top: 10px; border-top: 1px solid #f3f4f6;
+            font-size: 9.5px; color: #9ca3af; }
+</style>
+</head>
+<body>
+  <div class="header">
+    {% if company.logo %}<img class="logo" src="{{ company.logo.path }}" alt="">{% endif %}
+    <div class="company-name">{{ company.name }}</div>
+    {% if company.address %}<div class="company-address">{{ company.address }}</div>{% endif %}
+  </div>
+
+  <div class="dateline">{{ issued_on }}</div>
+
+  <div class="addressee">
+    <div class="name">{{ candidate.name }}</div>
+    {% if candidate.email %}<div style="font-size:11px;color:#6b7280;">{{ candidate.email }}</div>{% endif %}
+  </div>
+
+  <h1>Offer of employment</h1>
+
+  <p>Dear {{ candidate.name }},</p>
+
+  <p>
+    Following your application{% if candidate.job %} for the position of
+    {{ candidate.job.title }}{% endif %} and the conversations that followed, we
+    are pleased to offer you a position at {{ company.name }}. The terms are set
+    out below.
+  </p>
+
+  <table class="terms">
+    <tr><th colspan="2">The terms of this offer</th></tr>
+    {% if role %}<tr><td class="label">Position</td><td class="value">{{ role }}</td></tr>{% endif %}
+    {% if offer.department %}<tr><td class="label">Department</td><td class="value">{{ offer.department.name }}</td></tr>{% endif %}
+    {% if offer.annual_salary is not None %}
+    <tr><td class="label">Annual gross salary</td><td class="value">Rs {{ salary_display }}</td></tr>
+    {% endif %}
+    {% if offer.start_date %}<tr><td class="label">Proposed start date</td><td class="value">{{ offer.start_date }}</td></tr>{% endif %}
+    {% if offer.expires_on %}<tr><td class="label">This offer is open until</td><td class="value">{{ offer.expires_on }}</td></tr>{% endif %}
+  </table>
+
+  {% if offer.notes %}
+  {% comment %}
+  🔴 `Offer.notes` is an internal field and must never reach this document.
+  It holds things like "lowballed them; will go to 700k if pushed" — which is
+  exactly why the *public* payload excludes it too. Rendering it here is
+  deliberately not done; this block exists only to say so, because the next
+  person adding a "notes on the letter" feature will need a different field.
+  {% endcomment %}
+  {% endif %}
+
+  {% if respond_url %}
+  <div class="respond">
+    <strong>To accept or decline</strong>, please use the personal link below. It
+    is unique to you — anyone who opens it can answer on your behalf, so please
+    do not forward it.
+    <div class="url">{{ respond_url }}</div>
+  </div>
+  {% endif %}
+
+  <p>
+    If anything above does not match your understanding, please contact us before
+    responding rather than accepting and correcting it afterwards.
+  </p>
+
+  <div class="sign">
+    <p>Yours sincerely,</p>
+    <div class="line">For and on behalf of {{ company.name }}</div>
+  </div>
+
+  <div class="footer">
+    This letter sets out the principal terms of the offer. It is not a contract of
+    employment; a contract will be issued separately on or before your start date.
+  </div>
+</body>
+</html>

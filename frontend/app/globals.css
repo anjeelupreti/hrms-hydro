@@ -1,0 +1,51 @@
+/*
+ * MUI's CssBaseline (wired in lib/theme/ThemeRegistry.tsx) handles body
+ * background/color/font resets. Dark mode + theme presets are wired
+ * properly in Phase 8; until then MUI's default light theme applies.
+ */
+html,
+body {
+  height: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/*
+ * `DomainGlyph`'s pulse.
+ *
+ * `DomainGlyph` sets `className="glyph-pulse"` on the focal element of every
+ * mark when its `animate` prop is on. Defined here rather than in a component
+ * because a bare `className` on an SVG child is how the glyphs are built, and
+ * MUI's `sx` cannot reach it.
+ *
+ * Deliberately slight: it draws the eye to the one part of the drawing that
+ * carries the idea — the record everything reads from, the gap in the
+ * timeline, the value landing across the tax bands — without turning a hero
+ * into something that moves while you read it.
+ */
+@keyframes glyph-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.62;
+    transform: scale(1.08);
+  }
+}
+
+.glyph-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: glyph-pulse 2.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glyph-pulse {
+    animation: none;
+  }
+}

@@ -1,0 +1,35 @@
+# Python
+backend/venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/staticfiles/
+backend/media/
+backend/.env
+# Any variant, not just the exact name. A backup taken before switching
+# mail providers (`.env.gmail.bak`) carried a real app password and was
+# untracked-but-not-ignored — one `git add -A` from being published.
+backend/.env.*
+deployment/.env.*
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+
+# Editor / OS
+.vscode/*
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+.claude/
+
+# Celery Beat local schedule state
+backend/celerybeat-schedule*
+
+# Docker
+deployment/.env
+backend/.venv/
+
+
