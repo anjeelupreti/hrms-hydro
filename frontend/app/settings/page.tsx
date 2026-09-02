@@ -4,6 +4,7 @@ import BusinessIcon from "@mui/icons-material/Business";
 import LockIcon from "@mui/icons-material/Lock";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import PaletteIcon from "@mui/icons-material/Palette";
+import PasswordField from "@/components/common/PasswordField";
 import ColourPicker from "@/components/common/ColourPicker";
 import { DENSITY_OPTIONS, SIDEBAR_MODES, useThemeStore } from "@/lib/store/theme";
 import PersonIcon from "@mui/icons-material/Person";
@@ -245,9 +246,9 @@ function SecurityTab() {
           </Alert>
         )}
         <Stack spacing={2} sx={{ mt: 2, maxWidth: 420 }}>
-          <TextField label="Current password" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} />
-          <TextField label="New password" type="password" value={next} onChange={(e) => setNext(e.target.value)} />
-          <TextField label="Confirm new password" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          <PasswordField label="Current password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          <PasswordField label="New password" value={next} onChange={(e) => setNext(e.target.value)} />
+          <PasswordField label="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           <Button
             variant="contained"
             onClick={handleSubmit}

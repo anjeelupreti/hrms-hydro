@@ -11,6 +11,7 @@ import Typography from "@mui/material/Typography";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import PasswordField from "@/components/common/PasswordField";
 import { useChangePassword } from "@/hooks/useAccount";
 import { useMe } from "@/hooks/useMe";
 
@@ -80,9 +81,8 @@ export default function FirstPasswordGate() {
 
         <form onSubmit={submit}>
           <Stack spacing={2}>
-            <TextField
+            <PasswordField
               label="Current password"
-              type="password"
               size="small"
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
@@ -90,18 +90,16 @@ export default function FirstPasswordGate() {
               autoFocus
               fullWidth
             />
-            <TextField
+            <PasswordField
               label="New password"
-              type="password"
               size="small"
               value={next}
               onChange={(e) => setNext(e.target.value)}
               autoComplete="new-password"
               fullWidth
             />
-            <TextField
+            <PasswordField
               label="Confirm new password"
-              type="password"
               size="small"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}

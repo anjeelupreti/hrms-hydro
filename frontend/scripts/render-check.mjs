@@ -106,7 +106,12 @@ await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
  */
 async function signInFields() {
   const user = page.getByLabel(/username/i);
-  const pass = page.getByLabel(/password/i);
+  // `getByLabel(/password/i)` matches the show/hide button too — it is
+  // labelled "Show password", correctly, for the screen reader. Addressed by
+  // `name` instead, which the field now carries so password managers can fill
+  // it; narrowing the selector is the right half to change, not the label that
+  // has a user behind it.
+  const pass = page.locator('input[name="password"]');
   for (let attempt = 0; attempt < 30; attempt += 1) {
     await user.fill(USER);
     await pass.fill(PASS);

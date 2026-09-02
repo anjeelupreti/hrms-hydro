@@ -13,6 +13,7 @@ import { useState } from "react";
 
 import Divider from "@mui/material/Divider";
 
+import PasswordField from "@/components/common/PasswordField";
 import PageContainer from "@/components/shell/PageContainer";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCan, useMe } from "@/hooks/useMe";
@@ -174,9 +175,7 @@ function EmailSettingsForm({ settings }: { settings: NonNullable<ReturnType<type
               value={username}
               onChange={(e) => setUsername(e.target.value)}
             />
-            <TextField
-              label="Password"
-              type="password"
+            <PasswordField
               fullWidth
               value={password}
               onChange={(e) => setPassword(e.target.value)}
