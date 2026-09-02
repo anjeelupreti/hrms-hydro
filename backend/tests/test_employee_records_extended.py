@@ -343,3 +343,88 @@ def test_the_office_and_personal_channels_are_kept_apart(admin_client, worker):
     assert worker.personal_email == "sita.rai@gmail.com"
     assert worker.blood_group == "O+"
     assert worker.permanent_address != worker.temporary_address
+
+
+# ── Work history, from HR's side ─────────────────────────────────────────
+
+EXPERIENCES = "/api/v1/employees/experiences/"
+
+
+def test_hr_can_maintain_and_verify_somebody_elses_work_history(hr_client, worker):
+    """🔒 The gap: `is_verified` could only be set by the person claiming it.
+
+    Experience was reachable only through `accounts/experiences/`, which is
+    strictly self-scoped. HR could read a work history in the profile payload
+    and could not correct it, add the internal post it had just promoted
+    somebody into, or tick the flag that exists precisely for HR to confirm a
+    self-declared claim against a document.
+    """
+    made = hr_client.post(
+        EXPERIENCES,
+        {
+            "employee": worker.pk,
+            "kind": "previous",
+            "title": "Site Engineer",
+            "company": "Chilime Hydropower",
+            "start_year": 2018,
+            "end_year": 2021,
+        },
+        format="json",
+    )
+    assert made.status_code == 201
+    assert made.data["is_verified"] is False
+
+    verified = hr_client.patch(
+        f"{EXPERIENCES}{made.data['id']}/", {"is_verified": True}, format="json"
+    )
+    assert verified.status_code == 200
+    assert verified.data["is_verified"] is True
+
+    # Audited, so a verification has somebody standing behind it.
+    from employees.models import EmployeeExperience
+
+    assert EmployeeExperience.objects.get(pk=made.data["id"]).updated_by is not None
+
+
+def test_previous_and_internal_are_the_same_table_and_two_sections(hr_client, worker):
+    """A post here and a job before here carry the same six facts, so `kind`
+    is a field rather than a second table — but the reader sees two lists."""
+    for kind, title in (("previous", "Graduate Engineer"), ("internal", "Senior Engineer")):
+        assert hr_client.post(
+            EXPERIENCES,
+            {"employee": worker.pk, "kind": kind, "title": title, "start_year": 2019},
+            format="json",
+        ).status_code == 201
+
+    rows = hr_client.get(f"{EXPERIENCES}?employee={worker.pk}").data["results"]
+    assert {r["kind"] for r in rows} == {"previous", "internal"}
+    assert hr_client.get(f"{EXPERIENCES}?employee={worker.pk}&kind=internal").data["count"] == 1
+
+
+def test_a_post_cannot_end_before_it_started(hr_client, worker):
+    response = hr_client.post(
+        EXPERIENCES,
+        {"employee": worker.pk, "kind": "previous", "title": "Impossible",
+         "start_year": 2020, "end_year": 2015},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "end_year" in response.data
+
+
+def test_an_officer_maintains_work_history_but_does_not_add_to_it(officer_client, hr_client, worker):
+    """The verb rule, on one more record type: operate, do not create."""
+    made = hr_client.post(
+        EXPERIENCES,
+        {"employee": worker.pk, "kind": "previous", "title": "Draughtsman",
+         "start_year": 2015},
+        format="json",
+    )
+    assert officer_client.patch(
+        f"{EXPERIENCES}{made.data['id']}/", {"title": "Senior Draughtsman"}, format="json"
+    ).status_code == 200
+    assert officer_client.post(
+        EXPERIENCES,
+        {"employee": worker.pk, "kind": "previous", "title": "Nope", "start_year": 2010},
+        format="json",
+    ).status_code == 403

@@ -428,8 +428,15 @@ class Employee(AuditModel):
         return self.probation_end_date is not None and on_date < self.probation_end_date
 
 
-class EmployeeExperience(models.Model):
+class EmployeeExperience(AuditModel):
     """A post somebody has held — here, or somewhere before here.
+
+    **Audited, now that HR maintains it too.** It began as a self-service list
+    and needed no trail: there was one possible author and they were the
+    subject. Once HR can add an internal post, correct a claim, and — the one
+    that matters — tick `is_verified` after seeing the certificate, "who said
+    so" becomes a question the record has to answer. A verification with no
+    verifier is a tick somebody can point at and nobody has to stand behind.
 
     Kept as its own model (not a JSON blob) so entries can be added and removed
     individually and later reported on.

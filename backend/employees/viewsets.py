@@ -32,6 +32,7 @@ from employees.imports import (
     preview_employees,
 )
 from employees.models import (
+    EmployeeExperience,
     Award,
     CorporatePost,
     CorporateRole,
@@ -50,6 +51,7 @@ from employees.models import (
 from employees.offboarding import outstanding_items
 from employees.scoping import scope_to_visible
 from employees.serializers import (
+    EmployeeExperienceAdminSerializer,
     AwardSerializer,
     CorporatePostSerializer,
     CorporateRoleSerializer,
@@ -1050,6 +1052,34 @@ class _EmployeeHRRecordViewSet(AuditViewSetMixin, ModelViewSet):
         if requested and str(requested).isdigit():
             qs = qs.filter(employee_id=int(requested))
         return qs
+
+
+class EmployeeExperienceViewSet(_EmployeeHRRecordViewSet):
+    """Work history, from HR's side.
+
+    **The gap this closes.** Experience was reachable only through
+    `accounts/experiences/`, which is strictly self-scoped — the docstring there
+    says "you can't touch anyone else's" — so HR could *read* somebody's work
+    history in the profile payload and could not correct a typo in it, add the
+    internal post it had just promoted them into, or set `is_verified` after
+    checking the certificate. That last one is the sharpest: the flag exists
+    precisely for HR to confirm a self-declared claim against a document, and
+    the only people who could write it were the people making the claim.
+
+    Employees keep their own endpoint for their own entries. This one is the
+    other half: HR maintains anybody's, and `is_verified` is writable here and
+    nowhere else.
+    """
+
+    serializer_class = EmployeeExperienceAdminSerializer
+    model = EmployeeExperience
+    filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["employee", "kind", "is_verified"]
+    ordering_fields = ["start_year", "end_year"]
+    # Newest first, and named explicitly: the model's own ordering is by
+    # `-start_year`, and an annotated or filtered queryset without an explicit
+    # ordering is what raises `UnorderedObjectListWarning` under pagination.
+    ordering = ["-start_year", "-id"]
 
 
 class AwardViewSet(_EmployeeHRRecordViewSet):

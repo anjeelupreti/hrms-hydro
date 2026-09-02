@@ -755,3 +755,32 @@ def test_a_decided_memorandum_takes_no_more_comments(memo, cast, recommend):
     assert response.status_code == 400
     memo.refresh_from_db()
     assert memo.attachments.count() == 0
+
+
+def test_acting_out_of_turn_is_a_403_not_a_400(memo, cast, recommend):
+    """🔒 The refusal an ordinary user hits most, with the right code on it.
+
+    Somebody opens a memorandum that is two people ahead of them and presses
+    the button. That is a question about *who is asking*, and the guards beside
+    it — "only the initiator submits", "only the named approver decides" —
+    already answer 403. This one answered 400, so a browser branching on 403 to
+    say "not yours" showed a validation error instead.
+    """
+    submit(memo)
+
+    # `c` is third in the chain; `a` is holding it.
+    late = _client(cast["c"]).post(
+        f"{LIST}{memo.id}/proceed/", {"action": recommend.pk}, format="json"
+    )
+    assert late.status_code == 403
+    assert late.data["detail"] == "This memorandum is not with you."
+
+    # The approver is not exempt: their turn has not come either.
+    early = _client(cast["approver"]).post(
+        f"{LIST}{memo.id}/approve/", {"comment": "early"}, format="json"
+    )
+    assert early.status_code == 403
+
+    # And a genuinely bad request is still a 400, so the two stay distinguishable.
+    no_action = _client(cast["a"]).post(f"{LIST}{memo.id}/proceed/", {}, format="json")
+    assert no_action.status_code == 400

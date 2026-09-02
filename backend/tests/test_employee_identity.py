@@ -151,3 +151,60 @@ def test_a_colleague_cannot_read_somebody_elses_scans(company, employee_client, 
     assert response.status_code == 200, response.data
     assert "citizenship_front" not in response.data
     assert "pan_number" not in response.data
+
+
+def test_a_colleague_cannot_read_a_home_address_or_personal_number(
+    employee_client, hr_client, person, company, db
+):
+    """🔒 The directory publishes correspondence details, not private ones.
+
+    `office_phone` and `office_email` exist to be looked up — that is what a
+    staff directory is for. The personal pair and the two addresses arrived
+    with the same piece of work and were not added to `SENSITIVE_FIELDS`, so
+    every colleague could read every home address off the same payload.
+    """
+    # Somebody *else* — reading your own record is supposed to show everything.
+    from accounts.models import User
+    from employees.models import Employee
+
+    colleague = Employee.objects.create(
+        user=User.objects.create_user(username="someone.else", password="x"),
+        employee_code="EMP-901",
+        date_joined=date(2024, 1, 1),
+        primary_company=company,
+    )
+
+    hr_client.patch(
+        f"/api/v1/employees/employees/{colleague.pk}/",
+        {
+            "office_email": "worker@vlucl.com.np",
+            "office_phone": "+977-1-4000000",
+            "personal_email": "worker@example.com",
+            "personal_phone": "+977-9800000000",
+            "permanent_address": "Uttargaya-4, Rasuwa",
+            "temporary_address": "Lazimpat, Kathmandu",
+            "blood_group": "O+",
+        },
+        format="json",
+    )
+
+    seen = employee_client.get(f"/api/v1/employees/employees/{colleague.pk}/").data
+    for private in (
+        "personal_email",
+        "personal_phone",
+        "permanent_address",
+        "temporary_address",
+    ):
+        assert private not in seen, private
+
+    # Correspondence details stay — withholding them would break the directory.
+    assert seen["office_email"] == "worker@vlucl.com.np"
+    assert seen["office_phone"] == "+977-1-4000000"
+    # And the blood group, which is on the ID card for the same reason it is
+    # here: the moment it matters is the moment nobody can ask HR.
+    assert seen["blood_group"] == "O+"
+
+    # HR still sees everything.
+    full = hr_client.get(f"/api/v1/employees/employees/{colleague.pk}/").data
+    assert full["personal_email"] == "worker@example.com"
+    assert full["permanent_address"] == "Uttargaya-4, Rasuwa"

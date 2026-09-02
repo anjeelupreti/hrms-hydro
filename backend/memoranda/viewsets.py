@@ -24,7 +24,7 @@ from memoranda.serializers import (
     MemorandumListSerializer,
     MemorandumSerializer,
 )
-from memoranda.workflow import MemorandumError
+from memoranda.workflow import MemorandumError, NotYourTurn
 
 
 class MemorandumActionViewSet(AuditViewSetMixin, ModelViewSet):
@@ -177,6 +177,8 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         cannot forget: the exception is the refusal, and this is where it turns
         into an answer.
         """
+        if isinstance(exc, NotYourTurn):
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         if isinstance(exc, MemorandumError):
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return super().handle_exception(exc)
@@ -286,6 +288,10 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
     def _run(self, fn, *args, **kwargs):
         try:
             memo = fn(*args, **kwargs)
+        except NotYourTurn as exc:
+            # Checked before its parent: "this is not with you" is a question
+            # about who is asking, and the guards beside it already answer 403.
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except MemorandumError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         memo.refresh_from_db()

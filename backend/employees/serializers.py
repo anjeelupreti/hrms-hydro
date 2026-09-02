@@ -19,6 +19,7 @@ from employees.models import (
     EmergencyContact,
     Employee,
     EmployeeChangeRequest,
+    EmployeeExperience,
     EmployeeLog,
     LifecycleApprovalAction,
     LifecycleEvent,
@@ -207,6 +208,21 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         "legal_last_name", "citizenship_number", "citizenship_front",
         "citizenship_back", "marital_status", "pan_number", "ssf_number",
         "pf_number", "cit_number", "passport_number", "passport_expiry",
+        # Where somebody lives and how to reach them off duty.
+        #
+        # These arrived with the corporate-contact work and were not added
+        # here, so every colleague could read every home address and personal
+        # mobile number off the directory. The distinction is the one the
+        # fields themselves draw: `office_phone` and `office_email` are
+        # *correspondence* details and stay visible — that is what a directory
+        # is for — while the personal pair and the two addresses are not the
+        # company's to publish internally.
+        #
+        # `blood_group` is deliberately *not* here: it is on the ID card for
+        # the same reason it is in this system, and the one moment it matters
+        # is the one moment nobody can ask HR.
+        "personal_phone", "personal_email",
+        "permanent_address", "temporary_address",
     )
 
     def get_full_name(self, obj):
@@ -700,6 +716,39 @@ class EmployeeChangeRequestSerializer(serializers.ModelSerializer):
 
 
 # ── The lookups behind post and role ─────────────────────────────────────
+
+
+class EmployeeExperienceAdminSerializer(serializers.ModelSerializer):
+    """Work history, as HR maintains it.
+
+    Distinct from `accounts.EmployeeExperienceSerializer`, which is the one an
+    employee uses on their own profile and which cannot set `is_verified` —
+    a claim that verifies itself is not a check. This one can, because
+    confirming an entry against a document is the whole reason the flag exists.
+    """
+
+    employee_name = serializers.SerializerMethodField()
+    kind_display = serializers.CharField(source="get_kind_display", read_only=True)
+
+    class Meta:
+        model = EmployeeExperience
+        fields = [
+            "id", "employee", "employee_name", "kind", "kind_display",
+            "title", "company", "start_year", "end_year", "description",
+            "is_verified",
+        ]
+
+    def get_employee_name(self, obj):
+        return obj.employee.user.get_full_name() or obj.employee.employee_code
+
+    def validate(self, attrs):
+        start = attrs.get("start_year", getattr(self.instance, "start_year", None))
+        end = attrs.get("end_year", getattr(self.instance, "end_year", None))
+        if start and end and end < start:
+            raise serializers.ValidationError(
+                {"end_year": "A post cannot end before it started."}
+            )
+        return attrs
 
 
 class CorporatePostSerializer(serializers.ModelSerializer):

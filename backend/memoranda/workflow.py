@@ -34,6 +34,24 @@ class MemorandumError(Exception):
     """The memorandum cannot be moved as asked."""
 
 
+class NotYourTurn(MemorandumError):
+    """The right act, by the wrong person — or the right person too early.
+
+    A subclass rather than another message, because this is the one refusal in
+    the module that is about *who is asking* rather than about the request.
+    Everything else `MemorandumError` covers is a bad request — a backdated
+    date, an action that was not chosen, a chain that cannot be reordered — and
+    answers 400. This answers 403, which is what the sibling guards in the
+    viewset already do for "only the initiator submits" and "only the named
+    approver decides".
+
+    The distinction is not pedantry: a browser that branches on 403 to say "not
+    yours" showed a validation error instead, on the one refusal an ordinary
+    user hits most — opening a memorandum that is two people ahead of them and
+    pressing the button anyway.
+    """
+
+
 # ── Naming people ────────────────────────────────────────────────────────
 
 
@@ -274,7 +292,7 @@ def _require_holder(memo, employee):
     if memo.status != Memorandum.Status.IN_PROGRESS:
         raise MemorandumError("This memorandum has not been submitted.")
     if employee is None or memo.current_holder_id != employee.pk:
-        raise MemorandumError("This memorandum is not with you.")
+        raise NotYourTurn("This memorandum is not with you.")
 
 
 @transaction.atomic

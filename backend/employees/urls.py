@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from employees.change_request_api import EmployeeChangeRequestViewSet
 from employees.viewsets import (
     AwardViewSet,
+    EmployeeExperienceViewSet,
     CorporatePostViewSet,
     CorporateRoleViewSet,
     DepartmentViewSet,
@@ -40,6 +41,9 @@ router.register("nominees", NomineeViewSet, basename="nominee")
 router.register("education", EducationRecordViewSet, basename="education-record")
 # What the company records *about* somebody, which they may read and only HR
 # may write — see `_EmployeeHRRecordViewSet`.
+# Work history. The self-service half lives at `accounts/experiences/`; this
+# is HR's, and the only place `is_verified` can be set.
+router.register("experiences", EmployeeExperienceViewSet, basename="experience")
 router.register("awards", AwardViewSet, basename="award")
 router.register("disciplinary-actions", DisciplinaryActionViewSet, basename="disciplinary-action")
 router.register("suspensions", SuspensionViewSet, basename="suspension")
