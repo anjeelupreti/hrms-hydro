@@ -1,5 +1,7 @@
 import type { SvgIconComponent } from "@mui/icons-material";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import AssignmentIcon from "@mui/icons-material/Assignment";
+import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import CampaignIcon from "@mui/icons-material/Campaign";
@@ -197,8 +199,17 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: ["checklists", "offboarding", "joiners", "leavers", "tasks"],
       },
       {
+        // No permission. The training catalogue is the one HR module an
+        // ordinary employee is *supposed* to open: the page's own subtitle
+        // says "browse programs, request a seat, and track your learning", the
+        // API lets any authenticated user read programs and create a request
+        // for themselves, and `RosterDialog` gives HR approve/decline over
+        // those requests. Requiring `workplace.manage` here meant the route
+        // guard turned every program card into a dead click for the people the
+        // request flow exists for — the whole employee half of the module was
+        // unreachable. What each role may *do* is already decided by the
+        // server and by `isHR` inside the page.
         href: "/training",
-        permission: "workplace.manage",
         label: "Training",
         icon: SchoolIcon,
         module: "training",
@@ -262,6 +273,24 @@ export const NAV_GROUPS: NavGroup[] = [
         module: "attendance",
         keywords: ["hours", "billable", "projects", "time entry"],
       },
+      {
+        // Next to timesheets on purpose: they are the two things people
+        // confuse, and the answer to "where do I record the week at site"
+        // should be one row away from the wrong answer. A visit is a journey
+        // approved before departure and reported on return; a time entry is
+        // hours on a project on a day. See `backend/fieldvisits/models.py`.
+        //
+        // No permission: the traveller raises their own travel order, and the
+        // named approver decides it.
+        href: "/field-visits",
+        label: "Field visits",
+        icon: TravelExploreIcon,
+        module: "attendance",
+        keywords: [
+          "site visit", "travel", "travel order", "tour", "field", "inspection",
+          "supervision", "per diem", "site",
+        ],
+      },
     ],
   },
   {
@@ -304,6 +333,22 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: DevicesIcon,
         module: "assets",
         keywords: ["equipment", "laptop", "devices", "inventory"],
+      },
+      {
+        // **No permission.** A memorandum is raised by whoever has the proposal
+        // — an engineer asking for a pump, a site officer asking for an
+        // advance — and the chain decides what happens to it. Gating the row
+        // would hide the module from the people it exists for; who may *act*
+        // on one is decided per memorandum by the chain itself, and the desk
+        // shows each reader only what they raised, hold, or have handled.
+        href: "/memoranda",
+        label: "Memoranda",
+        icon: AssignmentIcon,
+        module: "documents",
+        keywords: [
+          "memo", "memorandum", "proposal", "note", "approval", "recommend",
+          "circular", "tippani",
+        ],
       },
       {
         href: "/helpdesk",
@@ -416,6 +461,7 @@ const ROUTE_PERMISSIONS: Record<string, string> = {
   // submits claims. Without this the longest-match lookup inherits that and
   // any employee could open a page whose every request 403s.
   "/expenses/budgets": "expenses.manage",
+  "/settings/memorandum-actions": "settings.manage",
 };
 
 /** Whether this user may open a given path at all — used by the route guard. */

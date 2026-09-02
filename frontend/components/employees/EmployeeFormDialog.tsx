@@ -42,7 +42,12 @@ import type {
 } from "@/types/employees";
 import DateField from "@/components/common/DateField";
 import ImageUpload from "@/components/common/ImageUpload";
-import { CompanyPicker, DepartmentPicker, DesignationPicker } from "@/components/common/pickers";
+import {
+  CompanyPicker,
+  DepartmentPicker,
+  DesignationPicker,
+  EmployeePicker,
+} from "@/components/common/pickers";
 import SecondaryCompanyField from "@/components/companies/SecondaryCompanyField";
 import { useCorporatePosts, useCorporateRoles } from "@/hooks/useEmployeeRecords";
 
@@ -106,6 +111,7 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
       date_of_birth: "",
       gender: "",
       date_joined: "",
+      probation_end_date: "",
       employment_status: "active",
       department: null,
       designation: null,
@@ -147,6 +153,7 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
     date_of_birth: employee.date_of_birth ?? "",
     gender: employee.gender,
     date_joined: employee.date_joined,
+    probation_end_date: employee.probation_end_date ?? "",
     employment_status: employee.employment_status,
     department: employee.department,
     designation: employee.designation,
@@ -405,6 +412,17 @@ function EmployeeForm({
             />
           </Grid>
           <Grid size={{ xs: 12, sm: 6 }}>
+            {/* Blank means not on probation, which is why it is not required.
+                The profile header reads this to show "on probation until …",
+                and the onboarding checklist dates its tasks from it. */}
+            <DateField
+              label="Probation ends"
+              value={values.probation_end_date}
+              onChange={(v) => set("probation_end_date", v)}
+              startIcon={<EventIcon fontSize="small" />}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <TextField
               select
               label="Employment status"
@@ -450,6 +468,31 @@ function EmployeeForm({
               value={values.designation ?? null}
               onChange={(id) => set("designation", id)}
               departmentId={values.department ?? undefined}
+            />
+          </Grid>
+
+          {/* ── Who they report to ─────────────────────────────────────
+              This field *is* the organisation chart. `/employees/org-chart`
+              draws nothing but `manager` walked upwards, and every "your
+              team" list, approval fallback and manager notification reads
+              the same column — so a company where nobody has set it has an
+              empty chart and no obvious reason why.
+
+              It was already in the form's state and in the payload sent to
+              the server; what was missing was any control to set it, which
+              made the one field the hierarchy depends on the one field
+              nobody could edit. */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EmployeePicker
+              label="Reports to"
+              value={values.manager ?? null}
+              onChange={(id) => set("manager", id)}
+              placeholder="Nobody — top of the chart"
+              size="small"
+              // Somebody cannot be their own manager, and the server would
+              // refuse the cycle anyway; keeping them out of the list means
+              // the refusal never has to happen.
+              excludeIds={employee ? [employee.id] : undefined}
             />
           </Grid>
 

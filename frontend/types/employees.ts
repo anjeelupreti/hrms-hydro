@@ -163,6 +163,14 @@ export type EmployeeFormValues = {
   date_of_birth: string;
   gender: Gender;
   date_joined: string;
+  /**
+   * When probation ends — blank for somebody who is not on it.
+   *
+   * Writable on the server and shown on the profile, but there was no control
+   * for it anywhere, so a probation date could only ever be set by the seed or
+   * by hand in the database.
+   */
+  probation_end_date: string;
   employment_status: EmploymentStatus;
   department: number | null;
   designation: number | null;

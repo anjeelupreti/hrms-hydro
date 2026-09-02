@@ -22,7 +22,8 @@ import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
@@ -102,6 +103,33 @@ export default function PayrollRunDetailPage() {
     }
   }
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Both header buttons used to call `.mutate()` and drop the rejection on the
+   * floor. Finalising is refused for good reasons — a run with unresolved
+   * errors, or statutory figures nobody has checked against the Finance Act —
+   * and each refusal comes back naming exactly what to fix. None of it reached
+   * the screen: the button greyed for a moment and nothing happened, which is
+   * indistinguishable from a broken button and is what "a 400 somewhere in
+   * payroll" looked like from the outside.
+   */
+  async function handleFinalize() {
+    setError(null);
+    try {
+      await finalizeRun.mutateAsync(runId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That run could not be finalised.");
+    }
+  }
+
+  async function handleStart() {
+    setError(null);
+    try {
+      await startRun.mutateAsync(runId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That run could not be started.");
+    }
+  }
 
   async function handleMarkPaid() {
     if (!payDialogPayslip) return;
@@ -241,7 +269,7 @@ export default function PayrollRunDetailPage() {
             <Button
               variant="contained"
               startIcon={<PlayArrowIcon />}
-              onClick={() => startRun.mutate(runId)}
+              onClick={handleStart}
               disabled={startRun.isPending}
             >
               Run Payroll
@@ -252,7 +280,7 @@ export default function PayrollRunDetailPage() {
               variant="contained"
               color="secondary"
               startIcon={<TaskAltIcon />}
-              onClick={() => finalizeRun.mutate(runId)}
+              onClick={handleFinalize}
               disabled={finalizeRun.isPending}
             >
               Finalize
@@ -275,6 +303,24 @@ export default function PayrollRunDetailPage() {
           )}
         </Stack>
       </Stack>
+
+      {error ? (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          onClose={() => setError(null)}
+          action={
+            /* The two refusals that block finalising are both fixed on the
+               statutory rates page, so the alert carries the way there rather
+               than leaving the reader to find it. */
+            <Button component={Link} href="/payroll/statutory-rates" size="small" color="inherit">
+              Statutory rates
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      ) : null}
 
       {run?.status === "processing" && (
         <Alert severity="info" sx={{ mb: 2 }}>
