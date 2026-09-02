@@ -187,13 +187,26 @@ services:
     image: node:22-alpine
     container_name: hrms-hydro-frontend
     working_dir: /app
-    command: sh -c "npm install && npm run dev"
-    # The dev server dies on this machine — Turbopack plus a polling watcher
-    # over a Windows bind mount is heavy enough that Docker reaps it, and it
-    # exits 0 so nothing looks wrong. A half-hour of a session has gone into
-    # noticing that "my change isn't showing" meant "the server is not running".
-    # Bringing it back automatically is not a fix for the memory use; it is a
-    # fix for the *silence*.
+    # **A production build, not `next dev`.** This container exists to be
+    # *tested against*, and the dev server does not survive this machine: over a
+    # Windows bind mount, Turbopack plus a polling watcher is heavy enough that
+    # Docker reaps it, and its HMR WebSocket fails the upgrade
+    # (`ERR_INVALID_HTTP_RESPONSE`). That last part is not cosmetic — measured
+    # in a real browser, the served page had **no React handlers attached at
+    # all**: no `__reactProps` on the form, no listener on any input. Every
+    # click on :3001 was hitting dead HTML, which is what "the cards are
+    # unclickable" looks like from the outside.
+    #
+    # The same check against `next build && next start` attaches React and the
+    # whole app is interactive. So the mode was the fault, not the code.
+    #
+    # The cost is that a source change needs a `docker compose restart frontend`
+    # to be picked up, which is the right trade for an environment whose job is
+    # to be tried rather than edited.
+    command: sh -c "npm install && npm run build && npm run start -- -p 3000"
+    # It still exits silently if the box runs out of memory mid-build, and an
+    # exit code of 0 makes that look like a clean shutdown. Restarting is not a
+    # fix for the memory use; it is a fix for the *silence*.
     restart: unless-stopped
     environment:
       # **Two URLs, and they are deliberately different.**
