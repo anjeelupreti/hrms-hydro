@@ -18,6 +18,8 @@ from accounts.policy import (
     Perm,
     PermissionError_,
     can,
+    can_create,
+    can_delete,
     grant,
     manages,
     permissions_of,
@@ -63,11 +65,35 @@ def test_an_employee_holds_nothing(company, staff):
     assert all(can(staff, perm) is False for perm in ALL_PERMS)
 
 
-def test_an_officer_holds_nothing_by_default(company, officer):
-    """🔒 The point of the role. "As per their scope" only means something if
-    the default scope is empty — otherwise an officer is just another admin."""
-    assert all(can(officer, perm) is False for perm in ALL_PERMS)
-    assert permissions_of(officer) == set()
+def test_an_officer_operates_but_does_not_shape(company, officer):
+    """🔒 What separates an officer from an admin.
+
+    The default used to be *nothing*, on the argument that "as per their scope"
+    only means something if the scope starts empty. In practice that made a
+    newly appointed officer indistinguishable from an employee — every edit
+    403'd from the role whose whole purpose is editing — so the operating set
+    is now held by the role and the *verb* is what keeps them an officer.
+
+    The half that must not drift is the exclusions: settings, payroll and the
+    company mailbox are not "operating".
+    """
+    assert can(officer, Perm.PEOPLE_MANAGE) is True
+    assert can(officer, Perm.LEAVE_APPROVE) is True
+    assert can(officer, Perm.WORKPLACE_MANAGE) is True
+
+    assert can(officer, Perm.SETTINGS_MANAGE) is False
+    assert can(officer, Perm.PAYROLL_RUN) is False
+    assert can(officer, Perm.PAYROLL_VIEW) is False
+    assert can(officer, Perm.MAIL_ACCESS) is False
+    assert can(officer, Perm.PEOPLE_ADMIN) is False
+
+
+def test_an_officer_may_not_create_or_delete_what_they_may_edit(company, officer):
+    """🔒 The verb axis is the whole restriction, now that the role holds the
+    permission outright. If this stops holding, an officer *is* an admin."""
+    assert can(officer, Perm.PEOPLE_MANAGE) is True
+    assert can_create(officer, Perm.PEOPLE_MANAGE) is False
+    assert can_delete(officer, Perm.PEOPLE_MANAGE) is False
 
 
 def test_an_owner_holds_everything(company, owner):
@@ -121,12 +147,14 @@ def test_an_admin_can_grant_a_capability_to_an_officer(company, admin, officer):
 def test_a_grant_is_one_row_and_revoked_on_its_own(company, admin, officer):
     """The reason for individual grants rather than bundles: a wrong grant is
     one checkbox, not a bundle somebody else also holds."""
-    grant(admin, officer, Perm.LEAVE_APPROVE)
-    grant(admin, officer, Perm.ATTENDANCE_MANAGE)
-    revoke(admin, officer, Perm.LEAVE_APPROVE)
+    # Two permissions the *role* does not carry, so what is being read is the
+    # grant row and not the officer default underneath it.
+    grant(admin, officer, Perm.CRM_MANAGE)
+    grant(admin, officer, Perm.RECRUITMENT_MANAGE)
+    revoke(admin, officer, Perm.CRM_MANAGE)
 
-    assert can(officer, Perm.LEAVE_APPROVE) is False
-    assert can(officer, Perm.ATTENDANCE_MANAGE) is True
+    assert can(officer, Perm.CRM_MANAGE) is False
+    assert can(officer, Perm.RECRUITMENT_MANAGE) is True
 
 
 def test_granting_twice_is_not_two_grants(company, admin, officer):
@@ -273,12 +301,14 @@ def test_an_employee_is_told_they_hold_nothing(company, staff):
 
 def test_an_officers_list_grows_with_each_grant(company, admin, officer):
     """The nav has to follow a grant without anybody redeploying."""
-    before = _client(company, officer).get("/api/v1/accounts/me/").data["permissions"]
-    grant(admin, officer, Perm.DASHBOARD_VIEW)
-    after = _client(company, officer).get("/api/v1/accounts/me/").data["permissions"]
+    before = set(_client(company, officer).get("/api/v1/accounts/me/").data["permissions"])
+    # Not in the officer default — a grant of something they already hold
+    # proves nothing about grants.
+    grant(admin, officer, Perm.CRM_MANAGE)
+    after = set(_client(company, officer).get("/api/v1/accounts/me/").data["permissions"])
 
-    assert before == []
-    assert after == [Perm.DASHBOARD_VIEW]
+    assert Perm.CRM_MANAGE not in before
+    assert after == before | {Perm.CRM_MANAGE}
 
 
 def test_permissions_are_read_per_request_not_from_the_token(company, admin, officer):
@@ -288,12 +318,12 @@ def test_permissions_are_read_per_request_not_from_the_token(company, admin, off
     revocation that does not revoke.
     """
     client = _client(company, officer)
-    grant(admin, officer, Perm.DASHBOARD_VIEW)
-    assert client.get("/api/v1/accounts/me/").data["permissions"] == [Perm.DASHBOARD_VIEW]
+    grant(admin, officer, Perm.CRM_MANAGE)
+    assert Perm.CRM_MANAGE in client.get("/api/v1/accounts/me/").data["permissions"]
 
-    revoke(admin, officer, Perm.DASHBOARD_VIEW)
+    revoke(admin, officer, Perm.CRM_MANAGE)
     # Same client, same token, no re-authentication.
-    assert client.get("/api/v1/accounts/me/").data["permissions"] == []
+    assert Perm.CRM_MANAGE not in client.get("/api/v1/accounts/me/").data["permissions"]
 
 
 # ── Scope is orthogonal ──────────────────────────────────────────────────

@@ -38,12 +38,21 @@ def test_an_officer_with_a_grant_may_act_but_not_create(officer_user):
     assert can_delete(officer_user, Perm.PEOPLE_MANAGE) is False
 
 
-def test_an_officer_without_the_grant_holds_nothing(db):
-    """The role carries nothing by itself — that is the point of it."""
+def test_a_bare_officer_can_operate_but_not_shape(db):
+    """The role carries the *operating* set with no grant at all.
+
+    It used to carry nothing, which meant appointing an officer changed
+    nothing until somebody hand-granted seven permissions. What still has to
+    be true with no grants is the shape of it: they may work the employee
+    record, and they may not create it, delete it, or touch the settings that
+    define it.
+    """
     bare = User.objects.create_user(username="bare", password="x", role=User.Role.HR_OFFICER)
 
-    assert can(bare, Perm.PEOPLE_MANAGE) is False
+    assert can(bare, Perm.PEOPLE_MANAGE) is True
     assert can_create(bare, Perm.PEOPLE_MANAGE) is False
+    assert can_delete(bare, Perm.PEOPLE_MANAGE) is False
+    assert can(bare, Perm.SETTINGS_MANAGE) is False
 
 
 def test_an_admin_may_create_and_delete(hr_user):

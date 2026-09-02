@@ -38,6 +38,22 @@ def _check(user, permission, view, method):
     return can(user, permission)
 
 
+def _refusal(view, method):
+    """The sentence that fits the verb that was actually refused.
+
+    One message for three different rules sent an officer who had just been
+    told "may not create or delete" hunting for a delete button on a form they
+    were editing. An officer *can* edit; what they cannot do is add or remove.
+    Saying which is the difference between a rule and an apparent bug.
+    """
+    action = getattr(view, "action", None)
+    if action == "create":
+        return "This account may not create records of this kind."
+    if action == "destroy" or (action is None and method == "DELETE"):
+        return "This account may not delete records of this kind."
+    return "This account may not change records of this kind."
+
+
 class IsHRAdminOrReadOnly(BasePermission):
     """Anyone authenticated may read; writing needs a capability.
 
@@ -54,18 +70,18 @@ class IsHRAdminOrReadOnly(BasePermission):
 
     #: The message is the point of the class for an officer: a bare "you do not
     #: have permission" on a create, from somebody who *can* edit the same
-    #: record, reads as a bug rather than as the rule it is.
-    message = "This account may not create or delete records of this kind."
+    #: record, reads as a bug rather than as the rule it is. Which refusal it
+    #: is comes from the verb — see `_refusal`.
+    message = "This account may not change records of this kind."
 
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
             return True
-        return _check(
-            request.user,
-            getattr(view, "required_permission", self.default_permission),
-            view,
-            request.method,
-        )
+        permission = getattr(view, "required_permission", self.default_permission)
+        allowed = _check(request.user, permission, view, request.method)
+        if not allowed:
+            self.message = _refusal(view, request.method)
+        return allowed
 
 
 class IsHRAdmin(BasePermission):

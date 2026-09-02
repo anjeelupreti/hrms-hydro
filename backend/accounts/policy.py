@@ -80,15 +80,46 @@ ALL_PERMS = [
     value for name, value in vars(Perm).items() if not name.startswith("_") and isinstance(value, str)
 ]
 
-#: Held by anyone with the role, without a grant row.
+#: What an officer can do the day they are appointed.
 #:
-#: `hr_officer` is deliberately empty. An officer with no grants can do exactly
-#: what an employee can — "as per their scope" only means something if the
-#: default scope is nothing.
+#: **This was empty**, on the argument that "as per their scope" only means
+#: something if the default scope is nothing. That is a clean idea and it did
+#: not survive contact: an officer with no grants is indistinguishable from an
+#: employee, so appointing one changed nothing on screen and every attempt to
+#: edit a record came back 403 from a role whose entire purpose is editing
+#: records. The owner then has to hand-grant seven permissions before the role
+#: does anything, and until they do the product looks broken rather than
+#: locked.
+#:
+#: So the officer holds the **operating** set by default and the *verb* axis
+#: below is what keeps them an officer: they may read and edit everything here,
+#: and may not create or delete any of it. That is the distinction in the
+#: owner's own words — an officer operates the system, an admin shapes it.
+#:
+#: What is deliberately **not** in it:
+#:
+#: * `people.admin` — never grantable to anybody (see `NEVER_GRANTABLE`).
+#: * `settings.manage` — salary components, tax slabs, memorandum actions.
+#:   Shaping, not operating; it is the admin's by definition.
+#: * `payroll.*`, `expenses.manage`, `recruitment.manage`, `crm.manage`,
+#:   `mail.access` — money, hiring and the company mailbox. Real work, but not
+#:   what "manage the employees" means, and each is a decision the owner should
+#:   make about a specific person. These are what per-officer grants are for.
+OFFICER_PERMISSIONS = {
+    Perm.PEOPLE_VIEW,
+    Perm.PEOPLE_MANAGE,
+    Perm.ATTENDANCE_MANAGE,
+    Perm.LEAVE_APPROVE,
+    Perm.WORKPLACE_MANAGE,
+    Perm.REPORTS_VIEW,
+    Perm.DASHBOARD_VIEW,
+}
+
+#: Held by anyone with the role, without a grant row.
 ROLE_PERMISSIONS = {
     "owner": set(ALL_PERMS),
     "hr_admin": set(ALL_PERMS),
-    "hr_officer": set(),
+    "hr_officer": set(OFFICER_PERMISSIONS),
     "employee": set(),
 }
 

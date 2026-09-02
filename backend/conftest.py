@@ -57,18 +57,19 @@ def hr_user(db):
 
 @pytest.fixture
 def officer_user(db):
-    """An HR officer holding `people.manage`.
+    """An HR officer, holding exactly what the role carries.
 
-    Granted rather than assumed: the role carries nothing on its own, which is
-    the point of it — so a fixture that did not grant anything would be testing
-    an employee under a different name.
+    Nothing is granted here any more. The role used to carry no permissions at
+    all, so a fixture that granted nothing was testing an employee under
+    another name; it now carries the *operating* set outright — see
+    `OFFICER_PERMISSIONS` — and the restriction that makes an officer an
+    officer is the verb, not the absence of a grant.
+
+    Left ungranted deliberately: a test that wants to see a grant working
+    should grant something the role does *not* hold, or it is watching the
+    default and calling it a grant.
     """
-    from accounts.models import PermissionGrant
-    from accounts.policy import Perm
-
-    user = _make_user(username="officer", role=User.Role.HR_OFFICER)
-    PermissionGrant.objects.create(user=user, permission=Perm.PEOPLE_MANAGE)
-    return user
+    return _make_user(username="officer", role=User.Role.HR_OFFICER)
 
 
 @pytest.fixture
