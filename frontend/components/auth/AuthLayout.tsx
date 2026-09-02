@@ -9,42 +9,36 @@ import type { ReactNode } from "react";
 import ThemePopover from "@/components/shell/ThemePopover";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import DomainGlyph from "@/components/common/DomainGlyph";
+import { DEPLOYMENT, PRODUCT_NAME } from "@/lib/product";
 
 /**
- * The left-hand panel of the sign-in screen, drawn with `DomainGlyph` — a
- * record with lines converging on it, a timeline with a gap in it, a ladder of
- * tax bands. Stock icons in this slot (a beach umbrella for leave) make the
- * same panel every login has, with nothing on it about this system.
+ * The left-hand panel of the sign-in screen.
  *
- * `DomainGlyph`'s own docstring makes the case: "six stock illustrations of
- * people pointing at charts say nothing about what the software does". These
- * carry the argument, so they are the illustrations.
+ * **It names the company, not the product.** This build is installed for one
+ * group and nobody outside it will ever see this screen — so the panel that
+ * sold the software to a prospect is the wrong panel for the person who works
+ * here and is signing in on a Sunday morning. What they need to know is that
+ * they are at the right URL, and that is answered by the company's own name and
+ * the four entities the group is actually made of.
+ *
+ * The illustrations stay: `DomainGlyph` draws a record with lines converging on
+ * it, a timeline with a gap in it, a ladder of tax bands. Its own docstring
+ * makes the case — "six stock illustrations of people pointing at charts say
+ * nothing about what the software does" — and that argument holds whoever the
+ * panel is addressed to.
  */
-const FEATURES = [
-  {
-    slug: "people",
-    label: "One record per person",
-    sub: "Payroll, attendance and leave all read the same row",
-  },
-  {
-    slug: "time",
-    label: "Attendance that agrees with leave",
-    sub: "Punches, approvals and shifts, reconciled",
-  },
-  {
-    slug: "money",
-    label: "Payroll that shows its working",
-    sub: "Every line says where the number came from",
-  },
-  {
-    slug: "growth",
-    label: "Hiring through to reviews",
-    sub: "A candidate becomes an employee in one step",
-  },
+/** The four entities, with the glyph that suits each. A person signing in
+ *  works for one of them and is paid by one of them; seeing the group laid out
+ *  is how they know this is the system that holds their record. */
+const GROUP = [
+  { slug: "people", code: "VLUCL", label: "Vision Lumbini Urja", sub: "Holding company · Butwal, Rupandehi" },
+  { slug: "money", code: "SNHL", label: "Seti Nadi Hydropower", sub: "25.0 MW · in operation · Kaski" },
+  { slug: "time", code: "SJCL", label: "Sanjen Jalavidyut", sub: "42.5 MW · under construction · Rasuwa" },
+  { slug: "growth", code: "MCTL", label: "Marsyangdi Corridor Transmission", sub: "Licensed · Lamjung" },
 ];
 
-/** The terms this product is actually built in. Concrete, and the fastest way
- *  to say "made for here" without a paragraph claiming it. */
+/** The terms payroll is actually run in here. Concrete, and the fastest way to
+ *  say "made for this office" without a paragraph claiming it. */
 const BUILT_IN = ["Bikram Sambat", "SSF", "Provident Fund", "CIT", "Nepali tax slabs", "TDS"];
 
 export default function AuthLayout({ children }: { children: ReactNode }) {
@@ -127,9 +121,11 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
               <ApartmentIcon />
             </Box>
             <Box>
-              <Typography sx={{ fontWeight: 800, letterSpacing: 0.5 }}>DeerX HRMS</Typography>
+              <Typography sx={{ fontWeight: 800, letterSpacing: 0.5 }}>
+                {DEPLOYMENT.short}
+              </Typography>
               <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                Next-Gen People Operations
+                {DEPLOYMENT.seat}
               </Typography>
             </Box>
           </Stack>
@@ -137,12 +133,16 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
 
         <Stack spacing={4} sx={{ position: "relative", zIndex: 1 }}>
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
-            <Typography variant="h3" sx={{ fontWeight: 800, lineHeight: 1.1, mb: 1.5, maxWidth: 420 }}>
-              People operations, built for how your team actually works.
+            <Typography variant="h3" sx={{ fontWeight: 800, lineHeight: 1.1, mb: 1, maxWidth: 440 }}>
+              {DEPLOYMENT.company}
+            </Typography>
+            <Typography sx={{ opacity: 0.8, maxWidth: 400, lineHeight: 1.45 }}>
+              Human resources for the group — one record per person, read by
+              payroll, attendance and leave alike.
             </Typography>
           </motion.div>
           <Stack spacing={2.5}>
-            {FEATURES.map((f, i) => (
+            {GROUP.map((f, i) => (
               <motion.div
                 key={f.label}
                 initial={{ opacity: 0, x: -16 }}
@@ -166,9 +166,18 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
                     <DomainGlyph slug={f.slug} accent="#ffffff" size={28} />
                   </Box>
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography sx={{ fontWeight: 700, fontSize: "1.02rem", lineHeight: 1.3 }}>
-                      {f.label}
-                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "baseline" }}>
+                      <Typography sx={{ fontWeight: 700, fontSize: "1.02rem", lineHeight: 1.3 }}>
+                        {f.label}
+                      </Typography>
+                      {/* The code, because that is what people say out loud and
+                          what the memorandum numbers are built from. */}
+                      <Typography
+                        sx={{ fontSize: ".7rem", fontWeight: 700, opacity: 0.6, letterSpacing: ".06em" }}
+                      >
+                        {f.code}
+                      </Typography>
+                    </Stack>
                     <Typography sx={{ fontSize: ".86rem", opacity: 0.75, lineHeight: 1.35 }}>
                       {f.sub}
                     </Typography>
@@ -209,7 +218,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             ))}
           </Stack>
           <Typography variant="caption" sx={{ opacity: 0.55, fontWeight: 500 }}>
-            © {new Date().getFullYear()} DeerX HRMS
+            © {new Date().getFullYear()} {DEPLOYMENT.company} · {PRODUCT_NAME}
           </Typography>
         </Box>
       </Box>

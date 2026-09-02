@@ -38,7 +38,7 @@ const devanagari = Noto_Sans_Devanagari({
 export const metadata: Metadata = {
   // The system title. Company name is added by the top bar, not here —
   // this string is also what a bookmark and a browser tab show.
-  title: "DeerX HRMS",
+  title: "Xenex HRMS",
   description: "HR, payroll and attendance for growing teams.",
 };
 
