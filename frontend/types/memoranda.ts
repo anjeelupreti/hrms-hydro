@@ -101,14 +101,21 @@ export type MemorandumListItem = {
   company: number;
   company_name: string;
   company_code: string;
+  /** The seat, for the letterhead. A letterhead with no address is not one. */
+  company_address: string;
   status: MemorandumStatus;
   status_display: string;
   stage: MemorandumStage;
   stage_display: string;
   initiator: number;
   initiator_name: string;
+  /** The office they hold, for the From line. A memorandum addresses a chair
+   *  as much as a person. */
+  initiator_post: string;
   approver: number | null;
   approver_name: string | null;
+  /** The office the approver holds, for the To line. */
+  approver_post: string;
   current_holder: number | null;
   current_holder_name: string | null;
   current_index: number;

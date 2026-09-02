@@ -129,7 +129,7 @@ export default function MemorandumActionsPage() {
     <PageContainer>
       <Breadcrumbs />
       <Button component={Link} href="/memoranda" startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 2 }}>
-        Memoranda
+        Memorandum
       </Button>
 
       <PageHeader

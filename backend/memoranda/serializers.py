@@ -17,6 +17,23 @@ def _name(employee):
     return user.get_full_name() or user.get_username()
 
 
+def _post(employee):
+    """The office somebody holds, for a To or From line.
+
+    The corporate post first, then the designation. A memorandum is addressed
+    to a chair — "Deputy Manager" — and only falls back to the job title when
+    no post has been recorded. Empty rather than null: it is concatenated into
+    a line, and "None" appearing on a letter is worse than nothing appearing.
+    """
+    if employee is None:
+        return ""
+    post = getattr(employee, "corporate_post", None)
+    if post is not None:
+        return post.name
+    designation = getattr(employee, "designation", None)
+    return designation.title if designation is not None else ""
+
+
 class MemorandumActionSerializer(serializers.ModelSerializer):
     """The configurable vocabulary — see `MemorandumAction`."""
 
@@ -121,8 +138,16 @@ class MemorandumListSerializer(serializers.ModelSerializer):
 
     company_name = serializers.CharField(source="company.name", read_only=True)
     company_code = serializers.CharField(source="company.code", read_only=True)
+    #: The seat, for the letterhead. A memorandum is printed and filed, and a
+    #: letterhead with no address on it is not one.
+    company_address = serializers.SerializerMethodField()
     initiator_name = serializers.SerializerMethodField()
     approver_name = serializers.SerializerMethodField()
+    #: Post held, for the To and From lines. A memorandum addresses an office
+    #: as much as a person — "Kabita Thapa, Plant Manager" is how one is
+    #: actually written, and a bare name reads like a chat message.
+    initiator_post = serializers.SerializerMethodField()
+    approver_post = serializers.SerializerMethodField()
     current_holder_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     stage_display = serializers.CharField(source="get_stage_display", read_only=True)
@@ -134,9 +159,10 @@ class MemorandumListSerializer(serializers.ModelSerializer):
         model = Memorandum
         fields = [
             "id", "memo_id", "subject", "memo_date",
-            "company", "company_name", "company_code",
+            "company", "company_name", "company_code", "company_address",
             "status", "status_display", "stage", "stage_display",
-            "initiator", "initiator_name", "approver", "approver_name",
+            "initiator", "initiator_name", "initiator_post",
+            "approver", "approver_name", "approver_post",
             "current_holder", "current_holder_name", "current_index",
             "attachment_count", "recommender_count", "is_locked",
             "submitted_at", "decided_at", "created_at",
@@ -147,6 +173,24 @@ class MemorandumListSerializer(serializers.ModelSerializer):
 
     def get_approver_name(self, obj):
         return _name(obj.approver)
+
+    def get_company_address(self, obj):
+        company = obj.company
+        if company is None:
+            return ""
+        # Assembled without repeating itself: `address` is free text and
+        # usually already carries the district.
+        parts = []
+        for part in (company.address, company.district, company.province):
+            if part and part.lower() not in ", ".join(parts).lower():
+                parts.append(part)
+        return ", ".join(parts)
+
+    def get_initiator_post(self, obj):
+        return _post(obj.initiator)
+
+    def get_approver_post(self, obj):
+        return _post(obj.approver)
 
     def get_current_holder_name(self, obj):
         return _name(obj.current_holder)

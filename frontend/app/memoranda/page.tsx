@@ -68,7 +68,7 @@ export default function MemorandaPage() {
     <PageContainer>
       <Breadcrumbs />
       <PageHeader
-        title="Memoranda"
+        title="Memorandum"
         subtitle="Proposals that go up the chain for recommendation and approval"
         icon={<AssignmentIcon />}
         actions={
@@ -93,7 +93,7 @@ export default function MemorandaPage() {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Number, subject or content…"
-        searchLabel="Search memoranda by number, subject or content"
+        searchLabel="Search memorandum records by number, subject or content"
       />
 
       {search ? (

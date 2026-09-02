@@ -22,8 +22,6 @@ import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
-import Tab from "@mui/material/Tab";
-import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -35,6 +33,8 @@ import DateText from "@/components/common/DateText";
 import RichTextEditor, { RichText } from "@/components/common/RichTextEditor";
 import StateChip from "@/components/common/StateChip";
 import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
+import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
+import { useCompanies } from "@/hooks/useCompanies";
 import {
   useAddMemorandumAttachment,
   useApproveMemorandum,
@@ -114,7 +114,6 @@ export default function MemorandumDialog({
   const removeAttachment = useRemoveMemorandumAttachment();
   const { data: actionPage } = useMemorandumActions();
 
-  const [tab, setTab] = useState(0);
   const [values, setValues] = useState<MemorandumFormValues>(EMPTY);
   const [comment, setComment] = useState("");
   const [actionId, setActionId] = useState<number | "">("");
@@ -133,6 +132,31 @@ export default function MemorandumDialog({
   const isDraft = isNew || memo?.status === "draft";
   const locked = Boolean(memo?.is_locked);
 
+  /** The chain and the approver move together, and only before the memorandum
+   *  has reached them. */
+  const canEditChain = !locked && (isNew || Boolean(memo?.can_edit_chain));
+  /** The one field that survives submission — see `can_edit_content`. */
+  const canEditBody = !locked && (isNew || Boolean(memo?.can_edit_content));
+  /**
+   * Attachments are the initiator's, and only on their turn.
+   *
+   * That is a draft, or one that has been sent back to them — "initiated or
+   * re-initiated". At any other point the chain is reading a fixed set of
+   * annexes and a new one appearing under their signatures would change the
+   * document they signed.
+   */
+  const canAttach =
+    !locked &&
+    !isNew &&
+    memo !== null &&
+    (memo.status === "draft" ||
+      (memo.my_role === "initiator" && memo.current_holder === memo.initiator));
+
+  const { data: companyPage } = useCompanies();
+  const companyName =
+    companyPage?.results?.find((c) => c.id === values.company)?.name ?? memo?.company_name ?? null;
+  const approverName = memo?.approver === values.approver ? memo?.approver_name ?? null : null;
+
   useEffect(() => {
     if (!open) return;
     setValues(
@@ -147,7 +171,6 @@ export default function MemorandumDialog({
           }
         : { ...EMPTY, memo_date: todayIso() }
     );
-    setTab(0);
     setComment("");
     setActionId("");
     setReturnTo("");
@@ -270,12 +293,6 @@ export default function MemorandumDialog({
         ) : null}
       </DialogTitle>
 
-      <Tabs value={tab} onChange={(_e, v) => setTab(v)} sx={{ px: 3 }}>
-        <Tab label="Memorandum" />
-        <Tab label={`Chain${memo ? ` (${memo.recommenders.length})` : ""}`} />
-        <Tab label={`History${memo ? ` (${memo.events.length})` : ""}`} />
-      </Tabs>
-
       <DialogContent dividers>
         {error ? (
           <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
@@ -292,163 +309,105 @@ export default function MemorandumDialog({
         ) : null}
 
         {loading ? (
-          <Skeleton variant="rounded" height={320} />
-        ) : tab === 0 ? (
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
-            <Grid size={{ xs: 12, sm: 5 }}>
-              <CompanyPicker
-                label="Company"
-                required
-                value={values.company}
-                onChange={(id) => set("company", id)}
-                disabled={!isDraft || locked}
-                helperText={
-                  isDraft
-                    ? "Its code goes into the memorandum number."
-                    : "Fixed once submitted."
-                }
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 4 }}>
-              <DateField
-                label="Date"
-                required
-                value={values.memo_date}
-                onChange={(value) => set("memo_date", value)}
-                disabled={!isDraft || locked}
-                helperText={isDraft ? "Must be today when you submit." : "Fixed once submitted."}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 3 }}>
-              <TextField
-                label="Number"
-                fullWidth
-                value={memo?.memo_id ?? "On submission"}
-                disabled
-                helperText="yyyy-mm-dd · code · serial"
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                label="Subject"
-                fullWidth
-                required
-                value={values.subject}
-                onChange={(e) => set("subject", e.target.value)}
-                disabled={!isDraft || locked}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-                CONTENT
-              </Typography>
-              {locked ? (
-                <Box sx={{ mt: 0.5, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-                  <RichText html={memo?.content ?? ""} />
-                </Box>
-              ) : (
-                <Box sx={{ mt: 0.5 }}>
+          <Skeleton variant="rounded" height={480} />
+        ) : (
+          <Stack spacing={3.5}>
+            {/* ── The letter ────────────────────────────────────────────
+                One page, in the order a memorandum is actually laid out.
+                Where a field may still be changed, the control sits in the
+                place its value would be printed — so filling this in is
+                filling in the letter, not filling in a form about a letter. */}
+            <MemorandumLetter
+              memo={memo}
+              draft={{
+                subject: values.subject,
+                content: values.content,
+                memo_date: values.memo_date,
+                companyName: companyName,
+                approverName: approverName,
+              }}
+              slots={{
+                company: isDraft && !locked ? (
+                  <CompanyPicker
+                    label="Company"
+                    required
+                    value={values.company}
+                    onChange={(id) => set("company", id)}
+                    size="small"
+                  />
+                ) : undefined,
+                date: isDraft && !locked ? (
+                  <Box sx={{ maxWidth: 200 }}>
+                    <DateField
+                      label=""
+                      required
+                      value={values.memo_date}
+                      onChange={(value) => set("memo_date", value)}
+                    />
+                  </Box>
+                ) : undefined,
+
+                subject: isDraft && !locked ? (
+                  <TextField
+                    fullWidth
+                    required
+                    variant="standard"
+                    placeholder="What this memorandum is about"
+                    value={values.subject}
+                    onChange={(e) => set("subject", e.target.value)}
+                  />
+                ) : undefined,
+                body: canEditBody ? (
                   <RichTextEditor
                     value={values.content}
                     onChange={(html) => set("content", html)}
-                    disabled={!isNew && !memo?.can_edit_content}
                   />
-                </Box>
-              )}
-              {!isDraft && !locked && memo?.can_edit_content ? (
-                <Typography variant="caption" color="text.secondary">
-                  The only field that can still be changed — that is what sending
-                  a memorandum back is for.
-                </Typography>
-              ) : null}
-            </Grid>
+                ) : undefined,
+              }}
+            />
 
-            {/* Attachments, fixed at submission like everything but the text. */}
-            <Grid size={{ xs: 12 }}>
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-                ATTACHMENTS
-              </Typography>
-              <Stack spacing={0.5} sx={{ mt: 1 }}>
-                {(memo?.attachments ?? []).map((attachment) => (
-                  <Stack key={attachment.id} direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                    <DescriptionIcon fontSize="small" color="action" />
-                    <Typography
-                      component="a"
-                      href={attachment.file_url ?? attachment.file}
-                      target="_blank"
-                      rel="noopener"
-                      variant="body2"
-                      sx={{ flex: 1, color: "inherit" }}
-                    >
-                      {attachment.caption || attachment.file.split("/").pop()}
-                    </Typography>
-                    {isDraft && memo ? (
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          removeAttachment.mutate({ id: memo.id, attachmentId: attachment.id })
-                        }
-                      >
-                        <DeleteOutlineIcon fontSize="small" />
-                      </IconButton>
-                    ) : null}
-                  </Stack>
-                ))}
-                {(memo?.attachments ?? []).length === 0 ? (
-                  <Typography variant="body2" color="text.disabled">
-                    {isNew
-                      ? "Save the draft first — a file attaches to a memorandum, so there has to be one."
-                      : "None. Optional."}
-                  </Typography>
-                ) : null}
-              </Stack>
-              {isDraft && memo ? (
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mt: 1.5 }}>
-                  <Button component="label" size="small" variant="outlined" startIcon={<AttachFileIcon />}>
-                    {file ? file.name : "Choose a file"}
-                    <input type="file" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-                  </Button>
-                  <TextField
-                    size="small"
-                    label="Caption"
-                    value={caption}
-                    onChange={(e) => setCaption(e.target.value)}
-                    sx={{ flex: 1 }}
-                  />
-                  <Button
-                    size="small"
-                    disabled={!file || addAttachment.isPending}
-                    onClick={() =>
-                      file &&
-                      run(addAttachment.mutateAsync({ id: memo.id, file, caption }), () => {
-                        setFile(null);
-                        setCaption("");
-                      })
-                    }
-                  >
-                    Attach
-                  </Button>
-                </Stack>
-              ) : isNew ? (
-                <Typography variant="caption" color="text.secondary">
-                  Save the draft first, then attach.
-                </Typography>
-              ) : null}
-            </Grid>
-          </Grid>
-        ) : null}
+            {/* ── Attachments ───────────────────────────────────────────
+                The initiator's, and only while it is theirs to change: a
+                draft, or one that has come back to them. A chain that has
+                read three annexes must not find a fourth appear underneath
+                its signatures. */}
+            <AttachmentsSection
+              memo={memo}
+              isNew={isNew}
+              canAttach={canAttach}
+              file={file}
+              setFile={setFile}
+              caption={caption}
+              setCaption={setCaption}
+              onAttach={() => {
+                if (!memo || !file) return;
+                run(
+                  addAttachment.mutateAsync({ id: memo.id, file, caption }),
+                  () => {
+                    setFile(null);
+                    setCaption("");
+                  }
+                );
+              }}
+              onRemove={(attachmentId) => {
+                if (!memo) return;
+                removeAttachment.mutate({ id: memo.id, attachmentId });
+              }}
+              busy={addAttachment.isPending}
+            />
 
-        {tab === 1 ? (
-          <ChainTab
-            memo={memo}
-            values={values}
-            set={set}
-            editable={isNew || Boolean(memo?.can_edit_chain)}
-          />
-        ) : null}
+            {/* ── Who signs it, and who approves it ─────────────────────── */}
+            <ChainTab
+              memo={memo}
+              values={values}
+              set={set}
+              editable={isNew || Boolean(memo?.can_edit_chain)}
+            />
 
-        {tab === 2 ? <HistoryTab memo={memo} /> : null}
+            {/* ── What has happened to it ───────────────────────────────── */}
+            <HistoryTab memo={memo} />
+          </Stack>
+        )}
 
         {/* ── The action bar ─────────────────────────────────────────────
             Only for whoever is holding it, and shaped by which end of the
@@ -639,12 +598,13 @@ export default function MemorandumDialog({
 
         {/* Anybody who can see it may remark on it — a recommender two steps up
             who spots something should not have to wait for their turn. */}
-        {/* Shown to everybody who can see it, holder included. A holder used
-            to have only the note that rides along with approving or sending
-            back — so the one person most likely to need to ask a question, or
-            attach the thing they were asked for, could not do either without
-            also moving the memorandum. */}
-        {memo && !locked ? (
+        {/* **One comment box per person, and it depends whose turn it is.**
+            Whoever is holding it comments in the action panel above — the note
+            travels with the decision, which is the comment they actually want
+            to leave, and offering a second box underneath asks them to choose
+            between two things that look the same. Everybody else gets this one,
+            which is the only way they can say anything at all. */}
+        {memo && !locked && !memo.can_act ? (
           <CommentComposer
             busy={addComment.isPending}
             comment={remark}
@@ -726,7 +686,11 @@ function ChainTab({
   );
 
   return (
-    <Stack spacing={2} sx={{ mt: 1 }}>
+    <Stack spacing={2}>
+      <SectionHeading
+        title="Who signs it"
+        hint="Recommenders in order, then one approver."
+      />
       <Alert severity="info">
         A memorandum goes to each recommender in turn, then to the approver.
         Anybody holding it can send it back — to you, or to somebody who has
@@ -781,19 +745,23 @@ function ChainTab({
         />
       ) : null}
 
-      <Divider />
-
-      <EmployeePicker
-        label="Approver"
-        value={values.approver}
-        onChange={(id) => set("approver", id)}
-        disabled={!editable || memo?.stage === "approve"}
-        helperText={
-          memo?.stage === "approve"
-            ? "It is already with them — it has to be sent back before this can change."
-            : "One person, and the only one who can end it."
-        }
-      />
+      {/* The approver sits beside the chain, not under it: they are the end of
+          the same routing decision, and putting them in a separate band made
+          the two look like unrelated settings. */}
+      <Box sx={{ maxWidth: { sm: 420 } }}>
+        <EmployeePicker
+          label="Approver — the To of the letter"
+          value={values.approver}
+          onChange={(id) => set("approver", id)}
+          disabled={!editable || memo?.stage === "approve"}
+          excludeIds={values.recommender_ids}
+          helperText={
+            memo?.stage === "approve"
+              ? "It is already with them — it has to be sent back before this can change."
+              : "One person, and the only one who can end it."
+          }
+        />
+      </Box>
     </Stack>
   );
 }
@@ -820,16 +788,44 @@ const KIND_COLOUR: Record<string, "primary" | "warning" | "success" | "error" | 
  * back first.
  */
 function HistoryTab({ memo }: { memo: Memorandum | null }) {
+  /**
+   * How many times this has been round the loop.
+   *
+   * A memorandum that was sent back, fixed and sent up again looks identical to
+   * one that went straight through — same chain, same words, same holder — and
+   * the difference is exactly what a reader wants to know. Counted from the
+   * log, which is the only place that remembers.
+   */
+  const rounds = (memo?.events ?? []).filter((e) => e.kind === "resubmitted").length;
   const events = memo?.events ?? [];
+  const heading = (
+    <SectionHeading
+      title="What has happened to it"
+      count={events.length}
+      hint={
+        rounds > 0
+          ? rounds === 1
+            ? "Sent back once and started again."
+            : `Sent back and started again ${rounds} times.`
+          : undefined
+      }
+    />
+  );
+
   if (events.length === 0) {
     return (
-      <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-        Nothing yet.
-      </Typography>
+      <Box>
+        {heading}
+        <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
+          Nothing yet.
+        </Typography>
+      </Box>
     );
   }
   return (
-    <Box sx={{ position: "relative", pl: 3, mt: 2 }}>
+    <Box>
+      {heading}
+      <Box sx={{ position: "relative", pl: 3, mt: 2 }}>
       <Box
         sx={{
           position: "absolute",
@@ -923,6 +919,7 @@ function HistoryTab({ memo }: { memo: Memorandum | null }) {
           </Box>
         ))}
       </Stack>
+      </Box>
     </Box>
   );
 }
@@ -1036,5 +1033,150 @@ function CommentComposer({
         </Typography>
       ) : null}
     </Box>
+  );
+}
+
+/**
+ * The annexes, and who may add one.
+ *
+ * **The initiator's, and only on their turn.** A memorandum that has been round
+ * three desks has been read with a fixed set of papers behind it, and a fourth
+ * appearing underneath those signatures changes the document that was signed.
+ * So attaching is open in exactly two states: while it is still a draft, and
+ * while it is back with the initiator after being sent down — initiated, or
+ * re-initiated. Everywhere else the list is there to read and nothing else.
+ *
+ * Files that arrived on a *comment* are not here. Those belong to the remark
+ * that carried them, are shown with it in the history, and are not part of the
+ * proposal — which is the whole distinction the freeze rule protects.
+ */
+function AttachmentsSection({
+  memo,
+  isNew,
+  canAttach,
+  file,
+  setFile,
+  caption,
+  setCaption,
+  onAttach,
+  onRemove,
+  busy,
+}: {
+  memo: Memorandum | null;
+  isNew: boolean;
+  canAttach: boolean;
+  file: File | null;
+  setFile: (file: File | null) => void;
+  caption: string;
+  setCaption: (caption: string) => void;
+  onAttach: () => void;
+  onRemove: (attachmentId: number) => void;
+  busy: boolean;
+}) {
+  const attachments = memo?.attachments ?? [];
+
+  return (
+    <Box>
+      <SectionHeading
+        title="Attachments"
+        hint={
+          canAttach
+            ? "Yours to add while the memorandum is with you."
+            : "Fixed once it is on its way."
+        }
+        count={attachments.length}
+      />
+
+      <Stack spacing={0.5} sx={{ mt: 1 }}>
+        {attachments.map((attachment) => (
+          <Stack
+            key={attachment.id}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center" }}
+          >
+            <DescriptionIcon fontSize="small" color="action" />
+            <Typography
+              component="a"
+              href={attachment.file_url ?? attachment.file}
+              target="_blank"
+              rel="noopener"
+              variant="body2"
+              sx={{ flex: 1, color: "primary.main" }}
+            >
+              {attachment.caption || attachment.file.split("/").pop()}
+            </Typography>
+            {canAttach ? (
+              <Tooltip title="Remove">
+                <IconButton size="small" onClick={() => onRemove(attachment.id)}>
+                  <DeleteOutlineIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+          </Stack>
+        ))}
+
+        {attachments.length === 0 ? (
+          <Typography variant="body2" color="text.disabled">
+            {isNew
+              ? "Save the draft first — a file attaches to a memorandum, so there has to be one."
+              : "None."}
+          </Typography>
+        ) : null}
+      </Stack>
+
+      {canAttach ? (
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{ mt: 1.5, alignItems: { sm: "center" } }}
+        >
+          <Button component="label" size="small" variant="outlined" startIcon={<AttachFileIcon />}>
+            {file ? file.name : "Choose a file"}
+            <input
+              type="file"
+              hidden
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+          </Button>
+          <TextField
+            size="small"
+            label="Caption"
+            value={caption}
+            onChange={(event) => setCaption(event.target.value)}
+            sx={{ flex: 1 }}
+          />
+          <Button size="small" variant="contained" disabled={!file || busy} onClick={onAttach}>
+            Attach
+          </Button>
+        </Stack>
+      ) : null}
+    </Box>
+  );
+}
+
+/** The heading over each band below the letter. One shape, so the three
+ *  sections read as a sequence rather than three unrelated cards. */
+function SectionHeading({
+  title,
+  hint,
+  count,
+}: {
+  title: string;
+  hint?: string;
+  count?: number;
+}) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }} useFlexGap>
+      <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+        {title}
+      </Typography>
+      {count !== undefined ? <Chip size="small" label={count} /> : null}
+      {hint ? (
+        <Typography variant="caption" color="text.secondary">
+          {hint}
+        </Typography>
+      ) : null}
+    </Stack>
   );
 }

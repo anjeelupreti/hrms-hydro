@@ -342,7 +342,7 @@ export const NAV_GROUPS: NavGroup[] = [
         // on one is decided per memorandum by the chain itself, and the desk
         // shows each reader only what they raised, hold, or have handled.
         href: "/memoranda",
-        label: "Memoranda",
+        label: "Memorandum",
         icon: AssignmentIcon,
         module: "documents",
         keywords: [
