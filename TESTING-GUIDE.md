@@ -72,10 +72,11 @@ anybody.
 | **HR admin** | `sushma.ghimire` | EMP-0022 | Everything except appointing admins. Creates, edits, deletes. |
 | **HR officer** | `tenzing.neupane` | EMP-0079 | Edits and views. **Cannot create or delete anything.** |
 | HR officer | `rachana.baral` | EMP-0094 | A second officer, for testing two people on one record |
-| **Employee** | `rajendra.poudel` | EMP-0001 | Their own record, their own requests |
-| Employee | `bikash.shrestha` | EMP-0002 | Sits in the seeded memorandum chains |
-| Employee | `kabita.thapa` | EMP-0006 | Approver on a seeded memorandum |
-| **Suspended** | `sarita.gurung` | — | **Cannot sign in** — use this to test the lock |
+| **Employee** | `rajendra.poudel` | EMP-0001 | Their own record; also the approver on every seeded memorandum |
+| Employee | `hari.pariyar` | EMP-0008 | Raised every seeded memorandum |
+| Employee | `kabita.thapa` | EMP-0006 | First recommender on the seeded chains |
+| Employee | `bikash.shrestha` | EMP-0002 | Last recommender before the approver |
+| **Suspended** | `sarita.gurung` | — | **Cannot sign in** — use this to test the lock. Deliberately kept out of every approval chain |
 
 There are 96 more employees, all `firstname.lastname`.
 
@@ -247,6 +248,74 @@ down the chain who spots a problem before it reaches them.
 - **Attach** puts files on the comment. These are separate from the memorandum's
   annexes and do not appear in its attachment list — a reply is not part of the
   proposal.
+
+### The five people in the seeded chains
+
+Every seeded memorandum uses the same cast, so you can walk a whole memorandum
+by signing in as each in turn. All of them are active accounts — the suspended
+employee is deliberately kept out of approval chains, because nobody can sign in
+as them to move the paperwork on.
+
+| Their part | Username | What they do |
+|---|---|---|
+| **Initiator** | `hari.pariyar` | Raised all seven. Edits the content, resubmits after a return |
+| **1st recommender** | `kabita.thapa` | Sees it first |
+| **2nd recommender** | `sushma.ghimire` | HR admin — also has the rest of the system |
+| **3rd recommender** | `bikash.shrestha` | Last before the approver |
+| **Approver** | `rajendra.poudel` | Approves, rejects, or sends it back |
+
+Password for all of them: `TestPass123!`
+
+### What is waiting where
+
+Seven memoranda, one in each state the chain can reach. Sign in as the account
+in the middle column and the memorandum is under **Needs you**.
+
+| Memorandum | State | Sign in as | What you can do there |
+|---|---|---|---|
+| *(draft)* | Draft | `hari.pariyar` | Edit anything, attach files, submit |
+| `…-SJCL-0005` | With the 1st recommender | `kabita.thapa` | Send on, send back, or comment |
+| `…-MCTL-0011` | Midway down the chain | `sushma.ghimire` | Send on, send back, or comment |
+| `…-SNHL-0003` | With the approver | `rajendra.poudel` | **Approve**, reject, or send back |
+| `…-VLUCL-0005` | Sent back and climbing again | `kabita.thapa` | Send on — watch it resume from here |
+| `…-SJCL-0006` | Approved | anybody | Everything is refused. Try editing it |
+| `…-VLUCL-0006` | Rejected | anybody | Also locked |
+
+> The numbers change each time you reseed — the date and the serial are part of
+> them. The *states* stay the same.
+
+### Walking the whole cycle
+
+The clearest single test, end to end:
+
+1. Sign in as `hari.pariyar`. Open the draft, attach a file, click **Submit**.
+   Note the number it is given.
+2. Sign in as `kabita.thapa`. It is under **Needs you**. Pick a word under
+   *Record as* and click **Send on**.
+3. Sign in as `sushma.ghimire`. Send it **back** to `hari.pariyar`, with a
+   reason.
+4. Back as `hari.pariyar`: the content is editable again and nothing else is.
+   Change the text, then click **Send forward again**.
+5. It reappears with `kabita.thapa` — the point it was returned from, not the
+   start. Send it on. Then as `sushma.ghimire` and `bikash.shrestha`, send it on
+   again.
+6. Sign in as `rajendra.poudel` and **Approve**.
+7. Now try to change anything — the content, a comment, a rejection. All
+   refused. Check the **History** tab: every step is there, in order, with who
+   and when.
+
+### What can be edited, and when
+
+| Scenario | Editable |
+|---|---|
+| Draft, before submitting | Everything — company, date, subject, content, chain, approver, attachments |
+| Submitted, in the chain | The **content** only, by the initiator |
+| Sent back to the initiator | The content, and the chain *ahead* of where it is |
+| A recommender who has already acted | Cannot be removed, ever |
+| A recommender not yet reached | Can be removed or reordered |
+| The approver, before it reaches them | Can be swapped |
+| The approver, once it is with them | Cannot |
+| After approval or rejection | Nothing. Not even a comment |
 
 ### The rules to test
 

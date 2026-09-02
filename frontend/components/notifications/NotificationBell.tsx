@@ -164,7 +164,18 @@ function NotificationPanel({
   const groups = groupNotifications(items);
 
   return (
-    <Box sx={{ width: { xs: "100%", sm: 400 }, display: "flex", flexDirection: "column", height: "100%" }}>
+    <Box
+      sx={{
+        width: { xs: "100%", sm: 400 },
+        display: "flex",
+        flexDirection: "column",
+        // `height: 100%` was meaningless here: the parent is sized by
+        // `maxHeight`, so it has no definite height to be 100% of. What the
+        // panel actually needs is to be a flex item that can shrink.
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
       {/* Header */}
       <Stack
         direction="row"
@@ -205,7 +216,14 @@ function NotificationPanel({
       </Stack>
 
       {/* Scrollable list */}
-      <Box sx={{ flex: 1, overflowY: "auto" }}>
+      {/* `minHeight: 0` is the whole fix.
+          A flex item defaults to `min-height: auto`, which means it refuses to
+          shrink below its content — so this box grew to the full height of the
+          list, pushed the footer out of the panel, and `overflowY: auto` never
+          had anything to scroll because the box was never smaller than its
+          contents. The panel clipped the overflow and the last notification
+          looked cut in half. */}
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>
         {items.length === 0 ? (
           <Stack sx={{ alignItems: "center", justifyContent: "center", py: 8, px: 2 }}>
             <NotificationsNoneIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
@@ -241,9 +259,10 @@ function NotificationPanel({
         )}
       </Box>
 
-      {/* Footer */}
-      <Divider />
-      <Stack direction="row" sx={{ px: 1.5, py: 1, gap: 0.5 }}>
+      {/* Footer. `flexShrink: 0` so a long list cannot squeeze it away — it
+          carries the only route to the full notification page. */}
+      <Divider sx={{ flexShrink: 0 }} />
+      <Stack direction="row" sx={{ px: 1.5, py: 1, gap: 0.5, flexShrink: 0 }}>
         <Button
           size="small"
           startIcon={<OpenInFullIcon fontSize="small" />}

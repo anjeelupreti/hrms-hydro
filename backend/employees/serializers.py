@@ -422,16 +422,34 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
         first_name = validated_data.pop("first_name", "")
         last_name = validated_data.pop("last_name", "")
 
+        # **A many-to-many cannot go through `objects.create()`.** Django
+        # refuses direct assignment to the forward side of one, so an employee
+        # created *with* secondary companies — which is the normal case for
+        # anybody seconded — failed outright. Popped here and set below, once
+        # there is a row for the relation to point at.
+        secondary_companies = validated_data.pop("secondary_companies", [])
+
         # One provisioning path, shared with the hiring route — see
         # accounts/provisioning.py for why these stopped being two.
         try:
-            user = provision_account(email=email, first_name=first_name, last_name=last_name)
+            user = provision_account(
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+            )
         except AccountError as exc:
             raise serializers.ValidationError({"email": str(exc)}) from exc
 
-        return Employee.objects.create(
-            user=user, employee_code=_next_employee_code(), **validated_data
+        employee = Employee.objects.create(
+            user=user,
+            employee_code=_next_employee_code(),
+            **validated_data,
         )
+
+        # Set M2M relations after the Employee exists
+        employee.secondary_companies.set(secondary_companies)
+
+        return employee
 
     TRACKED_FIELDS = ["employment_status", "department", "designation", "manager", "probation_end_date"]
 

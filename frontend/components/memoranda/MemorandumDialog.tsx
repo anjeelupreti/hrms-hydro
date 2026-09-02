@@ -458,14 +458,17 @@ export default function MemorandumDialog({
           <Box
             sx={(theme) => ({
               mt: 3,
-              p: 2,
+              p: 2.5,
               borderRadius: 2,
               border: "1px solid",
               borderColor: theme.palette.primary.main,
               bgcolor: alpha(theme.palette.primary.main, 0.04),
             })}
           >
-            <Typography variant="overline" color="text.secondary">
+            <Typography
+              variant="overline"
+              sx={{ fontWeight: 800, color: "primary.main", letterSpacing: ".1em" }}
+            >
               {memo.my_role === "initiator"
                 ? "This has been sent back to you"
                 : "It is your turn"}
@@ -510,13 +513,13 @@ export default function MemorandumDialog({
                  scanning it had to notice a gap to tell them apart. */
               <Stack spacing={2} sx={{ mt: 2 }}>
                 <Box>
-                  <Typography
-                    variant="caption"
-                    sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 0.75 }}
-                  >
-                    {memo.stage === "approve" ? "DECIDE IT" : "SEND IT ON"}
-                  </Typography>
-
+                  {/* No overline heading above these.
+                      There was one — "SEND IT ON" — and it landed in exactly the
+                      same few pixels as the floating "Record as" label that sits
+                      above the field's top edge, so the two words overlapped. It
+                      was redundant as well as colliding: the field's own label
+                      already says what the control is, and the button says what
+                      pressing it does. */}
                   {memo.stage === "approve" ? (
                     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                       <Button
@@ -549,8 +552,7 @@ export default function MemorandumDialog({
                         label="Record as"
                         value={actionId}
                         onChange={(e) => setActionId(Number(e.target.value))}
-                        sx={{ minWidth: 220 }}
-                        helperText="The word that goes in the log."
+                        sx={{ minWidth: 240 }}
                       >
                         {proceedActions.map((a) => (
                           <MenuItem key={a.id} value={a.id}>
@@ -572,10 +574,7 @@ export default function MemorandumDialog({
                             onClose
                           )
                         }
-                        // Matches the height of the select beside it. Without
-                        // this the primary button floats a few pixels high
-                        // against a field that carries helper text.
-                        sx={{ mt: { sm: 0.25 } }}
+                        sx={{ py: 1, px: 2.5 }}
                       >
                         Send on
                       </Button>
@@ -590,12 +589,6 @@ export default function MemorandumDialog({
                 </Divider>
 
                 <Box>
-                  <Typography
-                    variant="caption"
-                    sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 0.75 }}
-                  >
-                    SEND IT BACK
-                  </Typography>
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     spacing={1.5}
@@ -607,7 +600,7 @@ export default function MemorandumDialog({
                       label="Send back to"
                       value={returnTo}
                       onChange={(e) => setReturnTo(Number(e.target.value))}
-                      sx={{ minWidth: 220 }}
+                      sx={{ minWidth: 260 }}
                       helperText="The initiator, or anybody who has already seen it."
                     >
                       {memo.return_targets.map((target) => (
@@ -633,7 +626,7 @@ export default function MemorandumDialog({
                           onClose
                         )
                       }
-                      sx={{ mt: { sm: 0.25 } }}
+                      sx={{ py: 1, px: 2.5 }}
                     >
                       Send back
                     </Button>
