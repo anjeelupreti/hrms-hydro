@@ -724,9 +724,28 @@ class Command(BaseCommand):
         if len(staff) < 8:
             return
 
+        # **The HR admin is in the chain on purpose.**
+        #
+        # The cast used to be whichever employees came out of the dictionary
+        # first, and none of them was the account anybody demonstrates the
+        # system with. So signing in as the HR admin — the obvious persona for
+        # a walkthrough, and the one every screenshot in the manual is taken
+        # as — showed an empty desk: nothing waiting, nothing raised, nothing
+        # handled. Seven memoranda existed and the reviewer could see none of
+        # them, which reads as a broken module rather than as somebody else's
+        # paperwork.
+        #
+        # Put them second in the chain rather than first: that leaves one
+        # memorandum genuinely waiting on them, one already handled and behind
+        # them, and the rest visible without being theirs — which is the shape
+        # of a real desk.
+        admin = next(
+            (p for p in staff if getattr(p.user, "role", None) == "hr_admin"), None
+        )
+
         initiator = staff[4]
-        chain = [staff[2], staff[0], staff[1]]
-        approver = staff[0] if staff[0] not in chain else staff[5]
+        chain = [staff[2], admin or staff[0], staff[1]]
+        chain = list(dict.fromkeys(c for c in chain if c is not None and c != initiator))
         approver = next(p for p in staff if p not in chain and p != initiator)
 
         recommend = actions["REC"]
