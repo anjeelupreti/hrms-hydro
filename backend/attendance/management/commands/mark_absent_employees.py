@@ -4,6 +4,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Q
 
 from attendance.models import AttendanceLog, ShiftAssignment
+from fieldvisits.services import on_visit
 from employees.models import Employee
 
 
@@ -70,6 +71,23 @@ class Command(BaseCommand):
 
         count = 0
         for employee in to_mark:
+            # **Somebody at site is not absent.** An engineer at the headworks
+            # for a week has no clock-in for five days, and without this they
+            # collect five absences — which feed `unpaid_days` in
+            # `attendance/payroll_summary.py` and scale pay directly. So the
+            # company would dock the pay of the person it sent.
+            #
+            # Only an *approved* visit counts; see `fieldvisits.services.on_visit`.
+            visit = on_visit(employee, on_date)
+            if visit is not None:
+                AttendanceLog.objects.create(
+                    employee=employee,
+                    date=on_date,
+                    source=AttendanceLog.Source.SYSTEM,
+                    status=AttendanceLog.Status.PRESENT,
+                    notes=f"Field visit: {visit.destination}",
+                )
+                continue
             AttendanceLog.objects.create(
                 employee=employee,
                 date=on_date,
