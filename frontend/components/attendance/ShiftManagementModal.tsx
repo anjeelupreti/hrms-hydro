@@ -16,7 +16,8 @@ import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 
 import DateField from "@/components/common/DateField";
 import { useShifts, useSaveShift, useDeleteShift, useShiftAssignments, useSaveShiftAssignment, useDeleteShiftAssignment } from "@/hooks/useAttendance";

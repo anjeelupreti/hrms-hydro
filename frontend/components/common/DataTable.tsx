@@ -2,13 +2,14 @@
 
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import {
-  DataGrid,
-  type DataGridProps,
-  type GridColDef,
-  type GridColumnVisibilityModel,
-  type GridValidRowModel,
+import type {
+  DataGridProps,
+  GridColDef,
+  GridColumnVisibilityModel,
+  GridValidRowModel,
 } from "@mui/x-data-grid";
+
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useMemo, type ReactNode } from "react";
 
 import EmptyState from "@/components/common/EmptyState";
