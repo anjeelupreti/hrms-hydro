@@ -27,8 +27,8 @@ import StateChip, { toneFor } from "@/components/common/StateChip";
 import DateText from "@/components/common/DateText";
 import DateField from "@/components/common/DateField";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCan, useMe } from "@/hooks/useMe";
 import ListPagination from "@/components/common/ListPagination";
@@ -142,14 +142,13 @@ export default function TimesheetsPage() {
         title="Timesheets"
         subtitle="Log hours against projects"
         icon={<ScheduleIcon />}
-        actions={
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search entries…"
-            label="Search time entries by date, project, description or status"
-          />
-        }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search entries…"
+        searchLabel="Search time entries by date, project, description or status"
       />
 
       {/* The week comes first, and there is no lifetime total. "Total

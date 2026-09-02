@@ -226,10 +226,23 @@ export default function EntityPicker(props: Props) {
       renderValue={
         props.multiple === true
           ? (selected, getItemProps) =>
-              (selected as PickerOption[]).map((option, index) => (
+              (selected as PickerOption[]).map((option, index) => {
+                // MUI returns a `key` inside `getItemProps`, and spreading it
+                // after an explicit `key` silently overrides ours — React warns
+                // because a key arriving through a spread is invisible to it
+                // when it reconciles the list. Pulled out and passed directly:
+                // the option's own id is the stable identity here, and MUI's
+                // index-based key is not (removing the first chip renumbers
+                // every one after it).
+                // MUI's own types omit the `key` it actually returns, so the
+                // cast is what lets us take it back out.
+                const { key: _muiKey, ...itemProps } = getItemProps({ index }) as ReturnType<
+                  typeof getItemProps
+                > & { key?: React.Key };
+                return (
                   <Chip
                     key={option.id}
-                    {...getItemProps({ index })}
+                    {...itemProps}
                     size="small"
                     label={option.label}
                     avatar={
@@ -240,7 +253,8 @@ export default function EntityPicker(props: Props) {
                       ) : undefined
                     }
                   />
-              ))
+                );
+              })
           : undefined
       }
       noOptionsText={noOptionsText}

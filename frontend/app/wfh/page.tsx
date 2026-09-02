@@ -30,7 +30,7 @@ import EmployeeLink from "@/components/common/EmployeeLink";
 import ExportButton from "@/components/common/ExportButton";
 import PageContainer from "@/components/shell/PageContainer";
 import ListPagination from "@/components/common/ListPagination";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -79,12 +79,7 @@ export default function WFHPage() {
         icon={<HomeWorkIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search requests…"
-              label="Search remote-work requests by reason, place or person"
-            />
+            
             <ExportButton
               path="wfh/requests"
               filters={[
@@ -107,6 +102,13 @@ export default function WFHPage() {
             </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search requests…"
+        searchLabel="Search remote-work requests by reason, place or person"
       />
 
       {/* Hero + availability */}

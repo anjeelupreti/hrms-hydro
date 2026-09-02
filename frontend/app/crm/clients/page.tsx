@@ -15,11 +15,13 @@ import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useState } from "react";
 
 import StateChip, { toneFor } from "@/components/common/StateChip";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import ClientDetailDialog from "@/components/crm/ClientDetailDialog";
 import { moneyCompact } from "@/lib/format/money";
@@ -36,7 +38,6 @@ import {
   useUpdateClient,
 } from "@/hooks/useCrm";
 import type { Client, ClientStatus } from "@/types/crm";
-import SearchField from "@/components/common/SearchField";
 
 type FormState = {
   name: string;
@@ -161,12 +162,7 @@ export default function ClientsPage() {
         actions={
           <>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-          <SearchField
-            value={search}
-            onChange={setSearch}
-            placeholder="Search clients…"
-            label="Search clients by name or industry"
-          />
+          
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             Add Client
           </Button>
@@ -174,6 +170,13 @@ export default function ClientsPage() {
       
           </>
         }
+      />
+
+      <ListControls
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search clients…"
+        searchLabel="Search clients by name or industry"
       />
 
       {/* What the list is worth, and what is owed on it.

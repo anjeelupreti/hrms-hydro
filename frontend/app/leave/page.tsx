@@ -18,7 +18,8 @@ import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useState } from "react";
 
 import PageContainer from "@/components/shell/PageContainer";

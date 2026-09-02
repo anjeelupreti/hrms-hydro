@@ -22,9 +22,9 @@ import { useState } from "react";
 
 import DateTimeField from "@/components/common/DateTimeField";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import ResponseState from "@/components/meetings/ResponseState";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCreateMeeting, useMeetings, useRsvpMeeting } from "@/hooks/useCalendar";
 import { useMe } from "@/hooks/useMe";
@@ -89,17 +89,19 @@ export default function MeetingsPage() {
         icon={<EventIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search meetings…"
-              label="Search meetings by title, location, description or attendee"
-            />
+            
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
               Schedule Meeting
             </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search meetings…"
+        searchLabel="Search meetings by title, location, description or attendee"
       />
 
       {/* Read across every upcoming meeting, not the filtered view: a room

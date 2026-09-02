@@ -20,9 +20,9 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import ExportButton from "@/components/common/ExportButton";
-import SearchField from "@/components/common/SearchField";
 import CatalogueReadiness from "@/components/training/CatalogueReadiness";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import ProgramDialog from "@/components/training/ProgramDialog";
 import { DELIVERY_LABEL, ENROLLMENT_META, formatSessionTime } from "@/components/training/trainingMeta";
@@ -70,12 +70,7 @@ export default function TrainingPage() {
         icon={<SchoolIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search programs…"
-              label="Search programs by title, category or delivery mode"
-            />
+            
             {isHR && (
               <ExportButton
                 path="training/enrollments"
@@ -103,6 +98,13 @@ export default function TrainingPage() {
             )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search programs…"
+        searchLabel="Search programs by title, category or delivery mode"
       />
 
       {/* Read against the whole catalogue, not the search results — a

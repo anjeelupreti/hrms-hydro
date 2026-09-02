@@ -6,7 +6,8 @@ import Chip from "@mui/material/Chip";
 import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import Link from "next/link";
 
 import PageContainer from "@/components/shell/PageContainer";
@@ -16,7 +17,7 @@ import LifecycleApprovalsInbox from "@/components/employees/LifecycleApprovalsIn
 import { useLifecycleEvents } from "@/hooks/useLifecycle";
 import { useCan } from "@/hooks/useMe";
 import type { LifecycleEvent, LifecycleEventStatus } from "@/types/lifecycle";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import { useTextFilter } from "@/hooks/useTextFilter";
 
 const STATUS_COLOR: Record<LifecycleEventStatus, "warning" | "info" | "error" | "default" | "success"> = {
@@ -90,19 +91,13 @@ export default function LifecycleEventsPage() {
 
       {isHR && <LifecycleApprovalsInbox />}
 
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1}
-        sx={{ mb: 2, alignItems: { sm: "center" }, justifyContent: "space-between" }}
-      >
-        <Typography variant="h6">{isHR ? "All events" : "My events"}</Typography>
-        <SearchField
-          value={query}
-          onChange={setQuery}
-          placeholder="Search events…"
-          label="Search lifecycle events by employee, type, status or reason"
-        />
-      </Stack>
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search events…"
+        searchLabel="Search lifecycle events by employee, type, status or reason"
+        trailing={<Typography variant="h6">{isHR ? "All events" : "My events"}</Typography>}
+      />
       <DataGrid
         rows={filtered}
         columns={columns}

@@ -42,7 +42,7 @@ import EmptyState from "@/components/common/EmptyState";
 import PersonAvatar from "@/components/common/PersonAvatar";
 import PageContainer from "@/components/shell/PageContainer";
 import ListPagination from "@/components/common/ListPagination";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -131,14 +131,13 @@ export default function ChangeRequestQueuePage() {
         title="Change requests"
         subtitle="Changes people have asked for on their own records"
         icon={<ManageAccountsIcon />}
-        actions={
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search requests…"
-            label="Search change requests by field or person"
-          />
-        }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search requests…"
+        searchLabel="Search change requests by field or person"
       />
 
       {error ? (

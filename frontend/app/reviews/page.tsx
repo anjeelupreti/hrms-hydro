@@ -23,9 +23,9 @@ import DateText from "@/components/common/DateText";
 import DateField from "@/components/common/DateField";
 import EmptyState from "@/components/common/EmptyState";
 import EmployeeLink from "@/components/common/EmployeeLink";
-import SearchField from "@/components/common/SearchField";
 import CycleProgress from "@/components/reviews/CycleProgress";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCan, useMe } from "@/hooks/useMe";
 import ListPagination from "@/components/common/ListPagination";
@@ -103,12 +103,7 @@ export default function ReviewsPage() {
         icon={<AssessmentIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search reviews…"
-              label="Search reviews by employee, reviewer, cycle or status"
-            />
+            
             {isHR && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
                 New Cycle
@@ -116,6 +111,13 @@ export default function ReviewsPage() {
             )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search reviews…"
+        searchLabel="Search reviews by employee, reviewer, cycle or status"
       />
 
       {/* Where the cycle stands, before the machinery for running it. Shown to

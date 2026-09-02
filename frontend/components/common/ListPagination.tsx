@@ -1,6 +1,5 @@
 "use client";
 
-import Box from "@mui/material/Box";
 import MenuItem from "@mui/material/MenuItem";
 import Pagination from "@mui/material/Pagination";
 import Stack from "@mui/material/Stack";
@@ -47,6 +46,13 @@ export default function ListPagination({
   const pages = Math.max(1, Math.ceil(count / pageSize));
   if (count === 0) return null;
 
+  // One page that fits inside the smallest page size has nothing to control:
+  // no page to go to, and no point offering "per page" when every record is
+  // already on it. Returning null keeps the bar off the two thirds of lists
+  // that are short, which is what made it look like stray furniture under
+  // every card grid.
+  if (pages === 1 && count <= PAGE_SIZES[0]) return null;
+
   const first = (page - 1) * pageSize + 1;
   const last = Math.min(page * pageSize, count);
 
@@ -54,7 +60,21 @@ export default function ListPagination({
     <Stack
       direction={{ xs: "column", sm: "row" }}
       spacing={2}
-      sx={{ mt: 2, alignItems: "center", justifyContent: "space-between" }}
+      sx={{
+        // A surface, not floating text. Underneath a card grid the bare row
+        // read as a caption that had come loose; on a table it collided with
+        // the last border. Same radius and divider as the controls card at the
+        // top, so a list is bracketed by two bands that match.
+        mt: 2,
+        px: 2,
+        py: 1.25,
+        borderRadius: 1,
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: "background.paper",
+        alignItems: { xs: "stretch", sm: "center" },
+        justifyContent: "space-between",
+      }}
     >
       <Typography variant="body2" color="text.secondary">
         {/* The range, not just the page number. "26–50 of 201" answers where
@@ -62,7 +82,11 @@ export default function ListPagination({
         {first.toLocaleString()}–{last.toLocaleString()} of {count.toLocaleString()} {noun}
       </Typography>
 
-      <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+      <Stack
+        direction="row"
+        spacing={2}
+        sx={{ alignItems: "center", justifyContent: { xs: "space-between", sm: "flex-end" } }}
+      >
         {onPageSizeChange ? (
           <TextField
             select
@@ -79,6 +103,9 @@ export default function ListPagination({
             ))}
           </TextField>
         ) : null}
+        {/* No placeholder when there is only one page. The empty `<Box />`
+            that used to sit here reserved the width of a pager that was not
+            there, which is what left the gap beside "Per page". */}
         {pages > 1 ? (
           <Pagination
             page={Math.min(page, pages)}
@@ -88,9 +115,7 @@ export default function ListPagination({
             color="primary"
             siblingCount={1}
           />
-        ) : (
-          <Box />
-        )}
+        ) : null}
       </Stack>
     </Stack>
   );

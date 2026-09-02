@@ -35,8 +35,8 @@ import AssetPhotos from "@/components/assets/AssetPhotos";
 import ListInsight from "@/components/common/ListInsight";
 import StateChip, { toneFor } from "@/components/common/StateChip";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCan, useCanCreate, useCanDelete } from "@/hooks/useMe";
 import { useTextFilter } from "@/hooks/useTextFilter";
@@ -92,18 +92,48 @@ export default function AssetsPage() {
         icon={<DevicesIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search assets…"
-              label="Search assets by name, tag, category or holder"
-            />
             {isHR && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
                 New asset
               </Button>
             )}
           </>
+        }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search assets…"
+        searchLabel="Search assets by name, tag, category or holder"
+        chips={
+          <CountFilterBar
+            ariaLabel="Filter assets by status"
+            value={status}
+            onChange={(next) => setStatus(next)}
+            options={[
+              { value: "", label: "All", count: counts?.total },
+              {
+                value: "available",
+                label: "Available",
+                count: counts?.available,
+                tone: "success",
+              },
+              {
+                value: "assigned",
+                label: "Assigned",
+                count: counts?.assigned,
+                tone: "info",
+              },
+              {
+                value: "maintenance",
+                label: "Maintenance",
+                count: counts?.maintenance,
+                tone: "warning",
+              },
+              { value: "retired", label: "Retired", count: counts?.retired },
+            ]}
+          />
         }
       />
 
@@ -120,83 +150,67 @@ export default function AssetsPage() {
         </Box>
       )}
 
-      {counts ? (
-        (() => {
-          // In circulation, over what the company owns and still uses. Retired
-          // kit is excluded from the denominator: a store full of dead monitors
-          // would otherwise read as poor utilisation forever, and the number is
-          // meant to answer "should we buy more" — which retired stock cannot.
-          const inService = counts.total - counts.retired;
-          const idle = counts.available;
-          return (
-            <ListInsight
-              headline={`${counts.assigned} of ${inService} out with staff`}
-              reading={
-                inService === 0
-                  ? "Nothing on the books yet."
-                  : idle === 0
-                    ? "Nothing spare in the store — the next joiner needs a purchase, not an allocation."
-                    : `${idle} spare in the store, so the next ${idle} joiner${idle === 1 ? "" : "s"} can be equipped without buying anything.`
-              }
-              aside={
-                counts.maintenance > 0 ? (
-                  <>
-                    <Typography sx={{ fontWeight: 700, fontSize: "1.1rem", lineHeight: 1.2 }}>
-                      {counts.maintenance} in repair
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      not available to assign
-                    </Typography>
-                  </>
-                ) : undefined
-              }
-              segments={[
-                { label: "Available", value: counts.available, depth: 0 },
-                { label: "Assigned", value: counts.assigned, depth: 1 },
-                { label: "In maintenance", value: counts.maintenance, depth: 0.5, attention: true },
-                { label: "Retired", value: counts.retired, depth: 0.2 },
-              ]}
-            />
-          );
-        })()
-      ) : null}
+      {counts
+        ? (() => {
+            // In circulation, over what the company owns and still uses. Retired
+            // kit is excluded from the denominator: a store full of dead monitors
+            // would otherwise read as poor utilisation forever, and the number is
+            // meant to answer "should we buy more" — which retired stock cannot.
+            const inService = counts.total - counts.retired;
+            const idle = counts.available;
+            return (
+              <ListInsight
+                headline={`${counts.assigned} of ${inService} out with staff`}
+                reading={
+                  inService === 0
+                    ? "Nothing on the books yet."
+                    : idle === 0
+                      ? "Nothing spare in the store — the next joiner needs a purchase, not an allocation."
+                      : `${idle} spare in the store, so the next ${idle} joiner${idle === 1 ? "" : "s"} can be equipped without buying anything.`
+                }
+                aside={
+                  counts.maintenance > 0 ? (
+                    <>
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: "1.1rem",
+                          lineHeight: 1.2,
+                        }}
+                      >
+                        {counts.maintenance} in repair
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        not available to assign
+                      </Typography>
+                    </>
+                  ) : undefined
+                }
+                segments={[
+                  { label: "Available", value: counts.available, depth: 0 },
+                  { label: "Assigned", value: counts.assigned, depth: 1 },
+                  {
+                    label: "In maintenance",
+                    value: counts.maintenance,
+                    depth: 0.5,
+                    attention: true,
+                  },
+                  { label: "Retired", value: counts.retired, depth: 0.2 },
+                ]}
+              />
+            );
+          })()
+        : null}
 
-      {/* Status was only ever a coloured chip in the table - readable one row
-
-          at a time, useless for "how many are in maintenance". Counted in SQL
-
-          because the table itself stops at 100 rows. */}
-
-      <Box sx={{ mb: 2 }}>
-
-        <CountFilterBar
-
-          ariaLabel="Filter assets by status"
-
-          value={status}
-
-          onChange={(next) => setStatus(next)}
-
-          options={[
-
-            { value: "", label: "All", count: counts?.total },
-
-            { value: "available", label: "Available", count: counts?.available, tone: "success" },
-
-            { value: "assigned", label: "Assigned", count: counts?.assigned, tone: "info" },
-
-            { value: "maintenance", label: "Maintenance", count: counts?.maintenance, tone: "warning" },
-
-            { value: "retired", label: "Retired", count: counts?.retired },
-
-          ]}
-
-        />
-
-      </Box>
-
-
-      <TableContainer component={Box} sx={{ bgcolor: "background.paper", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+      <TableContainer
+        component={Box}
+        sx={{
+          bgcolor: "background.paper",
+          borderRadius: 2,
+          border: "1px solid",
+          borderColor: "divider",
+        }}
+      >
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -249,7 +263,11 @@ export default function AssetsPage() {
                           component="img"
                           src={a.cover_url}
                           alt=""
-                          sx={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          sx={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
                         />
                       ) : (
                         <PhotoCameraIcon fontSize="small" />
@@ -269,7 +287,9 @@ export default function AssetsPage() {
                 </TableCell>
                 <TableCell>{a.asset_tag}</TableCell>
                 <TableCell sx={{ textTransform: "capitalize" }}>{a.category}</TableCell>
-                <TableCell><StateChip label={String(a.status)} tone={toneFor(a.status)} /></TableCell>
+                <TableCell>
+                  <StateChip label={String(a.status)} tone={toneFor(a.status)} />
+                </TableCell>
                 <TableCell>{a.assigned_to_name ?? "—"}</TableCell>
                 {isHR && (
                   <TableCell align="right">
@@ -320,8 +340,8 @@ export default function AssetsPage() {
                     title={isEmptyResult ? `No assets match “${query}”` : "No assets yet"}
                     description={
                       isEmptyResult
-                      ? "Try a different search, or clear it to see everything."
-                      : "Track company equipment here — laptops, phones, furniture, vehicles — and who is holding each one. Assignments and returns are recorded, so an item is never just missing."
+                        ? "Try a different search, or clear it to see everything."
+                        : "Track company equipment here — laptops, phones, furniture, vehicles — and who is holding each one. Assignments and returns are recorded, so an item is never just missing."
                     }
                     compact
                   />
@@ -336,9 +356,7 @@ export default function AssetsPage() {
       <AssetHistory asset={historyFor} canEdit={isHR} onClose={() => setHistoryFor(null)} />
 
       {creating && <AssetDialog onClose={() => setCreating(false)} />}
-      {editing && (
-        <AssetDialog key={editing.id} asset={editing} onClose={() => setEditing(null)} />
-      )}
+      {editing && <AssetDialog key={editing.id} asset={editing} onClose={() => setEditing(null)} />}
       {assignFor && <AssignDialog asset={assignFor} onClose={() => setAssignFor(null)} />}
     </PageContainer>
   );
@@ -408,25 +426,48 @@ function AssetDialog({ asset, onClose }: { asset?: Asset | null; onClose: () => 
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>{asset ? `Edit ${asset.name}` : "New asset"}</DialogTitle>
       <DialogContent>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-          <TextField label="Asset tag" value={tag} onChange={(e) => setTag(e.target.value)} helperText="Unique, e.g. LAP-001" />
-          <TextField select label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <TextField
+            label="Asset tag"
+            value={tag}
+            onChange={(e) => setTag(e.target.value)}
+            helperText="Unique, e.g. LAP-001"
+          />
+          <TextField
+            select
+            label="Category"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             {CATEGORIES.map((c) => (
-              <MenuItem key={c} value={c} sx={{ textTransform: "capitalize" }}>{c}</MenuItem>
+              <MenuItem key={c} value={c} sx={{ textTransform: "capitalize" }}>
+                {c}
+              </MenuItem>
             ))}
           </TextField>
-          <TextField label="Serial number" value={serial} onChange={(e) => setSerial(e.target.value)} />
+          <TextField
+            label="Serial number"
+            value={serial}
+            onChange={(e) => setSerial(e.target.value)}
+          />
 
           {/* The photograph, in the dialog where the asset is created — see the
               note on `pendingPhoto`. Framed as *condition at handover*, because
               that is the argument it settles; "add an image" would get a stock
               product shot of a laptop, which settles nothing. */}
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.75 }}>
-              Photo — what it looks like now. The only entry here nobody can
-              dispute later.
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mb: 0.75 }}
+            >
+              Photo — what it looks like now. The only entry here nobody can dispute later.
             </Typography>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
               <Box
@@ -448,14 +489,23 @@ function AssetDialog({ asset, onClose }: { asset?: Asset | null; onClose: () => 
                   <img
                     src={preview}
                     alt="Selected asset photo"
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
                   />
                 ) : (
                   <PhotoCameraIcon sx={{ color: "text.disabled" }} />
                 )}
               </Box>
               <Stack spacing={0.5} sx={{ minWidth: 0 }}>
-                <Button component="label" size="small" variant="outlined" sx={{ alignSelf: "flex-start" }}>
+                <Button
+                  component="label"
+                  size="small"
+                  variant="outlined"
+                  sx={{ alignSelf: "flex-start" }}
+                >
                   {pendingPhoto ? "Choose another" : "Add a photo"}
                   <input
                     hidden
@@ -506,7 +556,11 @@ function AssignDialog({ asset, onClose }: { asset: Asset; onClose: () => void })
       return;
     }
     try {
-      await assign.mutateAsync({ id: asset.id, employee: Number(employee), note });
+      await assign.mutateAsync({
+        id: asset.id,
+        employee: Number(employee),
+        note,
+      });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not assign.");
@@ -517,10 +571,22 @@ function AssignDialog({ asset, onClose }: { asset: Asset; onClose: () => void })
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>Assign {asset.name}</DialogTitle>
       <DialogContent>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <EmployeePicker value={employee || null} onChange={(id) => setEmployee(id ?? 0)} required />
-          <TextField label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+          <EmployeePicker
+            value={employee || null}
+            onChange={(id) => setEmployee(id ?? 0)}
+            required
+          />
+          <TextField
+            label="Note (optional)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
         </Stack>
       </DialogContent>
       <DialogActions>

@@ -17,7 +17,7 @@ import { useState } from "react";
 import AccessShape from "@/components/team/AccessShape";
 import CountFilterBar from "@/components/common/CountFilterBar";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import ViewSwitch, { useViewMode } from "@/components/common/ViewSwitch";
 import {
   useGrantPermission,
@@ -107,22 +107,13 @@ export default function TeamPage() {
           A bare input floating above the content reads as page furniture
           rather than a control that belongs to the list below it. */}
       <Card sx={{ p: 2 }}>
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          useFlexGap
-          sx={{ flexWrap: "wrap", alignItems: { sm: "center" } }}
-        >
-          <SearchField
-            value={search}
-            onChange={setSearch}
-            placeholder="Search people…"
-            label="Search people by name, email, code or department"
-            sx={{ width: "100%", maxWidth: { sm: 260 } }}
-          />
-          <Box sx={{ flex: 1 }} />
-          <ViewSwitch value={view} onChange={setView} modes={["cards", "list"]} />
-        </Stack>
+        <ListControls
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search people…"
+          searchLabel="Search people by name, email, code or department"
+          trailing={<ViewSwitch value={view} onChange={setView} modes={["cards", "list"]} />}
+        />
       </Card>
 
       {/* The reading, before the roster — and against every account, not the

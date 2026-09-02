@@ -31,7 +31,7 @@ import {
 } from "@/hooks/useHolidays";
 import type { Holiday } from "@/types/holidays";
 import { useCan } from "@/hooks/useMe";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import { useTextFilter } from "@/hooks/useTextFilter";
 
 export default function HolidaysSettingsPage() {
@@ -81,23 +81,19 @@ export default function HolidaysSettingsPage() {
         subtitle="Company holiday calendar"
         icon={<EventBusyIcon />}
         actions={
-          <>
-        {canManage && (
-          <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
-            Add holiday
-          </Button>
-        )}
-      
-          </>
+          canManage ? (
+            <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
+              Add holiday
+            </Button>
+          ) : null
         }
       />
 
-      <SearchField
-        value={query}
-        onChange={setQuery}
-        placeholder="Search holidays…"
-        label="Search holidays by name or date"
-        sx={{ width: "100%", mb: 1 }}
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search holidays…"
+        searchLabel="Search holidays by name or date"
       />
 
       <List>

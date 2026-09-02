@@ -13,7 +13,8 @@ import DialogTitle from "@mui/material/DialogTitle";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useState } from "react";
 
 import Typography from "@mui/material/Typography";
@@ -33,8 +34,8 @@ import {
 } from "@/hooks/usePayroll";
 import { useCan, useMe } from "@/hooks/useMe";
 import type { Loan, LoanStatus } from "@/types/payroll";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useTextFilter } from "@/hooks/useTextFilter";
 
@@ -158,12 +159,7 @@ export default function LoansPage() {
         icon={<RequestQuoteIcon />}
         actions={
           <>
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search loans…"
-            label="Search loans by employee, type or status"
-          />
+          
           {me?.employee_id && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setOpen(true)}>
               Request Loan
@@ -171,6 +167,13 @@ export default function LoansPage() {
           )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search loans…"
+        searchLabel="Search loans by employee, type or status"
       />
 
       {/* What a finance team actually asks of this list: how much is out, and

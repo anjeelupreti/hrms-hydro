@@ -19,7 +19,8 @@ import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useState } from "react";
 
 import {
@@ -32,8 +33,8 @@ import {
 import type { CalcType, ComponentType, SalaryComponent } from "@/types/payroll";
 import StateChip from "@/components/common/StateChip";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useTextFilter } from "@/hooks/useTextFilter";
 
@@ -218,17 +219,19 @@ export default function SalaryComponentsPage() {
         icon={<TuneIcon />}
         actions={
           <>
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search components…"
-            label="Search components by code, name or type"
-          />
+          
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             Add Component
           </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search components…"
+        searchLabel="Search components by code, name or type"
       />
 
       <DataGrid

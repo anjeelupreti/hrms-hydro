@@ -10,17 +10,16 @@ import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
-import { enUS } from "date-fns/locale/en-US";
-import { format, getDay, parse, startOfWeek } from "date-fns";
+import dynamic from "next/dynamic";
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { Calendar, dateFnsLocalizer, type View } from "react-big-calendar";
-import withDragAndDrop, { type EventInteractionArgs } from "react-big-calendar/lib/addons/dragAndDrop";
 
-import "react-big-calendar/lib/css/react-big-calendar.css";
-import "react-big-calendar/lib/addons/dragAndDrop/styles.css";
 
 import { EVENT_HUE } from "@/lib/theme/tokens";
 import BikramMonthGrid from "@/components/calendar/BikramMonthGrid";
+import type {
+  GregorianCalendarProps,
+  RbcEvent,
+} from "@/components/calendar/GregorianCalendar";
 import CalendarAgenda from "@/components/calendar/CalendarAgenda";
 import CompanyEventDialog from "@/components/calendar/CompanyEventDialog";
 import PageHeader from "@/components/shell/PageHeader";
@@ -60,16 +59,24 @@ type FilterKey = CompanyEventType | "holiday";
 
 const ALL_FILTERS: FilterKey[] = ["meeting", "interview", "announcement", "other", "holiday"];
 
-const locales = { "en-US": enUS };
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: () => startOfWeek(new Date(), { locale: enUS }),
-  getDay,
-  locales,
+/**
+ * The Gregorian grid, fetched only if somebody asks for it.
+ *
+ * The page opens in Bikram Sambat — `showLocal` starts `true` — and that grid
+ * is `BikramMonthGrid`, a plain table. `react-big-calendar`, its drag-and-drop
+ * addon and their two stylesheets are the heaviest thing this route loads and
+ * were being downloaded on every visit for a view most visits never show.
+ *
+ * `ssr: false` is not an optimisation here, it is the existing requirement:
+ * the grid marks "today" from its own `new Date()`, and the container (UTC)
+ * and the browser (UTC+05:45) disagree about the date for the first 5h45m of
+ * every local day — see `useMounted` below, which exists for that reason. The
+ * dynamic boundary now enforces what the mount guard was asking for.
+ */
+const GregorianCalendar = dynamic(() => import("@/components/calendar/GregorianCalendar"), {
+  ssr: false,
+  loading: () => <Skeleton variant="rounded" sx={{ flexGrow: 1, minHeight: 560 }} />,
 });
-
-const DnDCalendar = withDragAndDrop<RbcEvent>(Calendar);
 
 /**
  * Whether the browser has taken over from the prerender.
@@ -98,14 +105,6 @@ function useMounted() {
   return useSyncExternalStore(NEVER_CHANGES, ON_CLIENT, ON_SERVER);
 }
 
-type RbcEvent = {
-  id: number;
-  title: string;
-  start: Date;
-  end: Date;
-  allDay: boolean;
-  resource: CompanyEvent;
-};
 
 export default function CompanyCalendarPage() {
   const canManage = useCan("settings.manage");
@@ -195,7 +194,7 @@ export default function CompanyCalendarPage() {
     setDialogOpen(true);
   }
 
-  function handleEventDrop({ event, start, end }: EventInteractionArgs<RbcEvent>) {
+  function handleEventDrop(...[{ event, start, end }]: Parameters<GregorianCalendarProps["onEventDrop"]>) {
     if (!canManage) return;
     updateEvent.mutate({
       id: event.id,
@@ -203,7 +202,9 @@ export default function CompanyCalendarPage() {
     });
   }
 
-  function handleRangeChange(newRange: Date[] | { start: Date; end: Date }, view?: View) {
+  function handleRangeChange(
+    ...[newRange, view]: Parameters<GregorianCalendarProps["onRangeChange"]>
+  ) {
     if (Array.isArray(newRange)) {
       const start = newRange[0];
       const end = newRange[newRange.length - 1];
@@ -422,21 +423,14 @@ export default function CompanyCalendarPage() {
               }
             />
           ) : mounted ? (
-            <DnDCalendar
-              localizer={localizer}
+            <GregorianCalendar
               events={calendarEvents}
-              startAccessor="start"
-              endAccessor="end"
-              style={{ height: "100%", minHeight: 560 }}
-              popup
-              selectable={canManage}
-              resizable={canManage}
+              canManage={canManage}
               eventPropGetter={eventPropGetter}
               dayPropGetter={dayPropGetter}
               onSelectSlot={handleSelectSlot}
               onSelectEvent={handleSelectEvent}
               onEventDrop={handleEventDrop}
-              onEventResize={handleEventDrop}
               onRangeChange={handleRangeChange}
             />
           ) : (

@@ -32,7 +32,7 @@ import PageContainer from "@/components/shell/PageContainer";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 import ListPagination from "@/components/common/ListPagination";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
@@ -124,12 +124,7 @@ export default function RecruitmentPage() {
         icon={<PersonSearchIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search roles…"
-              label="Search job postings by title, place or description"
-            />
+            
             {/* The public board this page publishes to.
                 It existed and nothing inside the product linked to it, so the
                 people posting the roles had no way to see what a candidate
@@ -168,6 +163,13 @@ export default function RecruitmentPage() {
             )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search roles…"
+        searchLabel="Search job postings by title, place or description"
       />
 
       {isHR && summary && (

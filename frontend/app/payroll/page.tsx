@@ -44,6 +44,7 @@ import HeroPanel from "@/components/common/HeroPanel";
 import StatTile from "@/components/common/StatTile";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   useCreatePayrollRun,
@@ -316,12 +317,7 @@ function PayrollRunsView() {
         icon={<ReceiptLongIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search runs…"
-              label="Search payroll runs by period, status or notes"
-            />
+            
             {/* One action in the header. The rules payroll runs by are a
                 different kind of thing from "run payroll", and standing them
                 side by side says they are the same — as well as squeezing the
@@ -334,6 +330,13 @@ function PayrollRunsView() {
             </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search runs…"
+        searchLabel="Search payroll runs by period, status or notes"
       />
 
       {/* The rules behind the runs. Grouped and labelled, so it is obvious

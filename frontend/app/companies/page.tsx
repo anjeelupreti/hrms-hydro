@@ -22,7 +22,7 @@ import { useState } from "react";
 
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
+import ListControls from "@/components/common/ListControls";
 import CompanyFormDialog from "@/components/companies/CompanyFormDialog";
 import Breadcrumbs from "@/components/shell/Breadcrumbs";
 import PageContainer from "@/components/shell/PageContainer";
@@ -122,13 +122,12 @@ export default function CompaniesPage() {
         ) : null}
       </Stack>
 
-      <Box sx={{ mb: 2, maxWidth: 420 }}>
-        <SearchField
-          value={search}
-          onChange={setSearch}
-          placeholder="Name, code, registration or river…"
-        />
-      </Box>
+      <ListControls
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Name, code, registration or river…"
+        searchLabel="Search companies by name, code, registration number or river"
+      />
 
       {isLoading ? (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>

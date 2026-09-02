@@ -35,8 +35,8 @@ import { useState } from "react";
 import DateText from "@/components/common/DateText";
 import EmptyState from "@/components/common/EmptyState";
 import { EmployeePicker } from "@/components/common/pickers";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useTextFilter } from "@/hooks/useTextFilter";
 import {
@@ -89,17 +89,19 @@ export default function DocumentsPage() {
         icon={<FolderIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search documents…"
-              label="Search documents by title, category, scope or uploader"
-            />
+            
             <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => setUploadOpen(true)}>
               Upload
             </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search documents…"
+        searchLabel="Search documents by title, category, scope or uploader"
       />
 
       {pendingToSign.length > 0 && (

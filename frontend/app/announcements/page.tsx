@@ -28,8 +28,8 @@ import { useState } from "react";
 
 import BoardState from "@/components/announcements/BoardState";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   useAnnouncements,
@@ -88,12 +88,7 @@ export default function AnnouncementsPage() {
         icon={<CampaignIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search announcements…"
-              label="Search announcements by title, body, department or author"
-            />
+            
             {canManage && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
                 New Announcement
@@ -101,6 +96,13 @@ export default function AnnouncementsPage() {
             )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search announcements…"
+        searchLabel="Search announcements by title, body, department or author"
       />
 
       {/* Live and archived, side by side. Deleting a notice destroys the

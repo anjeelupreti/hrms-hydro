@@ -20,7 +20,8 @@ import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 
 import StateChip, { EMPLOYMENT_TONE } from "@/components/common/StateChip";
 import Link from "next/link";
@@ -29,11 +30,11 @@ import { useState, Suspense } from "react";
 
 import CountFilterBar from "@/components/common/CountFilterBar";
 import DateText from "@/components/common/DateText";
+import ListControls from "@/components/common/ListControls";
 import ListPagination from "@/components/common/ListPagination";
 import EmptyState from "@/components/common/EmptyState";
 import RecordGrid, { type RecordView } from "@/components/common/RecordGrid";
 import StaffCard from "@/components/common/StaffCard";
-import SearchField from "@/components/common/SearchField";
 import ViewSwitch, { useViewMode } from "@/components/common/ViewSwitch";
 import EmployeeLink from "@/components/common/EmployeeLink";
 import ExportButton from "@/components/common/ExportButton";
@@ -282,63 +283,59 @@ function EmployeesContent() {
         }
       />
 
-      <Card sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} useFlexGap sx={{ flexWrap: "wrap" }}>
-        <SearchField
-          value={search}
-          onChange={setSearch}
-          placeholder="Search employees…"
-          label="Search employees by name, code or email"
-          sx={{ width: "100%", maxWidth: { sm: 260 } }}
-        />
-        <DepartmentPicker
-          value={department === "" ? null : department}
-          onChange={(id) => setDepartment(id ?? "")}
-          placeholder="All"
-          size="small"
-          sx={{ maxWidth: { sm: 200 } }}
-        />
-        <DesignationPicker
-          value={designation === "" ? null : designation}
-          onChange={(id) => setDesignation(id ?? "")}
-          placeholder="All"
-          size="small"
-          sx={{ maxWidth: { sm: 200 } }}
-        />
-        <CompanyPicker
-          label="Company"
-          value={company === "" ? null : company}
-          onChange={(id) => setCompany(id ?? "")}
-          placeholder="All"
-          size="small"
-          sx={{ maxWidth: { sm: 220 } }}
-        />
-        </Stack>
-
-        {/* The status dropdown became this. A count nobody can click and a
-            filter that shows no count were two controls answering one
-            question; now the number *is* the way in. Counts come from the
-            server so they describe the whole directory, not the loaded page. */}
-        {/* The roster, or the people who have left. Picking a specific status
-            below still works and overrides this — asking for "Terminated" by
-            name is somebody who knows what they want. */}
-        <Tabs
-          value={past ? 1 : 0}
-          onChange={(_e, v) => {
-            setPast(v === 1);
-            setStatus("");
-          }}
-          sx={{ mt: 1 }}
-        >
-          <Tab label="Current" />
-          <Tab
-            label={`Past employees${
-              statusCounts ? ` (${(statusCounts.resigned ?? 0) + (statusCounts.terminated ?? 0)})` : ""
-            }`}
-          />
-        </Tabs>
-
-        <Box sx={{ mt: 2 }}>
+      {/* The arrangement every other list now copies — search, then the
+          pickers, then the status chips, all in one band under the header.
+          It lives in `ListControls` so this page and the twenty-three that
+          were rebuilt to match cannot drift apart again. */}
+      <ListControls
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search employees…"
+        searchLabel="Search employees by name, code or email"
+        filters={
+          <>
+            <DepartmentPicker
+              value={department === "" ? null : department}
+              onChange={(id) => setDepartment(id ?? "")}
+              placeholder="All"
+              size="small"
+              sx={{ maxWidth: { sm: 200 } }}
+            />
+            <DesignationPicker
+              value={designation === "" ? null : designation}
+              onChange={(id) => setDesignation(id ?? "")}
+              placeholder="All"
+              size="small"
+              sx={{ maxWidth: { sm: 200 } }}
+            />
+            <CompanyPicker
+              label="Company"
+              value={company === "" ? null : company}
+              onChange={(id) => setCompany(id ?? "")}
+              placeholder="All"
+              size="small"
+              sx={{ maxWidth: { sm: 220 } }}
+            />
+          </>
+        }
+        tabs={
+          <Tabs
+            value={past ? 1 : 0}
+            onChange={(_e, v) => {
+              setPast(v === 1);
+              setStatus("");
+            }}
+            sx={{ mt: 1 }}
+          >
+            <Tab label="Current" />
+            <Tab
+              label={`Past employees${
+                statusCounts ? ` (${(statusCounts.resigned ?? 0) + (statusCounts.terminated ?? 0)})` : ""
+              }`}
+            />
+          </Tabs>
+        }
+        chips={
           <CountFilterBar
             ariaLabel="Filter employees by employment status"
             value={status}
@@ -355,8 +352,8 @@ function EmployeesContent() {
               { value: "terminated", label: "Terminated", count: statusCounts?.terminated, tone: "danger" },
             ]}
           />
-        </Box>
-      </Card>
+        }
+      />
 
       <Stack
         direction="row"

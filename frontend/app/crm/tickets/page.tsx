@@ -19,11 +19,11 @@ import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
 import KanbanBoard from "@/components/common/KanbanBoard";
-import SearchField from "@/components/common/SearchField";
 import CrmSubNav from "@/components/crm/CrmSubNav";
 import TicketDetailDrawer from "@/components/crm/TicketDetailDrawer";
 import PageContainer from "@/components/shell/PageContainer";
 import ListInsight from "@/components/common/ListInsight";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   useClientDeskSummary,
@@ -127,11 +127,7 @@ export default function TicketsPage() {
         module="CRM"
         actions={
           <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
-            <SearchField
-              value={search}
-              onChange={setSearch}
-              placeholder="Search tickets…"
-            />
+            
             <TextField
               select
               size="small"
@@ -163,6 +159,12 @@ export default function TicketsPage() {
             </ToggleButtonGroup>
           </Stack>
         }
+      />
+
+      <ListControls
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search tickets…"
       />
 
       <CrmSubNav />

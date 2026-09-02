@@ -40,11 +40,11 @@ import RankedBars from "@/components/charts/RankedBars";
 import CountFilterBar from "@/components/common/CountFilterBar";
 import ExportButton from "@/components/common/ExportButton";
 import ListPagination from "@/components/common/ListPagination";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
 import SectionCard from "@/components/common/SectionCard";
 import { money, moneyCompact } from "@/lib/format/money";
 import { monthLabel, monthTitle, todayIso, yearMarker } from "@/lib/format/period";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   useCreateExpenseClaim,
@@ -59,7 +59,6 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { usePagedList } from "@/hooks/usePagedList";
 import type { ExpenseCategory, ExpenseStatus } from "@/types/expenses";
 
-
 const CATEGORIES: { value: ExpenseCategory; label: string }[] = [
   { value: "travel", label: "Travel" },
   { value: "meals", label: "Meals" },
@@ -68,7 +67,6 @@ const CATEGORIES: { value: ExpenseCategory; label: string }[] = [
   { value: "training", label: "Training" },
   { value: "other", label: "Other" },
 ];
-
 
 export default function ExpensesPage() {
   const { data: me } = useMe();
@@ -110,16 +108,17 @@ export default function ExpensesPage() {
     <PageContainer>
       <PageHeader
         title="Expenses"
-        subtitle={isHR ? "Review and reimburse expense claims" : "Submit and track your reimbursements"}
+        subtitle={
+          isHR ? "Review and reimburse expense claims" : "Submit and track your reimbursements"
+        }
         icon={<ReceiptLongIcon />}
         actions={
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }} useFlexGap>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search claims…"
-              label="Search claims by title, category, status, date or amount"
-            />
+          <Stack
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: "center", flexWrap: "wrap" }}
+            useFlexGap
+          >
             {isHR && (
               <ExportButton
                 path="expenses/claims"
@@ -148,11 +147,62 @@ export default function ExpensesPage() {
               </Button>
             )}
             {me?.employee_id && (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() => setDialogOpen(true)}
+              >
                 New Claim
               </Button>
             )}
           </Stack>
+        }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search claims…"
+        searchLabel="Search claims by title, category, status, date or amount"
+        chips={
+          <CountFilterBar
+            ariaLabel="Filter claims by status"
+            value={status}
+            onChange={(next) => setStatus(next)}
+            loading={isLoading}
+            options={[
+              { value: "", label: "All", count: counts?.total },
+              {
+                value: "pending",
+                label: "Pending",
+                count: counts?.pending.count,
+                tone: "warning",
+              },
+              {
+                value: "approved",
+                label: "Approved",
+                count: counts?.approved.count,
+                tone: "info",
+              },
+              {
+                value: "reimbursed",
+                label: "Reimbursed",
+                count: counts?.reimbursed.count,
+                tone: "success",
+              },
+              {
+                value: "rejected",
+                label: "Rejected",
+                count: counts?.rejected.count,
+                tone: "danger",
+              },
+              {
+                value: "cancelled",
+                label: "Cancelled",
+                count: counts?.cancelled.count,
+              },
+            ]}
+          />
         }
       />
 
@@ -201,10 +251,7 @@ export default function ExpensesPage() {
           </SectionCard>
         </Grid>
         <Grid size={{ xs: 12, md: 5 }}>
-          <SectionCard
-            title="Where it went"
-            subtitle="The same twelve months, by category"
-          >
+          <SectionCard title="Where it went" subtitle="The same twelve months, by category">
             {trendLoading ? (
               <Skeleton variant="rounded" height={220} />
             ) : (
@@ -225,51 +272,25 @@ export default function ExpensesPage() {
           <SummaryCard label="Pending" value={String(pending)} />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <SummaryCard label="Approved (awaiting reimbursement)" value={<Amount value={money(approvedAmt)} />} />
+          <SummaryCard
+            label="Approved (awaiting reimbursement)"
+            value={<Amount value={money(approvedAmt)} />}
+          />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
           <SummaryCard label="Reimbursed" value={<Amount value={money(reimbursedAmt)} />} />
         </Grid>
       </Grid>
 
-      {/* The status tiles were read-only totals; these are the same numbers
-
-          and also the filter, so acting on "3 pending" is one click. */}
-
-      <Box sx={{ mb: 2 }}>
-
-        <CountFilterBar
-
-          ariaLabel="Filter claims by status"
-
-          value={status}
-
-          onChange={(next) => setStatus(next)}
-
-          loading={isLoading}
-
-          options={[
-
-            { value: "", label: "All", count: counts?.total },
-
-            { value: "pending", label: "Pending", count: counts?.pending.count, tone: "warning" },
-
-            { value: "approved", label: "Approved", count: counts?.approved.count, tone: "info" },
-
-            { value: "reimbursed", label: "Reimbursed", count: counts?.reimbursed.count, tone: "success" },
-
-            { value: "rejected", label: "Rejected", count: counts?.rejected.count, tone: "danger" },
-
-            { value: "cancelled", label: "Cancelled", count: counts?.cancelled.count },
-
-          ]}
-
-        />
-
-      </Box>
-
-
-      <TableContainer component={Box} sx={{ bgcolor: "background.paper", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+      <TableContainer
+        component={Box}
+        sx={{
+          bgcolor: "background.paper",
+          borderRadius: 2,
+          border: "1px solid",
+          borderColor: "divider",
+        }}
+      >
         <Table>
           <TableHead>
             <TableRow>
@@ -304,12 +325,18 @@ export default function ExpensesPage() {
                 <TableCell align="right">
                   <Amount value={money(c.amount)} />
                 </TableCell>
-                <TableCell><DateText value={c.expense_date} /></TableCell>
+                <TableCell>
+                  <DateText value={c.expense_date} />
+                </TableCell>
                 <TableCell>
                   <StateChip label={String(c.status)} tone={toneFor(c.status)} />
                 </TableCell>
                 <TableCell align="right">
-                  <Stack direction="row" spacing={0.5} sx={{ justifyContent: "flex-end", alignItems: "center" }}>
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    sx={{ justifyContent: "flex-end", alignItems: "center" }}
+                  >
                     {c.receipt_url && (
                       <IconButton
                         size="small"
@@ -324,24 +351,42 @@ export default function ExpensesPage() {
                     )}
                     {isHR && c.status === "pending" && (
                       <>
-                        <Button size="small" startIcon={<CheckIcon />} onClick={() => action.mutate({ id: c.id, action: "approve" })}>
+                        <Button
+                          size="small"
+                          startIcon={<CheckIcon />}
+                          onClick={() => action.mutate({ id: c.id, action: "approve" })}
+                        >
                           Approve
                         </Button>
-                        <Button size="small" color="error" startIcon={<CloseIcon />} onClick={() => action.mutate({ id: c.id, action: "reject" })}>
+                        <Button
+                          size="small"
+                          color="error"
+                          startIcon={<CloseIcon />}
+                          onClick={() => action.mutate({ id: c.id, action: "reject" })}
+                        >
                           Reject
                         </Button>
                       </>
                     )}
                     {isHR && c.status === "approved" && (
-                      <Button size="small" startIcon={<PaidIcon />} onClick={() => action.mutate({ id: c.id, action: "reimburse" })}>
+                      <Button
+                        size="small"
+                        startIcon={<PaidIcon />}
+                        onClick={() => action.mutate({ id: c.id, action: "reimburse" })}
+                      >
                         Mark reimbursed
                       </Button>
                     )}
-                    {c.employee === me?.employee_id && (c.status === "pending" || c.status === "approved") && (
-                      <Button size="small" color="inherit" onClick={() => action.mutate({ id: c.id, action: "cancel" })}>
-                        Cancel
-                      </Button>
-                    )}
+                    {c.employee === me?.employee_id &&
+                      (c.status === "pending" || c.status === "approved") && (
+                        <Button
+                          size="small"
+                          color="inherit"
+                          onClick={() => action.mutate({ id: c.id, action: "cancel" })}
+                        >
+                          Cancel
+                        </Button>
+                      )}
                   </Stack>
                 </TableCell>
               </TableRow>
@@ -349,7 +394,11 @@ export default function ExpensesPage() {
             {!isLoading && isEmptyResult && (
               <TableRow>
                 <TableCell colSpan={isHR ? 7 : 6}>
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ py: 4, textAlign: "center" }}
+                  >
                     No claims match “{query}”.
                   </Typography>
                 </TableCell>
@@ -365,8 +414,9 @@ export default function ExpensesPage() {
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 460 }}>
                       Employees submit reimbursement claims here (travel, meals, supplies, software,
-                      training). Each claim moves through <strong>Pending → Approved → Reimbursed</strong>,
-                      and HR reviews and marks them paid. Attach a receipt when you submit.
+                      training). Each claim moves through{" "}
+                      <strong>Pending → Approved → Reimbursed</strong>, and HR reviews and marks
+                      them paid. Attach a receipt when you submit.
                     </Typography>
                     {me?.employee_id ? (
                       <Button
@@ -406,7 +456,15 @@ export default function ExpensesPage() {
 
 function SummaryCard({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <Box sx={{ p: 2, bgcolor: "background.paper", borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+    <Box
+      sx={{
+        p: 2,
+        bgcolor: "background.paper",
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+      }}
+    >
       <Typography variant="overline" color="text.secondary">
         {label}
       </Typography>
@@ -438,9 +496,11 @@ function NewClaimDialog({ onClose }: { onClose: () => void }) {
    * Debounced, because it fires on every keystroke in the amount field.
    */
   const checkBudget = useCheckBudget();
-  const [verdict, setVerdict] = useState<{ allowed: boolean; warn: boolean; message: string } | null>(
-    null
-  );
+  const [verdict, setVerdict] = useState<{
+    allowed: boolean;
+    warn: boolean;
+    message: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!amount || Number(amount) <= 0) {
@@ -500,20 +560,49 @@ function NewClaimDialog({ onClose }: { onClose: () => void }) {
           </Alert>
         ) : null}
         <Stack spacing={2} sx={{ mt: 1 }}>
-          <TextField label="Title" fullWidth value={title} onChange={(e) => setTitle(e.target.value)} />
-          <TextField select label="Category" fullWidth value={category} onChange={(e) => setCategory(e.target.value as ExpenseCategory)}>
+          <TextField
+            label="Title"
+            fullWidth
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <TextField
+            select
+            label="Category"
+            fullWidth
+            value={category}
+            onChange={(e) => setCategory(e.target.value as ExpenseCategory)}
+          >
             {CATEGORIES.map((c) => (
               <MenuItem key={c.value} value={c.value}>
                 {c.label}
               </MenuItem>
             ))}
           </TextField>
-          <TextField label="Amount" type="number" fullWidth value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <TextField
+            label="Amount"
+            type="number"
+            fullWidth
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
           <DateField label="Expense date" value={expenseDate} onChange={setExpenseDate} />
-          <TextField label="Description" fullWidth multiline minRows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+          <TextField
+            label="Description"
+            fullWidth
+            multiline
+            minRows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
           <Button component="label" variant="outlined" startIcon={<AttachFileIcon />}>
             {receipt ? receipt.name : "Attach receipt (optional)"}
-            <input hidden type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => setReceipt(e.target.files?.[0] ?? null)} />
+            <input
+              hidden
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg"
+              onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+            />
           </Button>
         </Stack>
       </DialogContent>

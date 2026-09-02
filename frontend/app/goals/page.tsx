@@ -22,9 +22,9 @@ import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import ObjectiveRoadmap from "@/components/goals/ObjectiveRoadmap";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { ArchiveButton, ArchiveTabs } from "@/components/common/ArchiveControls";
 import { useArchive } from "@/hooks/useCollaboration";
@@ -65,17 +65,19 @@ export default function GoalsPage() {
         icon={<FlagIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search objectives…"
-              label="Search objectives by title, owner, period or key result"
-            />
+            
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing(null)}>
               New objective
             </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search objectives…"
+        searchLabel="Search objectives by title, owner, period or key result"
       />
       {/* The reading, before the list. Only on the live list — a spread of
           archived objectives describes a year nobody is working on. */}

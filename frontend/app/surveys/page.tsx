@@ -23,9 +23,9 @@ import Typography from "@mui/material/Typography";
 import { useEffect, useState } from "react";
 
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import SurveyPulse from "@/components/surveys/SurveyPulse";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { ArchiveButton, ArchiveTabs } from "@/components/common/ArchiveControls";
 import { useArchive } from "@/hooks/useCollaboration";
@@ -84,12 +84,7 @@ export default function SurveysPage() {
         icon={<PollIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search surveys…"
-              label="Search surveys by title, status or question"
-            />
+            
             {isHR && (
               <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditing(null)}>
                 New survey
@@ -97,6 +92,13 @@ export default function SurveysPage() {
             )}
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search surveys…"
+        searchLabel="Search surveys by title, status or question"
       />
       {/* The reading, before the list — and only on the live tab. A pulse
           taken across archived surveys is a pulse on something that stopped. */}

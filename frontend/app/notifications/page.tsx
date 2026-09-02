@@ -20,6 +20,7 @@ import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { getNotificationIconSpec } from "@/components/notifications/notificationIcons";
 import NotificationDetailDialog from "@/components/notifications/NotificationDetailDialog";
@@ -29,7 +30,6 @@ import {
   useNotifications,
   useUnreadCount,
 } from "@/hooks/useNotifications";
-import SearchField from "@/components/common/SearchField";
 import { useTextFilter } from "@/hooks/useTextFilter";
 import type { Notification } from "@/types/notifications";
 
@@ -89,12 +89,7 @@ export default function NotificationsPage() {
           icon={<NotificationsIcon />}
           actions={
             <>
-              <SearchField
-                value={query}
-                onChange={setQuery}
-                placeholder="Search notifications…"
-                label="Search notifications by message"
-              />
+              
               <Button
                 size="small"
                 variant="outlined"
@@ -107,6 +102,13 @@ export default function NotificationsPage() {
             </>
           }
         />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search notifications…"
+        searchLabel="Search notifications by message"
+      />
 
         <Stack direction="row" sx={{ mb: 2 }}>
           <ToggleButtonGroup

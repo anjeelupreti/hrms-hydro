@@ -20,10 +20,10 @@ import { useState } from "react";
 
 import StateChip, { toneFor } from "@/components/common/StateChip";
 import EmptyState from "@/components/common/EmptyState";
-import SearchField from "@/components/common/SearchField";
 import CountFilterBar from "@/components/common/CountFilterBar";
 import ListInsight from "@/components/common/ListInsight";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import { useCan, useMe } from "@/hooks/useMe";
 import { useTextFilter } from "@/hooks/useTextFilter";
@@ -43,7 +43,12 @@ import { DepartmentPicker, EmployeePicker } from "@/components/common/pickers";
 const CATEGORIES = ["it", "hr", "facilities", "payroll", "other"];
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 const STATUSES = ["open", "in_progress", "resolved", "closed"];
-const PRIORITY_COLOR = { low: "default", medium: "info", high: "warning", urgent: "error" } as const;
+const PRIORITY_COLOR = {
+  low: "default",
+  medium: "info",
+  high: "warning",
+  urgent: "error",
+} as const;
 
 export default function HelpdeskPage() {
   const { data: me } = useMe();
@@ -79,16 +84,46 @@ export default function HelpdeskPage() {
         icon={<SupportAgentIcon />}
         actions={
           <>
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Search tickets…"
-              label="Search tickets by number, subject, category, status or people"
-            />
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
               New ticket
             </Button>
           </>
+        }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search tickets…"
+        searchLabel="Search tickets by number, subject, category, status or people"
+        chips={
+          <CountFilterBar
+            ariaLabel="Filter tickets by status"
+            value={status}
+            onChange={(next) => setStatus(next)}
+            options={[
+              { value: "", label: "All", count: counts?.total },
+              {
+                value: "open",
+                label: "Open",
+                count: counts?.open,
+                tone: "warning",
+              },
+              {
+                value: "in_progress",
+                label: "In progress",
+                count: counts?.in_progress,
+                tone: "info",
+              },
+              {
+                value: "resolved",
+                label: "Resolved",
+                count: counts?.resolved,
+                tone: "success",
+              },
+              { value: "closed", label: "Closed", count: counts?.closed },
+            ]}
+          />
         }
       />
       {queue && queue.unresolved > 0 ? (
@@ -119,29 +154,16 @@ export default function HelpdeskPage() {
           }
           segments={[
             { label: "Open", value: counts?.open ?? 0, depth: 0 },
-            { label: "In progress", value: counts?.in_progress ?? 0, depth: 0.4 },
+            {
+              label: "In progress",
+              value: counts?.in_progress ?? 0,
+              depth: 0.4,
+            },
             { label: "Resolved", value: counts?.resolved ?? 0, depth: 0.75 },
             { label: "Closed", value: counts?.closed ?? 0, depth: 1 },
           ]}
         />
       ) : null}
-
-      {/* Backlog at a glance, and the way into it. Counts come from the
-          server: "2 open" tallied down the visible list stops at the page. */}
-      <Box sx={{ mb: 2 }}>
-        <CountFilterBar
-          ariaLabel="Filter tickets by status"
-          value={status}
-          onChange={(next) => setStatus(next)}
-          options={[
-            { value: "", label: "All", count: counts?.total },
-            { value: "open", label: "Open", count: counts?.open, tone: "warning" },
-            { value: "in_progress", label: "In progress", count: counts?.in_progress, tone: "info" },
-            { value: "resolved", label: "Resolved", count: counts?.resolved, tone: "success" },
-            { value: "closed", label: "Closed", count: counts?.closed },
-          ]}
-        />
-      </Box>
 
       <Stack spacing={1.5}>
         {filtered.length === 0 ? (
@@ -150,8 +172,8 @@ export default function HelpdeskPage() {
             title={isEmptyResult ? `No tickets match “${query}”` : "No tickets yet"}
             description={
               isEmptyResult
-              ? "Try a different search, or clear it to see everything."
-              : "Internal requests live here — IT problems, HR questions, facilities. Each ticket has a type, a priority and one named owner, so nothing sits unclaimed."
+                ? "Try a different search, or clear it to see everything."
+                : "Internal requests live here — IT problems, HR questions, facilities. Each ticket has a type, a priority and one named owner, so nothing sits unclaimed."
             }
             surface
           />
@@ -159,7 +181,14 @@ export default function HelpdeskPage() {
           filtered.map((t) => (
             <Card key={t.id} sx={{ cursor: "pointer" }} onClick={() => setOpenId(t.id)}>
               <CardContent>
-                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", gap: 1 }}>
+                <Stack
+                  direction="row"
+                  sx={{
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 1,
+                  }}
+                >
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>
                       #{t.id} {t.subject}
@@ -172,8 +201,16 @@ export default function HelpdeskPage() {
                     </Typography>
                   </Box>
                   <Stack direction="row" spacing={1}>
-                    <Chip size="small" label={t.priority} color={PRIORITY_COLOR[t.priority]} variant="outlined" />
-                    <StateChip label={String(t.status.replace("_", " "))} tone={toneFor(t.status)} />
+                    <Chip
+                      size="small"
+                      label={t.priority}
+                      color={PRIORITY_COLOR[t.priority]}
+                      variant="outlined"
+                    />
+                    <StateChip
+                      label={String(t.status.replace("_", " "))}
+                      tone={toneFor(t.status)}
+                    />
                   </Stack>
                 </Stack>
               </CardContent>
@@ -226,16 +263,46 @@ function TicketDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>New ticket</DialogTitle>
       <DialogContent>
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
         <Stack spacing={2} sx={{ mt: 1 }}>
           <TextField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
-          <TextField label="Description" value={description} onChange={(e) => setDescription(e.target.value)} multiline minRows={2} />
+          <TextField
+            label="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            multiline
+            minRows={2}
+          />
           <Stack direction="row" spacing={2}>
-            <TextField select label="Category" value={category} onChange={(e) => setCategory(e.target.value)} sx={{ flex: 1 }}>
-              {CATEGORIES.map((c) => <MenuItem key={c} value={c} sx={{ textTransform: "uppercase" }}>{c}</MenuItem>)}
+            <TextField
+              select
+              label="Category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              sx={{ flex: 1 }}
+            >
+              {CATEGORIES.map((c) => (
+                <MenuItem key={c} value={c} sx={{ textTransform: "uppercase" }}>
+                  {c}
+                </MenuItem>
+              ))}
             </TextField>
-            <TextField select label="Priority" value={priority} onChange={(e) => setPriority(e.target.value)} sx={{ flex: 1 }}>
-              {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>{p}</MenuItem>)}
+            <TextField
+              select
+              label="Priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              sx={{ flex: 1 }}
+            >
+              {PRIORITIES.map((p) => (
+                <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>
+                  {p}
+                </MenuItem>
+              ))}
             </TextField>
           </Stack>
           <DepartmentPicker
@@ -248,7 +315,9 @@ function TicketDialog({ onClose }: { onClose: () => void }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={submit} disabled={create.isPending || !subject}>Open ticket</Button>
+        <Button variant="contained" onClick={submit} disabled={create.isPending || !subject}>
+          Open ticket
+        </Button>
       </DialogActions>
     </Dialog>
   );
@@ -271,7 +340,9 @@ function TicketDetailDialog({
 
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>#{ticket.id} {ticket.subject}</DialogTitle>
+      <DialogTitle>
+        #{ticket.id} {ticket.subject}
+      </DialogTitle>
       <DialogContent dividers>
         {ticket.description && (
           <Typography variant="body2" sx={{ mb: 2, whiteSpace: "pre-wrap" }}>
@@ -281,11 +352,33 @@ function TicketDetailDialog({
 
         {isHR && (
           <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: "wrap", gap: 2 }}>
-            <TextField select size="small" label="Status" value={ticket.status} onChange={(e) => update.mutate({ id: ticket.id, status: e.target.value })} sx={{ minWidth: 140 }}>
-              {STATUSES.map((s) => <MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>{s.replace("_", " ")}</MenuItem>)}
+            <TextField
+              select
+              size="small"
+              label="Status"
+              value={ticket.status}
+              onChange={(e) => update.mutate({ id: ticket.id, status: e.target.value })}
+              sx={{ minWidth: 140 }}
+            >
+              {STATUSES.map((s) => (
+                <MenuItem key={s} value={s} sx={{ textTransform: "capitalize" }}>
+                  {s.replace("_", " ")}
+                </MenuItem>
+              ))}
             </TextField>
-            <TextField select size="small" label="Priority" value={ticket.priority} onChange={(e) => update.mutate({ id: ticket.id, priority: e.target.value })} sx={{ minWidth: 120 }}>
-              {PRIORITIES.map((p) => <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>{p}</MenuItem>)}
+            <TextField
+              select
+              size="small"
+              label="Priority"
+              value={ticket.priority}
+              onChange={(e) => update.mutate({ id: ticket.id, priority: e.target.value })}
+              sx={{ minWidth: 120 }}
+            >
+              {PRIORITIES.map((p) => (
+                <MenuItem key={p} value={p} sx={{ textTransform: "capitalize" }}>
+                  {p}
+                </MenuItem>
+              ))}
             </TextField>
             {/* Two controls, because they answer different questions and
                 change at different times. The desk is where the ticket
@@ -317,31 +410,50 @@ function TicketDetailDialog({
           </Stack>
         )}
         {!isHR && isRequester && ticket.status !== "closed" && (
-          <Button size="small" sx={{ mb: 2 }} onClick={() => update.mutate({ id: ticket.id, status: "closed" })}>
+          <Button
+            size="small"
+            sx={{ mb: 2 }}
+            onClick={() => update.mutate({ id: ticket.id, status: "closed" })}
+          >
             Close ticket
           </Button>
         )}
 
-        <Typography variant="overline" color="text.secondary">Conversation</Typography>
+        <Typography variant="overline" color="text.secondary">
+          Conversation
+        </Typography>
         <Stack spacing={1} sx={{ my: 1 }}>
           {ticket.comments.length === 0 && (
-            <Typography variant="body2" color="text.secondary">No comments yet.</Typography>
+            <Typography variant="body2" color="text.secondary">
+              No comments yet.
+            </Typography>
           )}
           {ticket.comments.map((c) => (
             <Box key={c.id} sx={{ p: 1, borderRadius: 2, bgcolor: "action.hover" }}>
               <Typography variant="caption" color="text.secondary">
                 {c.author_name} · {new Date(c.created_at).toLocaleString()}
               </Typography>
-              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{c.body}</Typography>
+              <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                {c.body}
+              </Typography>
             </Box>
           ))}
         </Stack>
         <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-          <TextField size="small" fullWidth placeholder="Add a comment…" value={body} onChange={(e) => setBody(e.target.value)} />
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Add a comment…"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
           <Button
             variant="contained"
             disabled={comment.isPending || !body.trim()}
-            onClick={async () => { await comment.mutateAsync({ id: ticket.id, body }); setBody(""); }}
+            onClick={async () => {
+              await comment.mutateAsync({ id: ticket.id, body });
+              setBody("");
+            }}
           >
             Send
           </Button>

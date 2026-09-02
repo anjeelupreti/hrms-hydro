@@ -5,6 +5,7 @@ import Grid from "@mui/material/Grid";
 import Skeleton from "@mui/material/Skeleton";
 import Typography from "@mui/material/Typography";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import { motion } from "motion/react";
@@ -25,7 +26,6 @@ import PersonStrip from "@/components/dashboard/PersonStrip";
 import CompanyPulse from "@/components/dashboard/CompanyPulse";
 import DashboardTopBar from "@/components/dashboard/DashboardTopBar";
 import PayrollSummaryCard from "@/components/dashboard/PayrollSummaryCard";
-import DepartmentDonut from "@/components/dashboard/DepartmentDonut";
 import LeaveUsageDots from "@/components/dashboard/LeaveUsageDots";
 import MyAttendanceWidget from "@/components/dashboard/MyAttendanceWidget";
 import RightNowCard from "@/components/dashboard/RightNowCard";
@@ -50,6 +50,29 @@ const itemVariants = {
  * jumping, and the eye reads the jump as a fault rather than as loading.
  */
 const CHART_ROW = 340;
+
+/**
+ * The only chart in the product drawn by a charting library.
+ *
+ * `@mui/x-charts` is the heaviest dependency here and exactly one component
+ * uses it — this donut, three quarters of the way down the page everybody
+ * lands on. Every other figure on this dashboard is drawn by hand. Importing
+ * it statically put a charting engine in the critical path of the first screen
+ * after login so that one card could render a pie.
+ *
+ * Loaded on demand instead, behind the same `CHART_ROW` skeleton the card
+ * already shows while its data is in flight — so the layout does not move when
+ * the chunk lands, and the wait is indistinguishable from the wait for the
+ * numbers themselves.
+ *
+ * `ssr: false` because it renders to a `<canvas>`-shaped tree that is thrown
+ * away and rebuilt on hydration; server-rendering it costs work twice and buys
+ * nothing.
+ */
+const DepartmentDonut = dynamic(() => import("@/components/dashboard/DepartmentDonut"), {
+  ssr: false,
+  loading: () => <Skeleton variant="rounded" height={CHART_ROW} />,
+});
 const PANEL_ROW = 288;
 const PEOPLE_ROW = 248;
 

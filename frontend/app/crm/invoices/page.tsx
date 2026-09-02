@@ -9,7 +9,8 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 
 import Amount from "@/components/common/Amount";
 import ListInsight from "@/components/common/ListInsight";
@@ -19,12 +20,12 @@ import { useState } from "react";
 import { money } from "@/lib/format/money";
 import StateChip, { toneFor } from "@/components/common/StateChip";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import CrmSubNav from "@/components/crm/CrmSubNav";
 import InvoiceFormDialog from "@/components/crm/InvoiceFormDialog";
 import { useInvoiceAction, useInvoiceCounts, useInvoices } from "@/hooks/useCrm";
 import type { Invoice, InvoiceStatus } from "@/types/crm";
-import SearchField from "@/components/common/SearchField";
 import { useTextFilter } from "@/hooks/useTextFilter";
 
 
@@ -111,12 +112,7 @@ export default function InvoicesPage() {
         actions={
           <>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search invoices…"
-            label="Search invoices by number, client or status"
-          />
+          
           <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}>
             New Invoice
           </Button>
@@ -124,6 +120,13 @@ export default function InvoicesPage() {
       
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search invoices…"
+        searchLabel="Search invoices by number, client or status"
       />
 
       {/* Unpaid is the number this page exists for. Draft and sent are both

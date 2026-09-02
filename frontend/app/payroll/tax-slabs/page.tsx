@@ -12,13 +12,14 @@ import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
-import { DataGrid, type GridColDef } from "@mui/x-data-grid";
+import type { GridColDef } from "@mui/x-data-grid";
+import DataGrid from "@/components/common/LazyDataGrid";
 import { useMemo, useState } from "react";
 
 import { useCreateTaxSlab, useDeleteTaxSlab, useTaxSlabs } from "@/hooks/usePayroll";
 import type { TaxSlab } from "@/types/payroll";
-import SearchField from "@/components/common/SearchField";
 import PageContainer from "@/components/shell/PageContainer";
+import ListControls from "@/components/common/ListControls";
 import PageHeader from "@/components/shell/PageHeader";
 import StateChip from "@/components/common/StateChip";
 import { useCompanyProfile } from "@/hooks/useOrganization";
@@ -138,12 +139,7 @@ export default function TaxSlabsPage() {
         icon={<PercentIcon />}
         actions={
           <>
-          <SearchField
-            value={query}
-            onChange={setQuery}
-            placeholder="Search slabs…"
-            label="Search tax slabs by fiscal year or rate"
-          />
+          
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -156,6 +152,13 @@ export default function TaxSlabsPage() {
           </Button>
           </>
         }
+      />
+
+      <ListControls
+        search={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search slabs…"
+        searchLabel="Search tax slabs by fiscal year or rate"
       />
 
       <DataGrid
