@@ -37,6 +37,8 @@ urlpatterns = [
     path("api/<str:version>/companies/", include("companies.urls")),
     path("api/<str:version>/crm/", include("crm.urls")),
     path("api/<str:version>/events/", include("events.urls")),
+    path("api/<str:version>/memoranda/", include("memoranda.urls")),
+    path("api/<str:version>/field-visits/", include("fieldvisits.urls")),
 
     # Work, not selling. Projects left `crm` because an internal project has
     # no client, and a model requiring one cannot describe one.

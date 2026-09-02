@@ -1,26 +1,42 @@
-# Compose project name, set explicitly.
+# Compose project name, set explicitly, and **not `hrms`**.
 #
-# Without this, Compose names the project after the *directory* — `deployment` —
-# which gives containers like `deployment-postgres-1` and volumes like
+# Two reasons, and the second is the one that bites.
+#
+# Without any name, Compose names the project after the *directory* —
+# `deployment` — so containers become `deployment-postgres-1` and volumes
 # `deployment_postgres_data`. Any other project whose compose also lives in a
 # folder called `deployment` produces the same names and silently shares the
 # same volume. That is not theoretical: this database was once replaced by
 # another project's, with no error and matching table names.
-name: hrms
+#
+# And this product was forked from the multi-tenant SaaS HRMS, which uses
+# `hrms`. Keeping that name would have hydro's containers, images and volumes
+# land on top of the SaaS stack's — the same silent-shared-volume failure,
+# between two projects with genuinely identical table names. Everything below
+# is named `hrms-hydro` / `hrms_hydro_*` and every host port is offset, so both
+# stacks can run at once and neither can be mistaken for the other.
+name: hrms-hydro
 
 services:
   postgres:
     image: postgres:16-alpine
+    container_name: hrms-hydro-postgres
     environment:
       POSTGRES_DB: hrms
       POSTGRES_USER: hrms
       POSTGRES_PASSWORD: hrms
     ports:
-      # The conventional port on both sides, so `psql -p 5432` and every
-      # GUI client work without being told otherwise. If you *do* run a
-      # native Postgres, change the left-hand number here and `DB_PORT`
-      # in `backend/.env` together — they are the same fact twice.
-      - "5432:5432"
+      # **Not 5432, and that is deliberate.** This product was forked from a
+      # multi-tenant SaaS HRMS that many of us still have running on the same
+      # machine, on the conventional ports. Sharing them means the two stacks
+      # cannot be up at once and — far worse — that `psql -p 5432` or a stray
+      # `DB_PORT` reaches whichever container happened to start first, so a
+      # migration lands in the wrong database and nothing says so.
+      #
+      # Every host port in this file is offset for the same reason. Change one
+      # and change its twin in `backend/.env`; they are the same fact written
+      # down twice.
+      - "5442:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -31,20 +47,25 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: hrms-hydro-redis
     ports:
-      # Host 16380, not 6379. Windows reserves 6081-7059 in blocks for
-      # Hyper-V dynamic ports, which swallows 6379 and 6380 alike, so the
-      # host port has to clear that whole span. Containers still reach each
-      # other on 6379 via the service name — only the host mapping moved.
-      - "16380:6379"
+      # Host 16381, not 6379. Windows reserves 6081-7059 in blocks for
+      # Hyper-V dynamic ports, which swallows 6379 and 6380 alike, so the host
+      # port has to clear that whole span. Containers still reach each other on
+      # 6379 via the service name — only the host mapping moved. The 1 on the
+      # end keeps it clear of the SaaS stack's 16380.
+      - "16381:6379"
 
   mailhog:
     image: mailhog/mailhog:latest
+    container_name: hrms-hydro-mailhog
     ports:
-      - "8025:8025" # web UI
-      - "1025:1025" # SMTP
+      - "8026:8025" # web UI
+      - "1026:1025" # SMTP
 
   backend:
+    image: hrms-hydro-backend
+    container_name: hrms-hydro-backend
     build:
       context: ../backend
       dockerfile: ../deployment/backend/Dockerfile.dev
@@ -79,7 +100,7 @@ services:
     volumes:
       - ../backend:/app
     ports:
-      - "8000:8000"
+      - "8001:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -87,6 +108,8 @@ services:
         condition: service_started
 
   celery-worker:
+    image: hrms-hydro-celery-worker
+    container_name: hrms-hydro-celery-worker
     build:
       context: ../backend
       dockerfile: ../deployment/backend/Dockerfile.dev
@@ -123,6 +146,8 @@ services:
         condition: service_started
 
   celery-beat:
+    image: hrms-hydro-celery-beat
+    container_name: hrms-hydro-celery-beat
     build:
       context: ../backend
       dockerfile: ../deployment/backend/Dockerfile.dev
@@ -160,6 +185,7 @@ services:
 
   frontend:
     image: node:22-alpine
+    container_name: hrms-hydro-frontend
     working_dir: /app
     command: sh -c "npm install && npm run dev"
     # The dev server dies on this machine — Turbopack plus a polling watcher
@@ -240,7 +266,7 @@ services:
       # actually runs. Nothing in it is source, so losing it costs one rebuild.
       - hrms_frontend_next:/app/.next
     ports:
-      - "3000:3000"
+      - "3001:3000"
     depends_on:
       # Not `service_healthy` — the frontend is useful while the backend boots,
       # and Next.js recompiles on demand anyway.
@@ -251,7 +277,7 @@ volumes:
     # Named for the same reason as the database below: compose would otherwise
     # derive it from the `deployment/` folder name and collide with any other
     # project laid out the same way.
-    name: hrms_frontend_next
+    name: hrms_hydro_frontend_next
   postgres_data:
     # Named explicitly. Compose derives volume names from the *project
     # directory*, and this compose lives in a folder called `deployment` — so
@@ -259,4 +285,7 @@ volumes:
     # whose compose also sits in a `deployment/` folder would claim too.
     # That collision is not theoretical: it is how this database was silently
     # replaced by another project's, with matching table names and no error.
-    name: hrms_postgres_data
+    #
+    # `hydro` in the name, not just `hrms`: the SaaS product this was forked
+    # from owns `hrms_postgres_data`, and its tables are named identically.
+    name: hrms_hydro_postgres_data

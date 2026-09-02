@@ -44,6 +44,8 @@ INSTALLED_APPS = [
     "companies",
     "crm",
     "events",
+    "memoranda",
+    "fieldvisits",
     "projects",
     "dashboard",
     "chat",

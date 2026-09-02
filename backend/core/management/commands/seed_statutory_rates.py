@@ -38,10 +38,10 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f"FY {fiscal_year} already configured, nothing added.")
 
+        self.stdout.write("")
         self.stdout.write(
             self.style.WARNING(
-                "
-These are DEFAULTS, not law. Every row is marked unverified until "
+                "These are DEFAULTS, not law. Every row is marked unverified until "
                 "somebody confirms it against the current Finance Act / SSF notice "
                 "and records the source."
             )
