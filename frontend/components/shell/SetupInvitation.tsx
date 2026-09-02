@@ -112,7 +112,7 @@ export default function SetupInvitation() {
     // the width to sit on one line apiece; at `sm` every `why` wrapped to three
     // and the list read as paragraphs.
     <Dialog open onClose={remember} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ pb: 0.5 }}>Let&apos;s get your ready</DialogTitle>
+      <DialogTitle sx={{ pb: 0.5 }}>Let&apos;s get you ready</DialogTitle>
 
       <DialogContent>
         <Typography color="text.secondary" sx={{ mb: 2 }}>

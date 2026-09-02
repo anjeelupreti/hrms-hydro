@@ -31,8 +31,12 @@ import { useState } from "react";
  */
 export default function PasswordField({
   label = "Password",
+  startIcon,
   ...props
-}: Omit<TextFieldProps, "type">) {
+}: Omit<TextFieldProps, "type"> & {
+  /** An icon in front of the field, to match a username box beside it. */
+  startIcon?: React.ReactNode;
+}) {
   const [shown, setShown] = useState(false);
 
   return (
@@ -44,6 +48,9 @@ export default function PasswordField({
         ...props.slotProps,
         input: {
           ...(props.slotProps?.input as object),
+          startAdornment: startIcon ? (
+            <InputAdornment position="start">{startIcon}</InputAdornment>
+          ) : undefined,
           endAdornment: (
             <InputAdornment position="end">
               <Tooltip title={shown ? "Hide password" : "Show password"}>

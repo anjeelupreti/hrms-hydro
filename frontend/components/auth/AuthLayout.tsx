@@ -223,17 +223,39 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         </Box>
       </Box>
 
-      {/* ── Right: Auth Forms ── */}
+      {/* ── Right: the form ──
+          A ground, not flat white. The card used to float in an empty half of
+          the screen with nothing behind it, which read as an unfinished page
+          rather than a calm one — the panel opposite is a full-bleed gradient
+          and the contrast made the emptiness the loudest thing on the screen.
+          A very faint wash and grid give it a surface to sit on; both are well
+          under the threshold where they compete with the form. */}
       <Box
-        sx={{
+        sx={(theme) => ({
           flex: 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           p: { xs: 3, sm: 6 },
           position: "relative",
-          overflow: "hidden"
-        }}
+          overflow: "hidden",
+          background: `
+            radial-gradient(1100px 600px at 78% -10%, ${alpha(theme.palette.primary.main, 0.07)}, transparent 60%),
+            radial-gradient(900px 500px at 10% 110%, ${alpha(theme.palette.primary.main, 0.05)}, transparent 62%)
+          `,
+          "&::before": {
+            content: '""',
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `
+              linear-gradient(${alpha(theme.palette.text.primary, 0.028)} 1px, transparent 1px),
+              linear-gradient(90deg, ${alpha(theme.palette.text.primary, 0.028)} 1px, transparent 1px)
+            `,
+            backgroundSize: "44px 44px",
+            maskImage: "radial-gradient(circle at 50% 40%, #000 0%, transparent 78%)",
+            pointerEvents: "none",
+          },
+        })}
       >
         <Box sx={{ position: "absolute", top: 16, right: 16, zIndex: 10 }}>
           <ThemePopover variant="icon" />
@@ -266,14 +288,22 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             // the light arm forever. `applyStyles` emits a rule under the dark
             // selector instead. Same rule as `HeroPanel`.
             sx={(theme) => ({
+              position: "relative",
+              zIndex: 1,
               bgcolor: "background.paper",
-              borderRadius: 4,
+              borderRadius: 3,
               border: "1px solid",
-              borderColor: "divider",
-              p: { xs: 4, sm: 5 },
-              boxShadow: `0 8px 40px ${alpha(theme.palette.primary.main, 0.08)}`,
+              borderColor: alpha(theme.palette.primary.main, 0.14),
+              p: { xs: 3.5, sm: 5 },
+              // Two shadows, close and far. One soft blur at this size reads as
+              // a smudge; a tight shadow gives the edge and a wide one gives the
+              // lift.
+              boxShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.05)},
+                          0 24px 60px -20px ${alpha(theme.palette.primary.main, 0.28)}`,
               ...theme.applyStyles("dark", {
-                boxShadow: `0 8px 40px ${alpha(theme.palette.common.black, 0.4)}`,
+                borderColor: alpha(theme.palette.primary.light, 0.16),
+                boxShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.5)},
+                            0 28px 70px -24px ${alpha(theme.palette.common.black, 0.75)}`,
               }),
             })}
           >

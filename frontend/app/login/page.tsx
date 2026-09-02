@@ -1,9 +1,12 @@
 "use client";
 
+import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import PersonOutlineIcon from "@mui/icons-material/PersonOutlineOutlined";
 import Alert from "@mui/material/Alert";
-import Avatar from "@mui/material/Avatar";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import InputAdornment from "@mui/material/InputAdornment";
 import Link from "@mui/material/Link";
 
 import Stack from "@mui/material/Stack";
@@ -15,6 +18,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import PasswordField from "@/components/common/PasswordField";
 import AuthLayout from "@/components/auth/AuthLayout";
+import { DEPLOYMENT, PRODUCT_NAME } from "@/lib/product";
 
 export default function LoginPage() {
   return (
@@ -81,19 +85,54 @@ function LoginForm() {
 
   return (
     <Stack spacing={3}>
-      <Stack spacing={1}>
-        <Avatar sx={{ bgcolor: "primary.main" }}>
-          <LockOutlinedIcon />
-        </Avatar>
-        <Typography variant="h5" sx={{ fontWeight: 700 }}>
+      {/* The heading carries the company mark rather than a padlock.
+          A lock icon on a login form tells the reader something they already
+          know — they can see the password box. The mark tells them whose
+          system they are about to enter, which is the question somebody
+          arriving on a bookmarked URL actually has. */}
+      <Stack spacing={1.25}>
+        <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+          <Box
+            sx={(theme) => ({
+              width: 38,
+              height: 38,
+              borderRadius: 2,
+              display: "grid",
+              placeItems: "center",
+              color: "primary.contrastText",
+              fontWeight: 800,
+              fontSize: 15,
+              letterSpacing: "-0.02em",
+              background: `linear-gradient(135deg, ${theme.palette.primary.main}, ${theme.palette.primary.dark})`,
+            })}
+          >
+            {DEPLOYMENT.code.slice(0, 2)}
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.2 }}>
+              {DEPLOYMENT.short}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.disabled", lineHeight: 1.2 }}>
+              {PRODUCT_NAME}
+            </Typography>
+          </Box>
+        </Stack>
+
+        <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: "-0.02em", pt: 0.5 }}>
           Sign in
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Welcome back — enter your credentials to continue.
+          {otpRequired
+            ? "One more step — enter the code from your authenticator."
+            : "Use the account your HR team set up for you."}
         </Typography>
       </Stack>
 
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ borderRadius: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {/* `method="post"` on a form whose submit is handled in JavaScript looks
           redundant, and is the one line that matters here.
@@ -126,6 +165,15 @@ function LoginForm() {
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
           fullWidth
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <PersonOutlineIcon fontSize="small" color="disabled" />
+                </InputAdornment>
+              ),
+            },
+          }}
         />
         <PasswordField
           name="password"
@@ -134,6 +182,7 @@ function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           fullWidth
           disabled={otpRequired}
+          startIcon={<LockOutlinedIcon fontSize="small" color="disabled" />}
         />
         {otpRequired && (
           <TextField
@@ -157,9 +206,28 @@ function LoginForm() {
           disabled={submitting || !hydrated}
           fullWidth
           size="large"
+          endIcon={submitting ? null : <ArrowForwardIcon />}
+          sx={{
+            py: 1.35,
+            borderRadius: 2,
+            fontWeight: 700,
+            fontSize: "1rem",
+            textTransform: "none",
+            boxShadow: "none",
+            "&:hover": { boxShadow: "none" },
+          }}
         >
-          {submitting ? "Signing in..." : otpRequired ? "Verify & sign in" : "Sign in"}
+          {submitting ? "Signing in…" : otpRequired ? "Verify and sign in" : "Sign in"}
         </Button>
+
+        {/* Where to go when the password is not the problem. A login screen
+            that offers only "forgot password?" strands the two people it
+            actually strands: somebody who has never been given an account, and
+            somebody whose account has been suspended. */}
+        <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center", pt: 0.5 }}>
+          Accounts are created by your HR team. If you cannot get in, speak to
+          them rather than trying again.
+        </Typography>
       </Stack>
 
     </Stack>
