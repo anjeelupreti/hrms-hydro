@@ -31,7 +31,6 @@ import { useEffect, useMemo, useState } from "react";
 import DateField from "@/components/common/DateField";
 import DateText from "@/components/common/DateText";
 import RichTextEditor, { RichText } from "@/components/common/RichTextEditor";
-import StateChip from "@/components/common/StateChip";
 import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
 import { useCompanies } from "@/hooks/useCompanies";
@@ -49,7 +48,6 @@ import {
   useSubmitMemorandum,
 } from "@/hooks/useMemoranda";
 import {
-  MEMO_STATUS_TONE,
   type Memorandum,
   type MemorandumFormValues,
 } from "@/types/memoranda";
@@ -271,26 +269,17 @@ export default function MemorandumDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle sx={{ pb: 1 }}>
+      <DialogTitle sx={{ pb: 1.5 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            {isNew ? "New memorandum" : memo?.memo_id || "Draft memorandum"}
+            {isNew
+              ? "New memorandum"
+              : isDraft
+                ? "Draft memorandum"
+                : "Memorandum"}
           </Typography>
-          {memo ? (
-            <>
-              <StateChip label={memo.status_display} tone={MEMO_STATUS_TONE[memo.status]} />
-              {memo.status === "in_progress" && memo.current_holder_name ? (
-                <Chip size="small" variant="outlined" label={`With ${memo.current_holder_name}`} />
-              ) : null}
-              {locked ? <Chip size="small" icon={<LockIcon />} label="Closed" /> : null}
-            </>
-          ) : null}
+          {locked ? <Chip size="small" icon={<LockIcon />} label="Closed" /> : null}
         </Stack>
-        {memo?.subject ? (
-          <Typography variant="body2" color="text.secondary">
-            {memo.subject}
-          </Typography>
-        ) : null}
       </DialogTitle>
 
       <DialogContent dividers>
@@ -748,7 +737,7 @@ function ChainTab({
       {/* The approver sits beside the chain, not under it: they are the end of
           the same routing decision, and putting them in a separate band made
           the two look like unrelated settings. */}
-      <Box sx={{ maxWidth: { sm: 420 } }}>
+      <Box sx={{ maxWidth: { sm: 420 }, pt: 1.5 }}>
         <EmployeePicker
           label="Approver — the To of the letter"
           value={values.approver}
