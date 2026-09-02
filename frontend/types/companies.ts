@@ -52,6 +52,14 @@ export type Company = {
   /** Wound up rather than deleted — it still owns the employment history of
    *  everyone who worked for it. */
   is_active: boolean;
+  /**
+   * The entity this installation runs payroll and other company-wide processes
+   * through. Exactly one company carries it.
+   *
+   * Not the same question as `kind`: that says what a company *is*, and does
+   * not have to be unique. This says which one the payroll office sits at.
+   */
+  is_primary: boolean;
   /** Active people on *this* company's payroll. Secondments are not counted:
    *  they are somebody else's headcount. */
   employee_count: number;
@@ -87,6 +95,9 @@ export type CompanyFormValues = {
   email: string;
   website: string;
   is_active: boolean;
+  /** Exactly one company may carry this — the server refuses a second and
+   *  names the one to clear first. */
+  is_primary: boolean;
 };
 
 export const COMPANY_KINDS: { value: CompanyKind; label: string }[] = [

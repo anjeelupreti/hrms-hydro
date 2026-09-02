@@ -59,6 +59,7 @@ const EMPTY: CompanyFormValues = {
   email: "",
   website: "",
   is_active: true,
+  is_primary: false,
 };
 
 function fromCompany(company: Company): CompanyFormValues {
@@ -82,6 +83,7 @@ function fromCompany(company: Company): CompanyFormValues {
     email: company.email,
     website: company.website,
     is_active: company.is_active,
+    is_primary: company.is_primary,
   };
 }
 
@@ -353,6 +355,28 @@ export default function CompanyFormDialog({
             />
             <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
               An inactive company keeps its records and stops appearing in pickers.
+            </Typography>
+          </Grid>
+
+          <Grid size={{ xs: 12 }}>
+            {/* Exactly one company carries this, and the server enforces it
+                twice — a message on the form, and a database constraint behind
+                it, because a check-then-write in Python cannot stop two saves
+                racing each other. */}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={values.is_primary}
+                  onChange={(e) => set("is_primary", e.target.checked)}
+                />
+              }
+              label="Payroll runs through this company"
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              One entity files the group&apos;s payroll — one bank file, one PAN.
+              Staff still belong to whichever company employs them. Turning this
+              on where another company already has it is refused, and names the
+              one to clear first.
             </Typography>
           </Grid>
         </Grid>

@@ -2,6 +2,7 @@
 
 import AddIcon from "@mui/icons-material/Add";
 import ApartmentIcon from "@mui/icons-material/Apartment";
+import PaymentsIcon from "@mui/icons-material/Payments";
 import BoltIcon from "@mui/icons-material/Bolt";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import EditIcon from "@mui/icons-material/Edit";
@@ -16,13 +17,21 @@ import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import Link from "next/link";
 import { useState } from "react";
 
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import ViewSwitch, { useViewMode } from "@/components/common/ViewSwitch";
 import EmptyState from "@/components/common/EmptyState";
 import ListControls from "@/components/common/ListControls";
+import CompanyDetailDialog from "@/components/companies/CompanyDetailDialog";
 import CompanyFormDialog from "@/components/companies/CompanyFormDialog";
 import Breadcrumbs from "@/components/shell/Breadcrumbs";
 import PageContainer from "@/components/shell/PageContainer";
@@ -69,6 +78,8 @@ export default function CompaniesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [deleting, setDeleting] = useState<Company | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Company | null>(null);
+  const { mode: view, setMode: setView } = useViewMode("companies", "cards");
 
   const { data, isLoading } = useCompanies({ search: search || undefined, pageSize: 100 });
   const remove = useDeleteCompany();
@@ -127,6 +138,7 @@ export default function CompaniesPage() {
         onSearchChange={setSearch}
         searchPlaceholder="Name, code, registration or river…"
         searchLabel="Search companies by name, code, registration number or river"
+        trailing={<ViewSwitch value={view} onChange={setView} modes={["cards", "list"]} />}
       />
 
       {isLoading ? (
@@ -144,10 +156,124 @@ export default function CompaniesPage() {
               : "Add the holding company first, then a company per project."
           }
         />
+      ) : view === "list" ? (
+        <Card>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Code</TableCell>
+                  <TableCell>Company</TableCell>
+                  <TableCell>Kind</TableCell>
+                  <TableCell>Stage</TableCell>
+                  <TableCell align="right">Capacity</TableCell>
+                  <TableCell>Where</TableCell>
+                  <TableCell align="right">On payroll</TableCell>
+                  {canManage ? <TableCell /> : null}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {companies.map((company) => (
+                  <TableRow
+                    key={company.id}
+                    hover
+                    sx={{ cursor: "pointer", opacity: company.is_active ? 1 : 0.55 }}
+                    onClick={() => setViewing(company)}
+                  >
+                    <TableCell sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                      {company.code}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {company.name}
+                      </Typography>
+                      {company.parent_name ? (
+                        <Typography variant="caption" color="text.secondary">
+                          under {company.parent_name}
+                        </Typography>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      <Chip size="small" variant="outlined" label={company.kind_display} />
+                      {company.is_primary ? (
+                        <Chip
+                          size="small"
+                          color="primary"
+                          label="Payroll"
+                          sx={{ ml: 0.5 }}
+                        />
+                      ) : null}
+                    </TableCell>
+                    <TableCell sx={{ color: "text.secondary" }}>
+                      {company.project_stage === "na" ? "—" : company.project_stage_display}
+                    </TableCell>
+                    <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                      {capacity(company) || "—"}
+                    </TableCell>
+                    <TableCell sx={{ color: "text.secondary" }}>
+                      {[company.district, company.province].filter(Boolean).join(", ") || "—"}
+                    </TableCell>
+                    <TableCell align="right">{company.employee_count}</TableCell>
+                    {canManage ? (
+                      <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openEdit(company);
+                            }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        {canDelete ? (
+                          <Tooltip
+                            title={
+                              company.employee_count > 0
+                                ? "Somebody is on this payroll — deactivate it instead"
+                                : "Remove"
+                            }
+                          >
+                            <span>
+                              <IconButton
+                                size="small"
+                                disabled={company.employee_count > 0}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleteError(null);
+                                  setDeleting(company);
+                                }}
+                              >
+                                <DeleteOutlineIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                        ) : null}
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Card>
       ) : (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
           {companies.map((company) => (
-            <Card key={company.id} sx={{ opacity: company.is_active ? 1 : 0.6 }}>
+            <Card
+              key={company.id}
+              sx={{
+                opacity: company.is_active ? 1 : 0.6,
+                cursor: "pointer",
+                transition: "box-shadow .2s",
+                "&:hover": { boxShadow: 4 },
+              }}
+              // The card opens the company. The edit and delete buttons inside
+              // it stop the event, so the two do not fight: clicking a card
+              // reads, clicking a button acts.
+              onClick={() => setViewing(company)}
+            >
               <CardContent>
                 <Stack direction="row" spacing={1} sx={{ alignItems: "flex-start" }}>
                   <ApartmentIcon color="primary" />
@@ -163,7 +289,13 @@ export default function CompaniesPage() {
                   {canManage ? (
                     <Stack direction="row">
                       <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => openEdit(company)}>
+                        <IconButton
+                          size="small"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEdit(company);
+                          }}
+                        >
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -182,7 +314,8 @@ export default function CompaniesPage() {
                             <IconButton
                               size="small"
                               disabled={company.employee_count > 0}
-                              onClick={() => {
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 setDeleteError(null);
                                 setDeleting(company);
                               }}
@@ -198,6 +331,14 @@ export default function CompaniesPage() {
 
                 <Stack direction="row" spacing={0.75} sx={{ mt: 1.5, flexWrap: "wrap" }} useFlexGap>
                   <Chip size="small" label={company.kind_display} />
+                  {company.is_primary ? (
+                    <Chip
+                      size="small"
+                      color="primary"
+                      icon={<PaymentsIcon />}
+                      label="Payroll entity"
+                    />
+                  ) : null}
                   {company.project_stage !== "na" ? (
                     <Chip size="small" variant="outlined" label={company.project_stage_display} />
                   ) : null}
@@ -230,6 +371,7 @@ export default function CompaniesPage() {
                       variant="body2"
                       component={Link}
                       href={`/employees?company=${company.id}`}
+                      onClick={(event: React.MouseEvent) => event.stopPropagation()}
                       sx={{ color: "inherit", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
                     >
                       {company.employee_count} on payroll
@@ -241,6 +383,21 @@ export default function CompaniesPage() {
           ))}
         </Box>
       )}
+
+      <CompanyDetailDialog
+        company={viewing}
+        onClose={() => setViewing(null)}
+        // Only offered to somebody who may act on it. Handing an Edit button to
+        // a reader who will be refused is worse than not offering one.
+        onEdit={
+          canManage
+            ? (company) => {
+                setViewing(null);
+                openEdit(company);
+              }
+            : undefined
+        }
+      />
 
       <CompanyFormDialog open={formOpen} onClose={() => setFormOpen(false)} company={editing} />
 
