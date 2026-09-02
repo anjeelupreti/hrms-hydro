@@ -10,6 +10,13 @@ import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 
+import {
+  BS_WEEKDAYS_NE,
+  DEVANAGARI_FONT,
+  bsMonthLabel,
+  toDevanagari,
+} from "@/lib/format/devanagari";
+
 import { EVENT_HUE } from "@/lib/theme/tokens";
 import type { CalendarMonth } from "@/hooks/useCompanyCalendar";
 
@@ -59,6 +66,8 @@ export type DayEvent = {
  *
  * The conversion lives here, once, rather than at each use.
  */
+/** Rendered in Devanagari; the Latin names stay as the React keys, which are
+ *  never shown and must not change when the script does. */
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** Python's Monday-0 into this grid's Sunday-0. */
@@ -160,11 +169,27 @@ export default function BikramMonthGrid({
           ) : null}
         </Stack>
 
+        {/* Nepali first, romanised underneath.
+            This is the Bikram Sambat grid — the whole reason it exists is that
+            the company works in this calendar — and it was rendering "Bhadra
+            2083" in Latin, which is the calendar described rather than the
+            calendar shown. The romanisation stays on the second line so nobody
+            who does not read Devanagari is stranded. */}
         <Box sx={{ textAlign: "right" }}>
-          <Typography sx={{ fontWeight: 800, fontSize: "1.05rem", lineHeight: 1.2 }}>
+          <Typography
+            sx={{
+              fontWeight: 800,
+              fontSize: "1.15rem",
+              lineHeight: 1.2,
+              fontFamily: DEVANAGARI_FONT,
+            }}
+          >
+            {bsMonthLabel(month.month, month.year) || `${month.month_name} ${month.year}`}
+          </Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: "text.secondary", lineHeight: 1.3 }}>
             {month.month_name} {month.year}
           </Typography>
-          <Typography sx={{ fontSize: "0.72rem", color: "text.secondary" }}>{span}</Typography>
+          <Typography sx={{ fontSize: "0.68rem", color: "text.disabled" }}>{span}</Typography>
         </Box>
       </Stack>
 
@@ -193,13 +218,14 @@ export default function BikramMonthGrid({
                 textAlign: "center",
                 fontSize: "0.78rem",
                 fontWeight: 600,
+                fontFamily: DEVANAGARI_FONT,
                 color: off ? "text.disabled" : "text.secondary",
                 bgcolor: off ? "action.hover" : undefined,
                 borderBottom: "1px solid",
                 borderColor: "divider",
               }}
             >
-              {label}
+              {BS_WEEKDAYS_NE[column] ?? label}
               {/* Named, not just tinted. A grey column is a hint; "off" is the
                   answer, and the tint alone is invisible to some readers. */}
               {off ? (
@@ -264,10 +290,11 @@ export default function BikramMonthGrid({
                     bgcolor: isToday ? "primary.main" : "transparent",
                     color: isToday ? "primary.contrastText" : isOff ? "text.secondary" : "text.primary",
                     fontWeight: isToday ? 800 : 600,
-                    fontSize: "0.85rem",
+                    fontSize: "0.9rem",
+                    fontFamily: DEVANAGARI_FONT,
                   }}
                 >
-                  {day.day}
+                  {toDevanagari(day.day)}
                 </Box>
                 <Typography sx={{ fontSize: "0.66rem", color: "text.disabled" }}>
                   {day.gregorian.slice(8)}/{day.gregorian.slice(5, 7)}

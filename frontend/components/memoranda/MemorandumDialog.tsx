@@ -179,6 +179,22 @@ export default function MemorandumDialog({
     [actions]
   );
 
+  /**
+   * Pre-select the first word, so the primary button is not dead on arrival.
+   *
+   * "Send on" is disabled until something is chosen, which is right — the word
+   * goes in the permanent log and guessing one on somebody's behalf is not the
+   * system's to do. But it left the main action greyed out the moment the
+   * dialog opened, which reads as broken rather than as waiting. Choosing the
+   * first configured word is a default the reader can see and change, not a
+   * silent one: the select shows what will be recorded.
+   */
+  useEffect(() => {
+    if (actionId === "" && proceedActions.length > 0) {
+      setActionId(proceedActions[0].id);
+    }
+  }, [actionId, proceedActions]);
+
   function set<K extends keyof MemorandumFormValues>(key: K, value: MemorandumFormValues[K]) {
     setValues((previous) => ({ ...previous, [key]: value }));
   }
@@ -455,8 +471,16 @@ export default function MemorandumDialog({
                 : "It is your turn"}
             </Typography>
 
+            {/* One note, and it says what it is for.
+                There used to be a box labelled "Comment" here and a second
+                composer labelled "Add a comment" immediately underneath, which
+                left the reader to work out which of two identical-looking boxes
+                did what. This one travels with the decision; the other one is
+                for saying something *without* moving the memorandum, and both
+                now say so. */}
             <TextField
-              label="Comment"
+              label="Note to go with your decision"
+              placeholder="Optional — it is recorded against whichever button you press."
               fullWidth
               multiline
               minRows={2}
@@ -470,7 +494,7 @@ export default function MemorandumDialog({
               <Button
                 variant="contained"
                 startIcon={<SendIcon />}
-                sx={{ mt: 1.5 }}
+                sx={{ mt: 2 }}
                 disabled={busy}
                 onClick={() =>
                   run(resubmit.mutateAsync({ id: memo.id, comment }), onClose)
@@ -479,100 +503,142 @@ export default function MemorandumDialog({
                 Send forward again
               </Button>
             ) : (
-              <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} sx={{ mt: 1.5 }}>
-                {memo.stage === "approve" ? (
-                  <>
-                    <Button
-                      variant="contained"
-                      color="success"
-                      startIcon={<CheckCircleIcon />}
-                      disabled={busy}
-                      onClick={() => run(approve.mutateAsync({ id: memo.id, comment }), onClose)}
+              /* Two decisions, stacked and separated — not one row.
+                 They used to sit side by side with a flex spacer between them,
+                 which read as a single strip of controls rather than as the two
+                 opposite things they are: send it on, or send it back. Anybody
+                 scanning it had to notice a gap to tell them apart. */
+              <Stack spacing={2} sx={{ mt: 2 }}>
+                <Box>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 0.75 }}
+                  >
+                    {memo.stage === "approve" ? "DECIDE IT" : "SEND IT ON"}
+                  </Typography>
+
+                  {memo.stage === "approve" ? (
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        startIcon={<CheckCircleIcon />}
+                        disabled={busy}
+                        onClick={() => run(approve.mutateAsync({ id: memo.id, comment }), onClose)}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        disabled={busy}
+                        onClick={() => run(reject.mutateAsync({ id: memo.id, comment }), onClose)}
+                      >
+                        Reject
+                      </Button>
+                    </Stack>
+                  ) : (
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={1.5}
+                      sx={{ alignItems: { sm: "flex-start" } }}
                     >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      disabled={busy}
-                      onClick={() => run(reject.mutateAsync({ id: memo.id, comment }), onClose)}
-                    >
-                      Reject
-                    </Button>
-                  </>
-                ) : (
-                  <>
+                      <TextField
+                        select
+                        size="small"
+                        label="Record as"
+                        value={actionId}
+                        onChange={(e) => setActionId(Number(e.target.value))}
+                        sx={{ minWidth: 220 }}
+                        helperText="The word that goes in the log."
+                      >
+                        {proceedActions.map((a) => (
+                          <MenuItem key={a.id} value={a.id}>
+                            {a.name}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                      <Button
+                        variant="contained"
+                        startIcon={<SendIcon />}
+                        disabled={busy || actionId === ""}
+                        onClick={() =>
+                          run(
+                            proceed.mutateAsync({
+                              id: memo.id,
+                              action: Number(actionId),
+                              comment,
+                            }),
+                            onClose
+                          )
+                        }
+                        // Matches the height of the select beside it. Without
+                        // this the primary button floats a few pixels high
+                        // against a field that carries helper text.
+                        sx={{ mt: { sm: 0.25 } }}
+                      >
+                        Send on
+                      </Button>
+                    </Stack>
+                  )}
+                </Box>
+
+                <Divider sx={{ "&::before, &::after": { top: 0 } }}>
+                  <Typography variant="caption" color="text.disabled">
+                    or
+                  </Typography>
+                </Divider>
+
+                <Box>
+                  <Typography
+                    variant="caption"
+                    sx={{ fontWeight: 700, color: "text.secondary", display: "block", mb: 0.75 }}
+                  >
+                    SEND IT BACK
+                  </Typography>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1.5}
+                    sx={{ alignItems: { sm: "flex-start" } }}
+                  >
                     <TextField
                       select
                       size="small"
-                      label="Record as"
-                      value={actionId}
-                      onChange={(e) => setActionId(Number(e.target.value))}
+                      label="Send back to"
+                      value={returnTo}
+                      onChange={(e) => setReturnTo(Number(e.target.value))}
                       sx={{ minWidth: 220 }}
+                      helperText="The initiator, or anybody who has already seen it."
                     >
-                      {proceedActions.map((a) => (
-                        <MenuItem key={a.id} value={a.id}>
-                          {a.name}
+                      {memo.return_targets.map((target) => (
+                        <MenuItem key={target.id} value={target.id}>
+                          {target.name}
+                          {target.is_initiator ? " · initiator" : ""}
                         </MenuItem>
                       ))}
                     </TextField>
                     <Button
-                      variant="contained"
-                      startIcon={<SendIcon />}
-                      disabled={busy || actionId === ""}
+                      variant="outlined"
+                      color="warning"
+                      startIcon={<UndoIcon />}
+                      disabled={busy || returnTo === ""}
                       onClick={() =>
                         run(
-                          proceed.mutateAsync({
+                          sendBack.mutateAsync({
                             id: memo.id,
-                            action: Number(actionId),
+                            to: Number(returnTo),
+                            action: returnActions[0]?.id ?? null,
                             comment,
                           }),
                           onClose
                         )
                       }
+                      sx={{ mt: { sm: 0.25 } }}
                     >
-                      Send on
+                      Send back
                     </Button>
-                  </>
-                )}
-
-                <Box sx={{ flex: 1 }} />
-
-                <TextField
-                  select
-                  size="small"
-                  label="Send back to"
-                  value={returnTo}
-                  onChange={(e) => setReturnTo(Number(e.target.value))}
-                  sx={{ minWidth: 200 }}
-                  helperText="Defaults to the initiator."
-                >
-                  {memo.return_targets.map((target) => (
-                    <MenuItem key={target.id} value={target.id}>
-                      {target.name}
-                      {target.is_initiator ? " · initiator" : ""}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <Button
-                  variant="outlined"
-                  color="warning"
-                  startIcon={<UndoIcon />}
-                  disabled={busy || returnTo === ""}
-                  onClick={() =>
-                    run(
-                      sendBack.mutateAsync({
-                        id: memo.id,
-                        to: Number(returnTo),
-                        action: returnActions[0]?.id ?? null,
-                        comment,
-                      }),
-                      onClose
-                    )
-                  }
-                >
-                  Send back
-                </Button>
+                  </Stack>
+                </Box>
               </Stack>
             )}
           </Box>
@@ -908,7 +974,8 @@ function CommentComposer({
     <Box sx={{ mt: 3, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
       <TextField
         size="small"
-        label="Add a comment"
+        label="Comment without moving it"
+        placeholder="Ask a question, attach a document, or point somebody at this."
         fullWidth
         multiline
         minRows={2}

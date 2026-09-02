@@ -15,6 +15,7 @@ import ThunderstormIcon from "@mui/icons-material/Thunderstorm";
 import WaterDropIcon from "@mui/icons-material/WaterDrop";
 import WbSunnyIcon from "@mui/icons-material/WbSunny";
 
+import { DEVANAGARI_FONT, toDevanagari } from "@/lib/format/devanagari";
 import { useToday } from "@/hooks/useToday";
 import { useWeather, type WeatherKind } from "@/hooks/useWeather";
 
@@ -47,17 +48,15 @@ function WeatherIcon({ kind }: { kind: WeatherKind }) {
 }
 
 /**
- * Devanagari digits, for the live clock only.
+ * Digits for the live clock come from `lib/format/devanagari`, which the Bikram
+ * Sambat calendar grid also uses.
  *
- * Duplicated from the server's `to_devanagari` on purpose, and the duplication
- * is safe here in a way the *date* conversion is not: this is a ten-character
- * digit map with no calendar arithmetic behind it. The clock ticks every
+ * The map itself is duplicated from the server's `to_devanagari` on purpose,
+ * and that duplication is safe in a way the *date* conversion is not: ten
+ * characters with no calendar arithmetic behind them. The clock ticks every
  * second, so asking the server for it is not an option; the date itself still
- * comes from the server, where the lookup table lives.
+ * comes from the server, where the month-length table lives.
  */
-const NP_DIGITS = "०१२३४५६७८९";
-const toDevanagari = (value: string) =>
-  value.replace(/\d/g, (d) => NP_DIGITS[Number(d)]);
 
 /**
  * The current second, as an external store.
@@ -136,7 +135,7 @@ function Segment({
           fontSize: "0.76rem",
           whiteSpace: "nowrap",
           // Only the Nepali segment pays for the Devanagari face.
-          ...(devanagari && { fontFamily: "var(--font-devanagari), var(--font-sans)" }),
+          ...(devanagari && { fontFamily: DEVANAGARI_FONT }),
         }}
         noWrap
       >
@@ -149,7 +148,7 @@ function Segment({
           fontSize: "0.7rem",
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap",
-          ...(devanagari && { fontFamily: "var(--font-devanagari), var(--font-sans)" }),
+          ...(devanagari && { fontFamily: DEVANAGARI_FONT }),
         }}
         noWrap
       >

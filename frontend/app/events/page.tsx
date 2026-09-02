@@ -6,7 +6,7 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import EventIcon from "@mui/icons-material/Event";
 import GroupsIcon from "@mui/icons-material/Groups";
 import PlaceIcon from "@mui/icons-material/Place";
-import TimelineIcon from "@mui/icons-material/Timeline";
+import TodayIcon from "@mui/icons-material/Today";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
@@ -43,11 +43,22 @@ import { EVENT_KINDS, EVENT_STATUSES, type EventListItem } from "@/types/events"
  * audit is several clicks back. The calendar remains the right shape for "what
  * else is on that day", which is a different question and already has a page.
  *
- * **Two columns, each reading outward from now.** The next thing is at the top
- * of one and the most recent thing at the top of the other. One combined list
- * sorted ascending would open on the furthest-future event, which is the least
- * interesting row on the page; sorted descending it would bury everything
- * upcoming below a year of history.
+ * **One line, not two columns.** It was split into "Coming up" and "Already
+ * happened" side by side, which is two timelines rather than a timeline: the
+ * reader had to hold two positions in their head and there was nowhere on the
+ * page that said where *now* is.
+ *
+ * So: a single spine, running from the furthest future down to the oldest
+ * record, with a marker on it for today. Everything above the marker has not
+ * happened; everything below it has. That ordering makes the next thing sit
+ * immediately above the line — the most useful row on the page lands next to
+ * the one fixed point on it — and reading downwards is reading backwards in
+ * time, which is how anybody scans a history.
+ *
+ * **Past entries are drawn back rather than hidden.** Muted ground, hollow
+ * node, lighter type. They are still records and still open on a click; they
+ * are simply not what the page is for. Upcoming entries keep the module hue,
+ * so the eye lands on them first.
  */
 
 const STATUS_TONE: Record<string, "normal" | "caution" | "alarm" | "muted"> = {
@@ -158,30 +169,16 @@ export default function EventsPage() {
           ))}
         </Stack>
       ) : (
-        <Box
-          sx={{
-            display: "grid",
-            gap: 3,
-            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
-            alignItems: "start",
-          }}
-        >
-          <TimelineColumn
-            title="Coming up"
-            total={data?.upcoming_total ?? 0}
-            events={data?.upcoming ?? []}
-            emptyText="Nothing scheduled."
-            onOpen={setOpenId}
-          />
-          <TimelineColumn
-            title="Already happened"
-            total={data?.past_total ?? 0}
-            events={data?.past ?? []}
-            emptyText="Nothing recorded yet."
-            onOpen={setOpenId}
-            muted
-          />
-        </Box>
+        <Timeline
+          // Furthest-future first, so reading downwards runs backwards in time
+          // and the next thing to happen sits immediately above the "today"
+          // marker rather than at the far end of the page.
+          upcoming={[...(data?.upcoming ?? [])].reverse()}
+          past={data?.past ?? []}
+          upcomingTotal={data?.upcoming_total ?? 0}
+          pastTotal={data?.past_total ?? 0}
+          onOpen={setOpenId}
+        />
       )}
 
       <EventDialog
@@ -208,142 +205,249 @@ export default function EventsPage() {
  * fortnight looks different from three across a year, and a list of cards does
  * not show that.
  */
-function TimelineColumn({
-  title,
-  total,
-  events,
-  emptyText,
+/**
+ * One spine, today marked on it, everything else placed either side.
+ *
+ * The card is a child rather than a copy per section: an upcoming event and a
+ * past one carry the same facts and differ only in emphasis, so the difference
+ * is one `past` flag and not a second component that drifts.
+ */
+function Timeline({
+  upcoming,
+  past,
+  upcomingTotal,
+  pastTotal,
   onOpen,
-  muted = false,
 }: {
-  title: string;
-  total: number;
-  events: EventListItem[];
-  emptyText: string;
+  upcoming: EventListItem[];
+  past: EventListItem[];
+  upcomingTotal: number;
+  pastTotal: number;
   onOpen: (id: number) => void;
-  muted?: boolean;
+}) {
+  if (upcoming.length === 0 && past.length === 0) {
+    return (
+      <EmptyState
+        title="No events yet"
+        description="Public hearings, inaugurations, board meetings and community programmes are recorded here."
+      />
+    );
+  }
+
+  return (
+    <Box sx={{ position: "relative", pl: 4 }}>
+      {/* The spine. It runs the whole height rather than per section, which is
+          the entire point of joining the two lists. */}
+      <Box
+        sx={{
+          position: "absolute",
+          left: 11,
+          top: 8,
+          bottom: 8,
+          width: 2,
+          bgcolor: "divider",
+        }}
+      />
+
+      <Stack spacing={2}>
+        {upcoming.map((event) => (
+          <TimelineRow key={event.id} event={event} onOpen={onOpen} />
+        ))}
+
+        <NowMarker upcoming={upcomingTotal} past={pastTotal} />
+
+        {past.map((event) => (
+          <TimelineRow key={event.id} event={event} onOpen={onOpen} past />
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+/**
+ * Where today is.
+ *
+ * The one fixed point on the page, and the thing two separate columns could
+ * never show. Everything above it is ahead; everything below has happened.
+ */
+function NowMarker({ upcoming, past }: { upcoming: number; past: number }) {
+  return (
+    <Box sx={{ position: "relative", py: 0.5 }}>
+      <Box
+        sx={(theme) => ({
+          position: "absolute",
+          left: -29,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 22,
+          height: 22,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          bgcolor: theme.palette.primary.main,
+          color: theme.palette.primary.contrastText,
+          boxShadow: `0 0 0 4px ${alpha(theme.palette.primary.main, 0.18)}`,
+        })}
+      >
+        <TodayIcon sx={{ fontSize: 12 }} />
+      </Box>
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{ alignItems: "center", flexWrap: "wrap" }}
+        useFlexGap
+      >
+        <Typography
+          variant="overline"
+          sx={{ fontWeight: 800, color: "primary.main", letterSpacing: ".1em" }}
+        >
+          Today
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          <DateText value={new Date().toISOString()} />
+        </Typography>
+        <Box
+          sx={(theme) => ({
+            flex: 1,
+            height: 1,
+            minWidth: 24,
+            bgcolor: alpha(theme.palette.primary.main, 0.25),
+          })}
+        />
+        <Typography variant="caption" color="text.secondary">
+          {upcoming} ahead, {past} recorded
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
+function TimelineRow({
+  event,
+  onOpen,
+  past = false,
+}: {
+  event: EventListItem;
+  onOpen: (id: number) => void;
+  past?: boolean;
 }) {
   return (
-    <Box>
-      <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.5 }}>
-        <TimelineIcon fontSize="small" color={muted ? "disabled" : "primary"} />
-        <Typography variant="overline" color="text.secondary">
-          {title}
-        </Typography>
-        <Chip size="small" label={total} />
-      </Stack>
+    <Box sx={{ position: "relative" }}>
+      {/* Filled node ahead of today, hollow behind it. The shape carries the
+          difference as well as the colour, so it survives a greyscale print and
+          does not rely on hue alone. */}
+      <Box
+        sx={(theme) => ({
+          position: "absolute",
+          left: -27,
+          top: 18,
+          width: 18,
+          height: 18,
+          borderRadius: "50%",
+          display: "grid",
+          placeItems: "center",
+          bgcolor: past ? theme.palette.background.paper : theme.palette.primary.main,
+          border: "2px solid",
+          borderColor: past ? theme.palette.divider : theme.palette.primary.main,
+          color: past ? theme.palette.text.disabled : theme.palette.primary.contrastText,
+        })}
+      >
+        <EventIcon sx={{ fontSize: 10 }} />
+      </Box>
 
-      {events.length === 0 ? (
-        <EmptyState title={emptyText} description="" compact />
-      ) : (
-        <Box sx={{ position: "relative", pl: 3 }}>
-          <Box
-            sx={{
-              position: "absolute",
-              left: 9,
-              top: 12,
-              bottom: 12,
-              width: 2,
-              bgcolor: "divider",
-            }}
-          />
-          <Stack spacing={2}>
-            {events.map((event) => (
-              <Box key={event.id} sx={{ position: "relative" }}>
-                <Box
-                  sx={(theme) => ({
-                    position: "absolute",
-                    left: -22,
-                    top: 18,
-                    width: 20,
-                    height: 20,
-                    borderRadius: "50%",
-                    display: "grid",
-                    placeItems: "center",
-                    bgcolor: "background.paper",
-                    border: "2px solid",
-                    borderColor: muted
-                      ? theme.palette.divider
-                      : theme.palette.primary.main,
-                    color: muted ? theme.palette.text.disabled : theme.palette.primary.main,
-                  })}
-                >
-                  <EventIcon sx={{ fontSize: 11 }} />
-                </Box>
-                <Card
-                  sx={(theme) => ({
-                    opacity: muted ? 0.92 : 1,
-                    bgcolor: muted ? alpha(theme.palette.text.primary, 0.015) : undefined,
-                  })}
-                >
-                  <CardActionArea onClick={() => onOpen(event.id)}>
-                    <CardContent>
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        sx={{ alignItems: "baseline", flexWrap: "wrap", mb: 0.5 }}
-                      >
-                        <Typography sx={{ fontWeight: 700 }}>{event.title}</Typography>
-                        <Chip size="small" label={event.kind_display} />
-                        <StateChip
-                          label={event.status_display}
-                          tone={STATUS_TONE[event.status] ?? "muted"}
-                        />
-                      </Stack>
+      <Card
+        variant={past ? "outlined" : "elevation"}
+        sx={(theme) => ({
+          ...(past
+            ? {
+                bgcolor: alpha(theme.palette.text.primary, 0.028),
+                borderColor: "divider",
+                boxShadow: "none",
+                ...theme.applyStyles("dark", {
+                  bgcolor: alpha(theme.palette.common.white, 0.03),
+                }),
+              }
+            : {
+                borderLeft: "3px solid",
+                borderColor: theme.palette.primary.main,
+              }),
+        })}
+      >
+        <CardActionArea onClick={() => onOpen(event.id)}>
+          <CardContent sx={{ py: past ? 1.5 : 2 }}>
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ alignItems: "baseline", flexWrap: "wrap", mb: 0.5 }}
+              useFlexGap
+            >
+              <Typography
+                sx={{
+                  fontWeight: 700,
+                  // Drawn back, not hidden. A past event is still a record.
+                  color: past ? "text.secondary" : "text.primary",
+                }}
+              >
+                {event.title}
+              </Typography>
+              <Chip size="small" label={event.kind_display} variant={past ? "outlined" : "filled"} />
+              <StateChip
+                label={event.status_display}
+                tone={past ? "muted" : STATUS_TONE[event.status] ?? "muted"}
+              />
+            </Stack>
 
-                      <Typography variant="body2" color="text.secondary">
-                        <DateText value={event.starts_at} />
-                        {!event.is_all_day
-                          ? ` · ${new Date(event.starts_at).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}`
-                          : " · all day"}
-                      </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <DateText value={event.starts_at} />
+              {!event.is_all_day
+                ? ` · ${new Date(event.starts_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}`
+                : " · all day"}
+            </Typography>
 
-                      {event.subject_matter ? (
-                        <Typography variant="body2" sx={{ mt: 0.75 }}>
-                          {event.subject_matter}
-                        </Typography>
-                      ) : null}
+            {event.subject_matter ? (
+              <Typography
+                variant="body2"
+                sx={{ mt: 0.75, color: past ? "text.secondary" : "text.primary" }}
+              >
+                {event.subject_matter}
+              </Typography>
+            ) : null}
 
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        sx={{ mt: 1.25, color: "text.secondary", flexWrap: "wrap" }}
-                        useFlexGap
-                      >
-                        {event.location ? (
-                          <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                            <PlaceIcon sx={{ fontSize: 15 }} />
-                            <Typography variant="caption">{event.location}</Typography>
-                          </Stack>
-                        ) : null}
-                        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                          <GroupsIcon sx={{ fontSize: 15 }} />
-                          <Typography variant="caption">
-                            {event.stakeholder_count} stakeholder
-                            {event.stakeholder_count === 1 ? "" : "s"}
-                          </Typography>
-                        </Stack>
-                        {event.attachment_count > 0 ? (
-                          <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
-                            <AttachFileIcon sx={{ fontSize: 15 }} />
-                            <Typography variant="caption">{event.attachment_count}</Typography>
-                          </Stack>
-                        ) : null}
-                        {event.company_name ? (
-                          <Typography variant="caption">{event.company_name}</Typography>
-                        ) : null}
-                      </Stack>
-                    </CardContent>
-                  </CardActionArea>
-                </Card>
-              </Box>
-            ))}
-          </Stack>
-        </Box>
-      )}
+            <Stack
+              direction="row"
+              spacing={2}
+              sx={{ mt: 1.25, color: "text.secondary", flexWrap: "wrap" }}
+              useFlexGap
+            >
+              {event.location ? (
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                  <PlaceIcon sx={{ fontSize: 15 }} />
+                  <Typography variant="caption">{event.location}</Typography>
+                </Stack>
+              ) : null}
+              <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                <GroupsIcon sx={{ fontSize: 15 }} />
+                <Typography variant="caption">
+                  {event.stakeholder_count} stakeholder
+                  {event.stakeholder_count === 1 ? "" : "s"}
+                </Typography>
+              </Stack>
+              {event.attachment_count > 0 ? (
+                <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                  <AttachFileIcon sx={{ fontSize: 15 }} />
+                  <Typography variant="caption">{event.attachment_count}</Typography>
+                </Stack>
+              ) : null}
+              {event.company_name ? (
+                <Typography variant="caption">{event.company_name}</Typography>
+              ) : null}
+            </Stack>
+          </CardContent>
+        </CardActionArea>
+      </Card>
     </Box>
   );
 }
