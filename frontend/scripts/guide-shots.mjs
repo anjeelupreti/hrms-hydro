@@ -18,8 +18,10 @@ import path from "node:path";
 import { chromium } from "@playwright/test";
 
 const OUT = process.argv[2] ?? "shots";
-const HOST = process.argv[3] ?? "127.0.0.1:3009";
-const USER = process.argv[4] ?? "owner";
+const HOST = process.argv[3] ?? "127.0.0.1:3001";
+// The HR admin, not the owner: the owner has no employee record, so their
+// memorandum desk is empty and half the screens document nothing.
+const USER = process.argv[4] ?? "sushma.ghimire";
 const PASS = process.argv[5] ?? "TestPass123!";
 const BASE = `http://${HOST}`;
 
@@ -88,12 +90,33 @@ await page.waitForTimeout(1200);
 await page.screenshot({ path: path.join(OUT, "01-login.png"), fullPage: false });
 console.log("  shot 01-login");
 
+/**
+ * Send the setup wizard away before anything else.
+ *
+ * `SetupInvitation` opens over every page until the checklist is finished, and
+ * a modal intercepts pointer events — which is why half of these steps timed
+ * out clicking things that were plainly on screen behind it. It is also not
+ * what the manual is documenting.
+ */
+async function dismissSetup() {
+  const later = page.getByRole("button", { name: /do this later/i });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (await later.isVisible().catch(() => false)) {
+      await later.click().catch(() => {});
+      await page.waitForTimeout(600);
+      return;
+    }
+    await page.waitForTimeout(700);
+  }
+}
+
 const landed = page.waitForResponse(
   (r) => r.url().includes("/api/proxy/accounts/me") && r.status() === 200,
   { timeout: 180_000 }
 );
 await page.getByRole("button", { name: /sign in/i }).click();
 await landed;
+await dismissSetup();
 
 for (const { route, name, anon } of ROUTES) {
   if (anon) continue;
@@ -104,6 +127,8 @@ for (const { route, name, anon } of ROUTES) {
     await page
       .waitForLoadState("networkidle", { timeout: 45_000 })
       .catch(() => {});
+    // The wizard remounts on every navigation, not just after signing in.
+    await dismissSetup();
     await page.waitForTimeout(2500);
     await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: false });
     console.log(`  shot ${name}`);
