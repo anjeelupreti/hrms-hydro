@@ -45,6 +45,7 @@ class CompanySerializer(serializers.ModelSerializer):
             "website",
             "logo",
             "is_active",
+            "is_primary",
             "employee_count",
             "created_at",
             "updated_at",

@@ -319,7 +319,26 @@ class Command(BaseCommand):
         for code in ("SNHL", "SJCL", "MCTL"):
             made[code].parent = parent
             made[code].save(update_fields=["parent"])
-        self.stdout.write(f"  · {len(made)} companies")
+        # **One primary company, and here it is the holding company.**
+        #
+        # Payroll is filed under a single entity — see `Company.is_primary` —
+        # and on a fresh database nobody has marked one, so the first payroll
+        # run is refused with a message pointing at a page the reviewer has not
+        # been told to visit. Marking it here means the demo runs payroll
+        # without that detour, and it is the honest answer for this group: the
+        # payroll office sits at the holding company.
+        primary = made.get("VLUCL") or next(iter(made.values()), None)
+        if primary is not None and not primary.is_primary:
+            Company.objects.filter(is_primary=True).exclude(pk=primary.pk).update(
+                is_primary=False
+            )
+            primary.is_primary = True
+            primary.save(update_fields=["is_primary"])
+
+        self.stdout.write(
+            f"  · {len(made)} companies · payroll runs through "
+            f"{primary.code if primary else 'nobody'}"
+        )
         return made
 
     def _posts_and_roles(self, companies):
@@ -743,10 +762,23 @@ class Command(BaseCommand):
             (p for p in staff if getattr(p.user, "role", None) == "hr_admin"), None
         )
 
-        initiator = staff[4]
-        chain = [staff[2], admin or staff[0], staff[1]]
+        # **Nobody suspended goes in a chain.**
+        #
+        # The seed suspends one person to demonstrate the lock-out, and that
+        # person was also the first recommender on five memoranda and holding
+        # two of them. Their account is deactivated, so nobody can sign in as
+        # them — which left two memoranda permanently stuck with a holder who
+        # cannot act, and a reviewer following the testing guide unable to move
+        # either one. A suspended person is exactly who should *not* be holding
+        # paperwork.
+        available = [p for p in staff if p.user.is_active]
+        if len(available) < 6:
+            available = staff
+
+        initiator = available[4]
+        chain = [available[2], admin or available[0], available[1]]
         chain = list(dict.fromkeys(c for c in chain if c is not None and c != initiator))
-        approver = next(p for p in staff if p not in chain and p != initiator)
+        approver = next(p for p in available if p not in chain and p != initiator)
 
         recommend = actions["REC"]
         verified = actions["VER"]

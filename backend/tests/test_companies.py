@@ -184,3 +184,117 @@ def test_headcount_counts_the_payroll_not_the_secondments(
     response = admin_client.get(f"{LIST}{company.pk}/")
 
     assert response.data["employee_count"] == 1
+
+
+# ── One entity files the payroll ─────────────────────────────────────────
+
+
+def test_only_one_company_can_be_the_payroll_entity(db, company, second_company):
+    """🔒 Payroll is filed under one legal person.
+
+    It produces a bank file with one payer on it and figures filed under one
+    PAN, so "which company is this run under" has to have exactly one answer.
+    Two would leave it with none.
+    """
+    from django.core.exceptions import ValidationError
+
+    company.is_primary = True
+    company.save()
+
+    second_company.is_primary = True
+    with pytest.raises(ValidationError) as exc:
+        second_company.full_clean()
+    # Named, not just refused — the operator has to know which one to clear.
+    assert company.name in str(exc.value)
+
+
+def test_the_database_refuses_a_second_one_too(db, company, second_company):
+    """🔒 `clean()` is for the person on the form; this is for the race.
+
+    A check-then-write in Python cannot stop two concurrent saves from both
+    believing they were the only one — the window between the read and the
+    write is exactly where the second lands. The partial unique index closes
+    it, and this test is what proves the index is really there.
+    """
+    from django.db import IntegrityError, transaction
+
+    Company.objects.filter(pk=company.pk).update(is_primary=True)
+
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            # `update` bypasses `clean()` on purpose: the point is the constraint.
+            Company.objects.filter(pk=second_company.pk).update(is_primary=True)
+
+
+def test_clearing_it_frees_the_flag_for_another(db, company, second_company):
+    company.is_primary = True
+    company.save()
+
+    company.is_primary = False
+    company.save()
+
+    second_company.is_primary = True
+    second_company.full_clean()
+    second_company.save()
+
+    assert Company.objects.filter(is_primary=True).count() == 1
+
+
+def test_payroll_is_refused_when_nobody_is_marked(db, admin_client):
+    """🔒 A run attributed to nothing is a run nobody can file.
+
+    And the failure has to arrive now, not months later when somebody goes
+    looking for the paperwork. 409 rather than 400: nothing the operator typed
+    is wrong, and the fix is on a different page.
+    """
+    Company.objects.update(is_primary=False)
+
+    response = admin_client.post(
+        "/api/v1/payroll/runs/",
+        {"period_calendar": "AD", "period_year": 2026, "period_month": 9},
+        format="json",
+    )
+
+    assert response.status_code == 409
+    assert response.data["code"] == "no_primary_company"
+    assert "Companies" in response.data["detail"]
+
+
+def test_a_run_is_stamped_with_the_entity_that_filed_it(db, admin_client, company):
+    company.is_primary = True
+    company.save()
+
+    response = admin_client.post(
+        "/api/v1/payroll/runs/",
+        {"period_calendar": "AD", "period_year": 2026, "period_month": 9},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["company"] == company.pk
+    assert response.data["company_name"] == company.name
+
+
+def test_the_stamp_does_not_move_when_the_primary_company_changes(
+    db, admin_client, company, second_company
+):
+    """🔒 The reason it is a column and not a lookup.
+
+    A run filed last Ashad stays filed under whoever filed it. Recomputing it
+    would silently restate history the first time the payroll office moved.
+    """
+    company.is_primary = True
+    company.save()
+    run_id = admin_client.post(
+        "/api/v1/payroll/runs/",
+        {"period_calendar": "AD", "period_year": 2026, "period_month": 9},
+        format="json",
+    ).data["id"]
+
+    company.is_primary = False
+    company.save()
+    second_company.is_primary = True
+    second_company.save()
+
+    still = admin_client.get(f"/api/v1/payroll/runs/{run_id}/").data
+    assert still["company"] == company.pk

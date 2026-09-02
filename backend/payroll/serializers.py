@@ -370,13 +370,18 @@ class PayrollRunSerializer(serializers.ModelSerializer):
     period_label = serializers.CharField(read_only=True)
     period_start = serializers.SerializerMethodField()
     period_end = serializers.SerializerMethodField()
+    #: Read-only: which entity payroll runs through is a property of the
+    #: installation, not something an operator picks per run.
+    company_name = serializers.CharField(source="company.name", read_only=True, default=None)
 
     class Meta:
         model = PayrollRun
+        read_only_fields = ["company"]
         fields = [
             "id", "period_calendar", "period_year", "period_month",
             "period_label", "period_start", "period_end",
             "status", "notes",
+            "company", "company_name",
             "payslip_count", "total_gross", "total_deductions", "total_net",
             "locked_at", "error_count",
         ]

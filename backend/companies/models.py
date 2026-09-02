@@ -56,6 +56,35 @@ class Company(AuditModel):
         OPERATION = "operation", "In operation"
         NOT_APPLICABLE = "na", "Not a project company"
 
+    # ── Which entity the installation runs through ──────────────────────
+    #
+    # **Exactly one, and it is not the same question as `kind`.**
+    #
+    # `kind` describes what a company *is* — a holding company, an SPV, a
+    # branch — and deliberately does not enforce uniqueness, because a group
+    # formed by merger legitimately has two parents for a while. This flag
+    # answers a different and narrower question: which single entity does this
+    # installation run its company-wide processes through. Payroll is the one
+    # that matters. There is one payroll for the group, it is run once a month,
+    # and it is run by somebody sitting in one office under one PAN.
+    #
+    # Conflating the two would mean either "the parent is always the payer",
+    # which is not true of every group, or a payroll that has to pick between
+    # two parents and cannot.
+    #
+    # Enforced twice, and both are needed. `clean()` gives the person on the
+    # form a sentence they can act on; the constraint stops two concurrent
+    # saves from both believing they were the only one — a check-then-write in
+    # Python cannot, because the window between them is where the second write
+    # lands.
+    is_primary = models.BooleanField(
+        default=False,
+        help_text=(
+            "The entity this installation runs payroll and other company-wide "
+            "processes through. Exactly one company may be marked."
+        ),
+    )
+
     # ── Identity ────────────────────────────────────────────────────────
     name = models.CharField(max_length=200, unique=True)
     #: Short form used on employee codes, payroll exports and anywhere a full
@@ -115,11 +144,34 @@ class Company(AuditModel):
     class Meta:
         ordering = ["name"]
         verbose_name_plural = "companies"
+        constraints = [
+            # A partial unique index: it constrains only the rows where the flag
+            # is true, so every company can carry `False` and exactly one can
+            # carry `True`. A plain `unique=True` on a boolean would allow one
+            # row of each value and cap the table at two companies.
+            models.UniqueConstraint(
+                fields=["is_primary"],
+                condition=models.Q(is_primary=True),
+                name="one_primary_company",
+            )
+        ]
 
     def __str__(self):
         return self.name
 
     def clean(self):
+        if self.is_primary:
+            clash = Company.objects.filter(is_primary=True).exclude(pk=self.pk).first()
+            if clash is not None:
+                raise ValidationError(
+                    {
+                        "is_primary": (
+                            f"{clash.name} is already the primary company. Clear it there "
+                            "first — payroll runs through one entity, and two would leave "
+                            "it with no answer about which."
+                        )
+                    }
+                )
         if self.parent_id and self.parent_id == self.pk:
             raise ValidationError({"parent": "A company cannot be its own parent."})
         # Walk up rather than trusting one level: A→B→A is the loop that
@@ -131,3 +183,18 @@ class Company(AuditModel):
                 raise ValidationError({"parent": "That would make the group structure a loop."})
             seen.add(node.pk)
             node = node.parent
+
+
+def primary_company():
+    """The entity this installation runs its company-wide processes through.
+
+    `None` when nobody has marked one, which is a real state on a fresh install
+    and the reason every caller has to handle it rather than assume. Payroll
+    refuses to start in that case, with a sentence saying what to set — a run
+    attributed to no entity is a payroll nobody can file.
+
+    Read on demand rather than cached: it changes about once in the life of an
+    installation, and a stale cache would attribute a month's payroll to the
+    wrong company for the worst possible reason.
+    """
+    return Company.objects.filter(is_primary=True, is_active=True).first()

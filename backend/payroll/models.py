@@ -313,6 +313,28 @@ class PayrollRun(AuditModel):
     )
     period_year = models.PositiveIntegerField()
     period_month = models.PositiveSmallIntegerField()
+    #: Which entity this run was filed under.
+    #:
+    #: **One payroll for the group, run through one company.** Staff belong to
+    #: whichever project company employs them — most of this group sits under
+    #: SNHL and SJCL rather than the holding company — but the run itself is a
+    #: single monthly act performed in one office, under one PAN, and the bank
+    #: file that comes out of it carries one payer. So the run is attributed to
+    #: the entity marked primary, not split per company.
+    #:
+    #: Stamped at creation and never recomputed. A run filed last Ashad stays
+    #: filed under whoever filed it, even if the primary company changes
+    #: afterwards — that is the whole reason it is a column and not a lookup.
+    #:
+    #: `PROTECT`, so an entity with payroll history behind it cannot be deleted
+    #: out from under the runs that name it.
+    company = models.ForeignKey(
+        "companies.Company",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="payroll_runs",
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     notes = models.TextField(blank=True)
 

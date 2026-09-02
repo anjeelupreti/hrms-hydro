@@ -219,6 +219,16 @@ class SalaryTemplateViewSet(AuditViewSetMixin, ModelViewSet):
         return Response(report.as_dict(), status=status.HTTP_200_OK)
 
 
+class MissingPrimaryCompany(Exception):
+    """No entity is marked primary, so a payroll run has nothing to belong to.
+
+    Its own type rather than a `ValidationError` because it is a **setup**
+    fault, not a bad request: nothing the operator typed is wrong, and the fix
+    is on a different page. It answers 409, which is the code for "the state of
+    the system does not allow this yet", and the message names the page.
+    """
+
+
 class PayrollRunViewSet(
     StatusCountsMixin,
     AuditViewSetMixin,
@@ -258,6 +268,39 @@ class PayrollRunViewSet(
     # not at the oldest one on record.
     ordering = ["-period_year", "-period_month"]
     sum_field = "total_net"
+
+    def perform_create(self, serializer):
+        """Stamp the run with the entity it is filed under.
+
+        **Refused outright when nobody has marked one.** A payroll run belongs
+        to a legal person: it produces a bank file with one payer on it and
+        figures that get filed under one PAN. A run attributed to nothing is a
+        run nobody can file, and the failure would not surface until somebody
+        went looking for the paperwork months later.
+
+        Set here rather than accepted from the request. Which company payroll
+        runs through is a property of the installation, not a choice the
+        operator makes each month — offering it as a dropdown would invite
+        exactly the mistake this is meant to prevent.
+        """
+        from companies.models import primary_company
+
+        company = primary_company()
+        if company is None:
+            raise MissingPrimaryCompany(
+                "No company is marked as the primary one, so there is nothing to "
+                "file this payroll under. Open Companies, edit the entity that "
+                "runs payroll, and tick “primary company”."
+            )
+        serializer.save(company=company)
+
+    def handle_exception(self, exc):
+        if isinstance(exc, MissingPrimaryCompany):
+            return Response(
+                {"detail": str(exc), "code": "no_primary_company"},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().handle_exception(exc)
 
     def destroy(self, request, *args, **kwargs):
         payroll_run = self.get_object()
