@@ -200,7 +200,7 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
     #: sitting — so putting them here would only change which of two refusals
     #: came back first. The chain and the approver are excluded on purpose;
     #: see `perform_update`.
-    DOCUMENT_FIELDS = frozenset({"content"})
+    DOCUMENT_FIELDS = frozenset({"content", "company"})
 
     def perform_update(self, serializer):
         # **Whose turn it is, enforced here and not only drawn in the browser.**
@@ -230,10 +230,16 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         memo = serializer.instance
         was_content = serializer.validated_data.get("content")
         approver = serializer.validated_data.pop("approver", ...)
+        # Taken out of the ordinary save: moving a memorandum between companies
+        # re-mints its reference, which is a transition rather than a field
+        # write. See `workflow.set_company`.
+        company = serializer.validated_data.pop("company", ...)
 
         memo = serializer.save(updated_by=self.request.user)
         if recommender_ids is not None:
             workflow.set_chain(memo, recommender_ids, actor=self.request.user)
+        if company is not ...:
+            workflow.set_company(memo, company, actor=self.request.user)
         if approver is not ...:
             workflow.set_approver(memo, approver, actor=self.request.user)
         # Only worth a log line while it is in flight. Editing a draft is

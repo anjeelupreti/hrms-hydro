@@ -18,7 +18,7 @@ import DateText from "@/components/common/DateText";
 import { withCode } from "@/lib/people";
 import { RichText } from "@/components/common/RichTextEditor";
 import StateChip from "@/components/common/StateChip";
-import { MEMO_STATUS_TONE, type Memorandum } from "@/types/memoranda";
+import { MEMO_STATUS_TONE, type Memorandum, type MemorandumEvent } from "@/types/memoranda";
 
 /**
  * The paper, in millimetres, because that is the unit it is sold in.
@@ -79,6 +79,8 @@ export default function MemorandumLetter({
   draft,
   printable = false,
   body,
+  fields,
+  history,
 }: {
   memo: Memorandum | null;
   draft?: {
@@ -109,6 +111,33 @@ export default function MemorandumLetter({
    * where somebody is actually working on it.
    */
   printable?: boolean;
+  /**
+   * Editors placed *in the letter*, where the values they set appear.
+   *
+   * **One place to look, not two.** Company, date and subject used to be typed
+   * into a form in the right-hand rail and read back off the page beside it,
+   * which is a live preview — a thing that shows you the consequence of an edit
+   * somewhere else. For anybody who has filled in a paper form for thirty
+   * years that is a strange machine. Filling in the blanks on the form itself
+   * is the machine they already know.
+   *
+   * Each is a node rather than a value plus a callback: the letter should not
+   * have to know what a company picker is, only where the company goes.
+   */
+  fields?: {
+    company?: ReactNode;
+    date?: ReactNode;
+    subject?: ReactNode;
+  };
+  /**
+   * The action log, printed on the page rather than beside it.
+   *
+   * A memorandum's history *is* part of the document here: who recommended it,
+   * when, with what comment and against which attachment is exactly what the
+   * approver is reading before they sign, and what an auditor opens the file
+   * for afterwards. Off the page it does not travel with the printed copy.
+   */
+  history?: MemorandumEvent[];
   /**
    * The writing surface, when the memorandum is being written *on the page*.
    *
@@ -486,7 +515,7 @@ export default function MemorandumLetter({
               sx={{ width: 62, height: 62, objectFit: "contain", flexShrink: 0 }}
             />
           ) : null}
-          <Box sx={{ textAlign: "center", minWidth: 0 }}>
+          <Box sx={{ textAlign: "center", minWidth: 0, flex: fields?.company ? 1 : "0 1 auto" }}>
             <Typography
               sx={{
                 fontFamily: "inherit",
@@ -496,7 +525,7 @@ export default function MemorandumLetter({
                 lineHeight: 1.2,
               }}
             >
-              {company || "—"}
+              {fields?.company ?? (company || "—")}
             </Typography>
             {/* **What the document is, under whose paper it is on.**
 
@@ -550,7 +579,7 @@ export default function MemorandumLetter({
             {memo?.memo_id ?? <Muted>issued when this is submitted</Muted>}
           </LetterLine>
           <LetterLine label="Date" width={54}>
-            {date ? <DateText value={date} /> : <Muted>—</Muted>}
+            {fields?.date ?? (date ? <DateText value={date} /> : <Muted>—</Muted>)}
           </LetterLine>
         </Stack>
 
@@ -583,6 +612,25 @@ export default function MemorandumLetter({
             </LetterLine>
           ) : null}
 
+          {/* **Status and holder belong on the page.** They were chips clipped
+              to the corner of the preview, which is a screen decoration — it
+              does not print, and the printed copy is the one that gets filed.
+              A reader picking the paper out of a folder has to be able to see
+              whether it was ever decided and who had it last. */}
+          {memo ? (
+            <LetterLine label="Status" width={70}>
+              <Box component="span" sx={{ fontWeight: 700 }}>
+                {memo.status_display}
+              </Box>
+              {memo.current_holder_name ? (
+                <Box component="span" sx={{ color: "#5a6070" }}>
+                  {" — with "}
+                  {withCode(memo.current_holder_name, memo.current_holder_code)}
+                </Box>
+              ) : null}
+            </LetterLine>
+          ) : null}
+
           <LetterLine label="From" width={70}>
             {memo?.initiator_name ? (
               <>
@@ -602,7 +650,7 @@ export default function MemorandumLetter({
         {/* ── Subject ────────────────────────────────────────────────── */}
         <Box sx={{ py: 2 }}>
           <LetterLine label="Subject" width={70} bold>
-            {subject || <Muted>—</Muted>}
+            {fields?.subject ?? (subject || <Muted>—</Muted>)}
           </LetterLine>
         </Box>
 
@@ -625,6 +673,81 @@ export default function MemorandumLetter({
         >
           {body ?? (content ? <RichText html={content} /> : <Muted>Nothing written yet.</Muted>)}
         </Box>
+
+        {/* ── What happened to it ────────────────────────────────────
+            On the page, in a table, because on this document the history *is*
+            content: who recommended it, when, with what remark and against
+            which attachment is what the approver reads before signing and what
+            an auditor opens the file for afterwards. Beside the page it does
+            not travel with the printed copy. */}
+        {history && history.length > 0 ? (
+          <Box sx={{ pt: 4 }}>
+            <Typography
+              sx={{
+                fontFamily: "inherit",
+                fontSize: ".7rem",
+                fontWeight: 700,
+                letterSpacing: ".14em",
+                textTransform: "uppercase",
+                color: "#5a6070",
+                pb: 0.75,
+              }}
+            >
+              Actions
+            </Typography>
+            <Box
+              component="table"
+              sx={{
+                width: "100%",
+                borderCollapse: "collapse",
+                tableLayout: "fixed",
+                fontSize: ".78rem",
+                "& th, & td": {
+                  border: "1px solid #9aa0a6",
+                  padding: "5px 7px",
+                  verticalAlign: "top",
+                  textAlign: "left",
+                },
+                "& th": { backgroundColor: "#f1f3f4", fontWeight: 700 },
+              }}
+            >
+              <Box component="thead">
+                <Box component="tr">
+                  <Box component="th" sx={{ width: "22%" }}>Date &amp; time</Box>
+                  <Box component="th" sx={{ width: "24%" }}>User</Box>
+                  <Box component="th" sx={{ width: "18%" }}>Action</Box>
+                  <Box component="th">Comment</Box>
+                  <Box component="th" sx={{ width: "18%" }}>Attachments</Box>
+                </Box>
+              </Box>
+              <Box component="tbody">
+                {history.map((event) => (
+                  <Box component="tr" key={event.id}>
+                    <Box component="td">
+                      {/* The time as well as the day. Two recommendations on the
+                          same afternoon are indistinguishable without it, and
+                          the order they happened in is the whole point. */}
+                      <DateText value={event.created_at} withTime />
+                    </Box>
+                    <Box component="td">{event.actor_label}</Box>
+                    <Box component="td">{event.action_label || event.kind_display}</Box>
+                    <Box component="td">{event.comment || "—"}</Box>
+                    <Box component="td">
+                      {/* The caption when there is one, otherwise the file's
+                          own name off the end of its path — which is what
+                          somebody who attached it will recognise. */}
+                      {event.attachments.length > 0
+                        ? event.attachments
+                            .map((file) => file.caption || file.file.split("/").pop() || "file")
+                            .join(", ")
+                        : "—"}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        ) : null}
 
         {/* ── The foot of the page ───────────────────────────────────── */}
         {memo?.initiator_name || draft?.fromName ? (

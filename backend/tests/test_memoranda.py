@@ -1015,3 +1015,64 @@ def test_an_archived_memorandum_is_locked(memo, cast):
     assert response.status_code == 400, response.data
     memo.refresh_from_db()
     assert "After the fact" not in memo.content
+
+
+# ── Filed under the right company ────────────────────────────────────────
+
+
+def test_the_initiator_can_move_a_draft_to_another_company(memo, cast, company):
+    """A draft has no number yet, so nothing has to be re-minted."""
+    from companies.models import Company
+
+    other = Company.objects.create(name="Seti Nadi Hydropower", code="SNHL")
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"company": other.pk}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert memo.company_id == other.pk
+    assert memo.memo_id in (None, "")
+
+
+def test_moving_a_numbered_memorandum_re_mints_its_reference(memo, cast, company):
+    """The company is the middle segment of the reference. A memorandum filed
+    as `…-VLUCL-0007` that now belongs to Seti Nadi is mis-filed."""
+    from companies.models import Company
+
+    submit(memo)
+    memo.refresh_from_db()
+    original = memo.memo_id
+    assert company.code in original
+
+    send_back(memo, cast["a"], to=cast["initiator"], comment="Wrong company.")
+    other = Company.objects.create(name="Seti Nadi Hydropower", code="SNHL")
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"company": other.pk}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert memo.memo_id != original
+    assert "SNHL" in memo.memo_id
+    # The serial comes from the new company's own register, which starts at 1.
+    assert memo.memo_id.endswith("-0001")
+    # And the change is on the record, because the reference somebody quoted
+    # yesterday is not the reference today.
+    assert any(original in (e.comment or "") for e in memo.events.all())
+
+
+def test_the_company_cannot_be_changed_from_somebody_else_s_desk(memo, cast, company):
+    from companies.models import Company
+
+    submit(memo)
+    other = Company.objects.create(name="Seti Nadi Hydropower", code="SNHL")
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"company": other.pk}, format="json"
+    )
+
+    assert response.status_code == 403, response.data
+    memo.refresh_from_db()
+    assert memo.company_id == company.pk

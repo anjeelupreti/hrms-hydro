@@ -80,6 +80,58 @@ function todayIso() {
   ).padStart(2, "0")}`;
 }
 
+/**
+ * An input that looks like a blank on a form, not like a control on a screen.
+ *
+ * No outline, no filled ground, the page's own serif and ink — so the letter
+ * reads as a letter with something typed into it. The underline is the ruled
+ * line a paper form would have; it darkens on hover so the blank is findable
+ * without having to click around for it.
+ */
+const INLINE_INPUT = {
+  // The outline is removed rather than the variant changed: `CompanyPicker` and
+  // `DateField` wrap their own inputs and do not forward `variant`, and giving
+  // two shared components a prop for the benefit of one screen is the wrong
+  // trade. A bottom rule is drawn back on — that is the ruled line a paper form
+  // has, and it darkens on hover so the blank can be found without hunting.
+  "& .MuiOutlinedInput-notchedOutline": { border: "none" },
+  "& .MuiInputBase-root": {
+    fontFamily: '"Georgia", "Times New Roman", serif',
+    fontSize: ".95rem",
+    color: "#16181d",
+    borderBottom: "1px solid rgba(22,24,29,0.25)",
+    borderRadius: 0,
+    "&:hover": { borderBottomColor: "rgba(22,24,29,0.55)" },
+    "&.Mui-focused": { borderBottomColor: "#16181d" },
+  },
+  "& .MuiInputBase-input": { padding: "1px 0" },
+  "& .MuiSvgIcon-root": { color: "rgba(22,24,29,0.45)" },
+} as const;
+
+/** The same, sized for the company name across the top of the letterhead. */
+const LETTERHEAD_INPUT = {
+  ...INLINE_INPUT,
+  // **Wide, because it holds a company name.** Left to shrink to fit, the
+  // picker rendered as "Ty…" — an autocomplete sizes itself to its input, and
+  // an input with no width is as narrow as the box will allow. The letterhead
+  // is the full width of the page and the name belongs across it.
+  width: "100%",
+  minWidth: 320,
+  "& .MuiInputBase-root": {
+    ...INLINE_INPUT["& .MuiInputBase-root"],
+    fontSize: "1.35rem",
+    fontWeight: 700,
+  },
+  "& .MuiInputBase-input": { padding: "1px 0", textAlign: "center" },
+} as const;
+
+/** The date sits on one line beside Ref, so it is sized to its content. */
+const DATE_INPUT = {
+  ...INLINE_INPUT,
+  width: 190,
+  "& .MuiInputBase-input": { padding: "1px 0" },
+} as const;
+
 const EMPTY: MemorandumFormValues = {
   company: null,
   // Filled in with today, which is what submission validates against. See
@@ -425,6 +477,48 @@ export default function MemorandumDialog({
                       printable
                       memo={memo}
                       body={canEditBody ? surface : undefined}
+                      history={memo?.events ?? []}
+                      // **Filled in on the form, not beside it.** These used to
+                      // be a "Basic details" card in the rail, which made the
+                      // page a live preview of a form — the consequence of an
+                      // edit happening somewhere else. Somebody who has filled
+                      // in paper forms for thirty years knows how to fill in
+                      // the blanks on the form.
+                      fields={
+                        canEditChain
+                          ? {
+                              company: (
+                                <CompanyPicker
+                                  label=""
+                                  value={values.company}
+                                  onChange={(id) => set("company", id)}
+                                  size="small"
+                                  sx={LETTERHEAD_INPUT}
+                                />
+                              ),
+                              date: (
+                                <DateField
+                                  label=""
+                                  value={values.memo_date}
+                                  onChange={(value) => set("memo_date", value)}
+                                  size="small"
+                                  sx={DATE_INPUT}
+                                />
+                              ),
+                              subject: isDraft ? (
+                                <TextField
+                                  placeholder="Subject"
+                                  fullWidth
+                                  size="small"
+                                  variant="standard"
+                                  value={values.subject}
+                                  onChange={(e) => set("subject", e.target.value)}
+                                  sx={INLINE_INPUT}
+                                />
+                              ) : undefined,
+                            }
+                          : undefined
+                      }
                       draft={{
                         subject: values.subject,
                         content: values.content,
@@ -495,40 +589,6 @@ export default function MemorandumDialog({
                           >
                             Move past {memo?.current_holder_name ?? "them"}
                           </Button>
-                        </Stack>
-                      </Box>
-                    ) : null}
-
-                    {isDraft && !locked ? (
-                      <Box>
-                        <SectionHeading
-                          title="Basic details"
-                          hint="Fixed once the memorandum is on its way."
-                        />
-                        <Stack spacing={2} sx={{ mt: 1.5 }}>
-                          <CompanyPicker
-                            label="Company"
-                            required
-                            value={values.company}
-                            onChange={(id) => set("company", id)}
-                            size="small"
-                            helperText="Its code goes into the memorandum number."
-                          />
-                          <DateField
-                            label="Date"
-                            required
-                            value={values.memo_date}
-                            onChange={(value) => set("memo_date", value)}
-                            helperText="Must be today when you submit."
-                          />
-                          <TextField
-                            label="Subject"
-                            fullWidth
-                            required
-                            size="small"
-                            value={values.subject}
-                            onChange={(e) => set("subject", e.target.value)}
-                          />
                         </Stack>
                       </Box>
                     ) : null}

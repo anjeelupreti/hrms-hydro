@@ -21,14 +21,37 @@ export default function DateText({
   value,
   format = "long",
   fallback = "—",
+  withTime = false,
 }: {
   /** `YYYY-MM-DD`, or a full ISO timestamp — the date part is what is used. */
   value: string | null | undefined;
   /** `long` → "2 Bhadra 2083". `short` → "2 Bhadra", for tables and chips. */
   format?: "long" | "short";
   fallback?: string;
+  /**
+   * Append the clock time.
+   *
+   * **For a log, where the order of the day is the point.** Two recommendations
+   * on the same afternoon are indistinguishable by date alone, and which came
+   * first is exactly what somebody reads an action log to find out. Rendered
+   * here rather than by each caller because the clock is the same in either
+   * calendar — only the date converts — so every caller was writing the same
+   * three lines beside this component.
+   *
+   * Silently ignored when the value carries no time.
+   */
+  withTime?: boolean;
 }) {
   const calendar = useCalendarKey();
+
+  /** " · 15:32", or nothing when the value is a bare date. */
+  const clock = (() => {
+    if (!withTime || !value || value.length <= 10) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    return ` · ${parsed.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  })();
+
   // Only the date part converts. A timestamp's clock is the same number in
   // either calendar, and callers that want the time render it themselves.
   const day = value ? value.slice(0, 10) : "";
@@ -47,6 +70,7 @@ export default function DateText({
             ? { month: "short", day: "numeric" }
             : { year: "numeric", month: "short", day: "numeric" }
         )}
+        {clock}
       </>
     );
   }
@@ -54,13 +78,13 @@ export default function DateText({
   // Not converted yet, or outside the table's range. Either way the Gregorian
   // date is the honest thing to show — a plausible wrong BS date would be
   // worse, because nothing downstream could tell it apart from a right one.
-  if (!local) return <>{day || fallback}</>;
+  if (!local) return <>{(day || fallback) + clock}</>;
 
   return (
     <>
       {format === "short"
-        ? `${local.day} ${local.month_name}`
-        : `${local.day} ${local.month_name} ${local.year}`}
+        ? `${local.day} ${local.month_name}${clock}`
+        : `${local.day} ${local.month_name} ${local.year}${clock}`}
     </>
   );
 }

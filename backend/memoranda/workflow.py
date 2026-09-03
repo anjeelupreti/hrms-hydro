@@ -407,6 +407,52 @@ def skip(memo, employee, *, comment="", actor=None):
 
 
 @transaction.atomic
+def set_company(memo, company, *, actor=None):
+    """Move a memorandum to a different company, reference and all.
+
+    **The company is the middle segment of the reference**, so changing one has
+    to change the other — a memorandum filed as `…-VLUCL-0007` that now belongs
+    to Seti Nadi is mis-filed, and the register it was numbered in has a gap
+    where a real document used to be.
+
+    So it is re-minted: a fresh serial from the *new* company's counter, and the
+    old serial simply retired. Gaps in a register are ordinary — an abandoned
+    draft leaves one too — where a duplicate is not, which is the property the
+    counter exists to guarantee.
+
+    Only while it is on the initiator's desk. `perform_update` enforces that by
+    listing `company` among the document fields; this function is the mechanics.
+    Logged, because the reference somebody quoted yesterday is not the reference
+    today and the history is the only place that can say why.
+    """
+    if company is None or company.pk == memo.company_id:
+        return memo
+
+    previous_id = memo.memo_id
+    memo.company = company
+
+    # Only re-mint what has already been minted. A draft has no number yet and
+    # takes one at submission from whichever company it is then filed under.
+    if memo.memo_id:
+        serial = _next_serial(company)
+        memo.serial_number = serial
+        memo.memo_id = f"{memo.memo_date:%Y-%m-%d}-{company.code}-{serial:04d}"
+
+    memo.updated_by = actor
+    memo.save(update_fields=["company", "serial_number", "memo_id", "updated_by", "updated_at"])
+
+    if previous_id and previous_id != memo.memo_id:
+        log(
+            memo,
+            MemorandumEvent.Kind.EDITED,
+            actor=actor,
+            employee=memo.initiator,
+            comment=f"Filed under {company.name}. Was {previous_id}, now {memo.memo_id}.",
+        )
+    return memo
+
+
+@transaction.atomic
 def archive(memo, employee, *, actor=None):
     """File it away. The initiator only.
 

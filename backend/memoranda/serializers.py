@@ -378,7 +378,14 @@ class MemorandumSerializer(MemorandumListSerializer):
             # In flight: the text may be corrected, and nothing else. The chain
             # has been reading the rest, and changing it beneath their comments
             # would make every one of them a comment on a different document.
-            frozen = {"memo_date", "subject", "company"}
+            #
+            # `company` is deliberately *not* frozen. It is the middle segment
+            # of the reference, and a memorandum filed under the wrong company
+            # of a four-company group is wrong in the register as well as on the
+            # page — so the initiator can move it, and `workflow.set_company`
+            # re-mints the number to match. `perform_update` still only lets
+            # them do it while it is on their own desk.
+            frozen = {"memo_date", "subject"}
             changed = frozen.intersection(attrs)
             if changed:
                 names = ", ".join(sorted(changed))
