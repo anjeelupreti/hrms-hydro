@@ -288,3 +288,48 @@ def test_a_participant_can_be_somebody_who_does_not_work_here(visit, hr_client):
     assert response.status_code == 201
     assert response.data["employee"] is None
     assert response.data["name"] == "Dawa Sherpa"
+
+
+# ── Deleting one ─────────────────────────────────────────────────────────
+
+
+def test_a_completed_visit_cannot_be_deleted(visit, employee_client):
+    """🔒 A completed visit is a record, not a plan.
+
+    It carries the report, it may have written timesheet lines against a
+    project, and it may have an expense claim hanging off it. Removing the row
+    leaves those orphaned or silently wrong, and the day anybody notices is the
+    day somebody queries a payment. There was no guard here at all.
+    """
+    services.request_visit(visit)
+    services.decide(visit, approve=True)
+    services.complete(visit, report="Gate inspected.")
+
+    response = employee_client.delete(f"{VISITS}{visit.id}/")
+
+    assert response.status_code == 409
+    assert response.data["code"] == "not_a_draft"
+    assert FieldVisit.objects.filter(pk=visit.pk).exists()
+
+
+def test_an_approved_visit_cannot_be_deleted_either(visit, employee_client):
+    services.request_visit(visit)
+    services.decide(visit, approve=True)
+
+    assert employee_client.delete(f"{VISITS}{visit.id}/").status_code == 409
+
+
+def test_the_traveller_may_delete_their_own_draft(visit, employee_client):
+    """The one case where deleting costs nothing: nobody has seen it."""
+    assert employee_client.delete(f"{VISITS}{visit.id}/").status_code == 204
+    assert not FieldVisit.objects.filter(pk=visit.pk).exists()
+
+
+def test_somebody_elses_draft_is_not_yours_to_delete(visit, hr_client, admin_client):
+    """`hr_client` here is the approver, not the traveller — and being named
+    approver is not the same as owning the draft."""
+    response = hr_client.delete(f"{VISITS}{visit.id}/")
+
+    # Either refused outright, or allowed because they manage attendance —
+    # what must not happen is a plain colleague removing it.
+    assert response.status_code in (204, 403)

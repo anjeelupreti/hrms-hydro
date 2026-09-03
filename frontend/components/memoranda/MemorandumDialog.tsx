@@ -38,6 +38,7 @@ import {
   useAddMemorandumAttachment,
   useApproveMemorandum,
   useCommentOnMemorandum,
+  useDeleteMemorandum,
   useMemorandumActions,
   useProceedMemorandum,
   useRejectMemorandum,
@@ -108,6 +109,7 @@ export default function MemorandumDialog({
   const approve = useApproveMemorandum();
   const reject = useRejectMemorandum();
   const addComment = useCommentOnMemorandum();
+  const destroy = useDeleteMemorandum();
   const addAttachment = useAddMemorandumAttachment();
   const removeAttachment = useRemoveMemorandumAttachment();
   const { data: actionPage } = useMemorandumActions();
@@ -623,6 +625,20 @@ export default function MemorandumDialog({
 
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
+
+        {/* A draft nobody has seen is the one thing here that can be deleted.
+            Once submitted it has a number in the company's register and people
+            have written on it — the server refuses, and says to have it
+            rejected instead. */}
+        {memo && isDraft && memo.my_role === "initiator" ? (
+          <Button
+            color="error"
+            disabled={busy || destroy.isPending}
+            onClick={() => run(destroy.mutateAsync(memo.id), onClose)}
+          >
+            Delete draft
+          </Button>
+        ) : null}
         {isDraft && !locked ? (
           <>
             {/* Two acts, two buttons. Save is reversible; Submit mints the

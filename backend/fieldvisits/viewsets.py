@@ -105,6 +105,43 @@ class FieldVisitViewSet(AuditViewSetMixin, ModelViewSet):
         visit.refresh_from_db()
         return Response(self.get_serializer(visit).data)
 
+    def destroy(self, request, *args, **kwargs):
+        """Only an abandoned draft, and only the traveller's own.
+
+        There was no guard here at all, which meant a **completed** visit could
+        be deleted — and a completed visit is not a plan, it is a record. It
+        carries the report, it may have written timesheet lines against a
+        project, and it may have an expense claim hanging off it. Removing the
+        row leaves those either orphaned or silently wrong, and the day anybody
+        notices is the day somebody queries a payment.
+
+        A draft nobody sent is the one case where deleting costs nothing, which
+        is why it is the only one allowed. Anything further along is cancelled
+        instead — that keeps the trail.
+        """
+        visit = self.get_object()
+        me = self._me()
+        if visit.status != FieldVisit.Status.DRAFT:
+            return Response(
+                {
+                    "detail": (
+                        f"This visit has been {visit.get_status_display().lower()}, so it "
+                        "is part of the record now — it may carry a report, timesheet "
+                        "lines and an expense claim. Cancel it instead."
+                    ),
+                    "code": "not_a_draft",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if visit.employee_id != getattr(me, "pk", None) and not can(
+            request.user, Perm.ATTENDANCE_MANAGE
+        ):
+            return Response(
+                {"detail": "Only the traveller can delete their own draft."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=["post"])
     def request_order(self, request, *args, **kwargs):
         visit = self.get_object()

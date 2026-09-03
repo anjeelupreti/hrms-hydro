@@ -36,11 +36,13 @@ import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import {
   useAddAttachment,
   useAddStakeholder,
+  useDeleteEvent,
   useRemoveAttachment,
   useRemoveStakeholder,
   useSaveEvent,
   useUpdateStakeholder,
 } from "@/hooks/useEvents";
+import { useCanDelete } from "@/hooks/useMe";
 import {
   EVENT_KINDS,
   EVENT_STATUSES,
@@ -108,6 +110,8 @@ export default function EventDialog({
   canEdit: boolean;
 }) {
   const save = useSaveEvent();
+  const remove = useDeleteEvent();
+  const canDelete = useCanDelete("workplace.manage");
   const [tab, setTab] = useState(0);
   const [values, setValues] = useState<EventFormValues>(EMPTY);
   const [error, setError] = useState<string | null>(null);
@@ -312,6 +316,30 @@ export default function EventDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Close</Button>
+
+        {/* Deletion is the admin's, never the officer's — the same verb rule
+            the rest of the system runs on, so the button simply is not there
+            for somebody the server would refuse. A saved event only: there is
+            nothing to delete before one exists. */}
+        {event && canDelete ? (
+          <Button
+            color="error"
+            disabled={remove.isPending}
+            onClick={async () => {
+              setError(null);
+              try {
+                await remove.mutateAsync(event.id);
+                onClose();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "That could not be removed.");
+              }
+            }}
+          >
+            Delete
+          </Button>
+        ) : null}
+
+        <Box sx={{ flex: 1 }} />
         {canEdit && tab === 0 ? (
           <Button
             variant="contained"
