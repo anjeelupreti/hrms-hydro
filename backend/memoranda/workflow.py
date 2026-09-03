@@ -56,10 +56,20 @@ class NotYourTurn(MemorandumError):
 
 
 def _label(employee):
+    """Who did it, with their employee ID beside the name.
+
+    The ID is included because the log is read to settle who signed what, and
+    names repeat here — two Sitas in accounts, three Gurungs on the site team.
+    Frozen into the row at write time along with the rest of the label, so an
+    entry keeps saying what it said on the day (see `record`); entries written
+    before this carry the bare name and are left alone.
+    """
     if employee is None:
         return "System"
     user = employee.user
-    return user.get_full_name() or user.get_username()
+    name = user.get_full_name() or user.get_username()
+    code = getattr(employee, "employee_code", "") or ""
+    return f"{name} ({code})" if code else name
 
 
 def _role_of(memo, employee):

@@ -32,8 +32,10 @@ import DateText from "@/components/common/DateText";
 import RichTextEditor, { RichText } from "@/components/common/RichTextEditor";
 import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
+import { withCode } from "@/lib/people";
 import { useCompanies } from "@/hooks/useCompanies";
 import { useEmployees } from "@/hooks/useEmployees";
+import { useMe } from "@/hooks/useMe";
 import {
   useAddMemorandumAttachment,
   useApproveMemorandum,
@@ -113,6 +115,7 @@ export default function MemorandumDialog({
   const addAttachment = useAddMemorandumAttachment();
   const removeAttachment = useRemoveMemorandumAttachment();
   const { data: actionPage } = useMemorandumActions();
+  const { data: me } = useMe();
 
   const [values, setValues] = useState<MemorandumFormValues>(EMPTY);
   const [comment, setComment] = useState("");
@@ -166,12 +169,12 @@ export default function MemorandumDialog({
    */
   const { data: staffPage } = useEmployees({ page: 1, pageSize: 200 });
   const throughNames = values.recommender_ids
-    .map(
-      (id) =>
-        staffPage?.results?.find((person) => person.id === id)?.full_name ??
-        memo?.recommenders.find((row) => row.employee === id)?.employee_name ??
-        null
-    )
+    .map((id) => {
+      const person = staffPage?.results?.find((row) => row.id === id);
+      if (person) return withCode(person.full_name, person.employee_code);
+      const saved = memo?.recommenders.find((row) => row.employee === id);
+      return saved ? withCode(saved.employee_name, saved.employee_code) : null;
+    })
     .filter((name): name is string => Boolean(name));
 
   useEffect(() => {
@@ -349,6 +352,7 @@ export default function MemorandumDialog({
               }}
             >
               <MemorandumLetter
+                printable
                 memo={memo}
                 draft={{
                   subject: values.subject,
@@ -357,6 +361,7 @@ export default function MemorandumDialog({
                   companyName,
                   approverName,
                   throughNames,
+                  fromName: me ? withCode(me.full_name, me.employee_code) : null,
                 }}
               />
             </Box>
@@ -942,7 +947,12 @@ function HistoryTab({ memo }: { memo: Memorandum | null }) {
                   Notified
                 </Typography>
                 {event.mentions.map((person) => (
-                  <Chip key={person.id} size="small" variant="outlined" label={person.name} />
+                  <Chip
+                    key={person.id}
+                    size="small"
+                    variant="outlined"
+                    label={withCode(person.name, person.employee_code)}
+                  />
                 ))}
               </Stack>
             ) : null}

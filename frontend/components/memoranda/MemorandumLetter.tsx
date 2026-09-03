@@ -1,17 +1,56 @@
 "use client";
 
+import AddIcon from "@mui/icons-material/Add";
+import PrintIcon from "@mui/icons-material/Print";
+import RemoveIcon from "@mui/icons-material/Remove";
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
+import MenuItem from "@mui/material/MenuItem";
+import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import { alpha } from "@mui/material/styles";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import DateText from "@/components/common/DateText";
+import { withCode } from "@/lib/people";
 import { RichText } from "@/components/common/RichTextEditor";
 import StateChip from "@/components/common/StateChip";
 import { MEMO_STATUS_TONE, type Memorandum } from "@/types/memoranda";
+
+/**
+ * The paper, in millimetres, because that is the unit it is sold in.
+ *
+ * The letter is going to be printed, so the preview is laid out at the real
+ * size rather than at whatever width the dialog happens to be: it is scaled
+ * down to fit on screen (see `scale`) and printed at 1:1. That is what makes
+ * the line breaks on screen the line breaks on paper.
+ *
+ * **A4 first, because that is what the office has in the tray.** The rest are
+ * here because a letter is not always a letter: an annual statement goes on
+ * Legal, a drawing schedule or a wide table goes on A3, and a short note reads
+ * better on A5. `name` is what goes in the menu — a ream is labelled "Legal",
+ * not "215.9 × 355.6".
+ *
+ * 18mm of margin is the usual for a letterhead: enough for a punch hole on the
+ * left and a file stamp at the foot without crowding the text. A3 is given more
+ * because a margin that looks generous on A4 looks like an accident on a sheet
+ * twice the size.
+ */
+const PAGE_SIZES = {
+  a4: { name: "A4", width: 210, height: 297, margin: 18, css: "A4" },
+  a5: { name: "A5", width: 148, height: 210, margin: 14, css: "A5" },
+  a3: { name: "A3", width: 297, height: 420, margin: 24, css: "A3" },
+  letter: { name: "Letter", width: 215.9, height: 279.4, margin: 18, css: "Letter" },
+  legal: { name: "Legal", width: 215.9, height: 355.6, margin: 18, css: "Legal" },
+} as const;
+
+type PageSizeKey = keyof typeof PAGE_SIZES;
+
+/** CSS millimetres are defined against 96dpi, so this is exact, not a guess. */
+const PX_PER_MM = 96 / 25.4;
 
 /**
  * A memorandum, as the sheet of paper it replaces.
@@ -38,6 +77,7 @@ export default function MemorandumLetter({
   memo,
   /** Draft values, so the page reads correctly before anything is saved. */
   draft,
+  printable = false,
 }: {
   memo: Memorandum | null;
   draft?: {
@@ -48,7 +88,26 @@ export default function MemorandumLetter({
     approverName?: string | null;
     /** Names in chain order, for the Through line while it is being chosen. */
     throughNames?: string[];
+    /**
+     * The signed-in person, for the From line before anything is saved.
+     *
+     * A blank letter that says "From: you" is a form talking about itself. The
+     * point of this page is that somebody who has written memoranda on paper
+     * for thirty years recognises it, and on paper the From line already has
+     * their name in it before they start — so it is shown here too, greyed,
+     * the way a pencilled name is. Nothing is stored until they save; this is
+     * the page telling them what it is going to say.
+     */
+    fromName?: string | null;
   };
+  /**
+   * Show the page controls — the page count, add/remove a blank sheet, print.
+   *
+   * Off by default so the letter stays a plain read-only rendering wherever it
+   * is embedded (the list preview, the history view) and only carries controls
+   * where somebody is actually working on it.
+   */
+  printable?: boolean;
 }) {
   const subject = draft?.subject ?? memo?.subject ?? "";
   const content = draft?.content ?? memo?.content ?? "";
@@ -58,7 +117,9 @@ export default function MemorandumLetter({
 
   const through =
     draft?.throughNames ??
-    (memo?.recommenders ?? []).map((row) => row.employee_name).filter(Boolean);
+    (memo?.recommenders ?? [])
+      .map((row) => withCode(row.employee_name, row.employee_code))
+      .filter(Boolean);
 
   const registration = [
     memo?.company_registration ? `Regd. ${memo.company_registration}` : "",
@@ -68,6 +129,114 @@ export default function MemorandumLetter({
     .join(" · ");
 
   const contact = [memo?.company_phone, memo?.company_email].filter(Boolean).join(" · ");
+
+  const [sizeKey, setSizeKey] = useState<PageSizeKey>("a4");
+  const PAGE = PAGE_SIZES[sizeKey];
+  const contentHeightPx = (PAGE.height - PAGE.margin * 2) * PX_PER_MM;
+
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  const flowRef = useRef<HTMLDivElement | null>(null);
+  const [naturalPages, setNaturalPages] = useState(1);
+  const [addedPages, setAddedPages] = useState(0);
+  const [scale, setScale] = useState(1);
+
+  /**
+   * How many A4 sheets the writing actually fills.
+   *
+   * Measured rather than declared: the author is typing into a box beside this
+   * one, and the page count has to answer to what they have written. Whole
+   * pages only — half a sheet of A4 is still a sheet of A4.
+   */
+  useEffect(() => {
+    const node = flowRef.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      const filled = Math.ceil(node.scrollHeight / contentHeightPx);
+      setNaturalPages(Math.max(1, Number.isFinite(filled) ? filled : 1));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [content, subject, through.length, company, contentHeightPx]);
+
+  /**
+   * Shrink the sheet to whatever width it has been given.
+   *
+   * The page is laid out at 210mm and 210mm does not fit in half a dialog, so
+   * it is scaled rather than reflowed — reflowing would mean the line breaks on
+   * screen were not the line breaks on paper, which defeats the point of
+   * previewing at all.
+   */
+  useEffect(() => {
+    const node = sheetRef.current?.parentElement;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const fit = () => {
+      const available = node.clientWidth;
+      const wanted = PAGE.width * PX_PER_MM;
+      setScale(available > 0 ? Math.min(1, available / wanted) : 1);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [PAGE.width]);
+
+  const pages = naturalPages + addedPages;
+
+  /**
+   * Print through a window of its own.
+   *
+   * The alternative is a print stylesheet that hides the rest of the
+   * application, and "the rest of the application" here is a dialog inside a
+   * scrolling page inside a sidebar layout — every one of which contributes a
+   * clip or an overflow that turns up on paper. Copying the stylesheets into a
+   * blank window and printing that gives the letter the whole sheet, which is
+   * what it is drawn for.
+   */
+  const handlePrint = useCallback(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    document.body.appendChild(frame);
+
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) {
+      frame.remove();
+      return;
+    }
+
+    // Emotion injects MUI's styles as <style> tags at runtime, so copying the
+    // document's own head is the only way the copy looks like the original.
+    const head = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((node) => node.outerHTML)
+      .join("");
+
+    doc.open();
+    doc.write(
+      `<!doctype html><html><head><meta charset="utf-8">${head}` +
+        `<style>@page { size: ${PAGE.css}; margin: 0 } ` +
+        `html,body { margin:0; padding:0; background:#fff }` +
+        // The scale is a screen concern; on paper the page is already A4.
+        `.print-sheet { transform:none !important; box-shadow:none !important; border:0 !important; border-radius:0 !important }` +
+        `.page-edge { display:none !important }` +
+        `</style></head><body>${sheet.outerHTML}</body></html>`
+    );
+    doc.close();
+
+    const go = () => {
+      win.focus();
+      win.print();
+      // Left in place until the dialog closes; removing it synchronously can
+      // cancel the print job in some browsers.
+      window.setTimeout(() => frame.remove(), 1000);
+    };
+    if (doc.readyState === "complete") go();
+    else frame.onload = go;
+  }, [PAGE.css]);
 
   return (
     <Box sx={{ position: "relative" }}>
@@ -91,14 +260,77 @@ export default function MemorandumLetter({
             <Chip
               size="small"
               variant="outlined"
-              label={`With ${memo.current_holder_name}`}
+              label={`With ${withCode(memo.current_holder_name, memo.current_holder_code)}`}
               sx={{ bgcolor: "background.paper" }}
             />
           ) : null}
         </Stack>
       ) : null}
 
+      {printable ? (
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{ alignItems: "center", pb: 1.5, flexWrap: "wrap" }}
+          useFlexGap
+        >
+          <Select
+            size="small"
+            value={sizeKey}
+            onChange={(event) => setSizeKey(event.target.value as PageSizeKey)}
+            sx={{ "& .MuiSelect-select": { py: 0.4, fontSize: 13 } }}
+          >
+            {(Object.keys(PAGE_SIZES) as PageSizeKey[]).map((key) => (
+              <MenuItem key={key} value={key} sx={{ fontSize: 13 }}>
+                {PAGE_SIZES[key].name}
+                <Box component="span" sx={{ ml: 1, color: "text.secondary", fontSize: 11 }}>
+                  {PAGE_SIZES[key].width} × {PAGE_SIZES[key].height} mm
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+          <Typography variant="caption" color="text.secondary">
+            {pages} {pages === 1 ? "page" : "pages"}
+            {addedPages > 0 ? ` (${addedPages} added)` : ""}
+          </Typography>
+          <Box sx={{ flex: 1 }} />
+          {/* **Adding a blank page on purpose.** A memorandum often travels
+              with a sheet left for signatures, endorsements or a hand-written
+              note at the receiving office — so the page count is not only a
+              function of how much has been typed. */}
+          <Button
+            size="small"
+            startIcon={<AddIcon />}
+            onClick={() => setAddedPages((count) => Math.min(count + 1, 20))}
+          >
+            Add page
+          </Button>
+          <Button
+            size="small"
+            startIcon={<RemoveIcon />}
+            disabled={addedPages === 0}
+            onClick={() => setAddedPages((count) => Math.max(count - 1, 0))}
+          >
+            Remove page
+          </Button>
+          <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={handlePrint}>
+            Print
+          </Button>
+        </Stack>
+      ) : null}
+
+      {/* The scaling wrapper. `transform` does not affect layout, so the height
+          is restated here — without it the surrounding column would size itself
+          to the unscaled sheet and leave a long gap underneath. */}
       <Box
+        sx={{
+          height: printable ? `${PAGE.height * PX_PER_MM * pages * scale}px` : undefined,
+          overflow: "hidden",
+        }}
+      >
+      <Box
+        ref={sheetRef}
+        className="print-sheet"
         sx={(theme) => ({
           // Paper white in both schemes, and its own ink. This is the one
           // surface in the product that deliberately does not follow the theme:
@@ -111,11 +343,59 @@ export default function MemorandumLetter({
           borderColor: alpha(theme.palette.common.black, 0.14),
           boxShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.06)},
                       0 14px 40px -18px ${alpha(theme.palette.common.black, 0.35)}`,
-          px: { xs: 3, sm: 6 },
-          py: { xs: 3.5, sm: 5 },
           fontFamily: '"Georgia", "Times New Roman", serif',
+          // **A4, at its real size.** The sheet is laid out in millimetres and
+          // then scaled to fit the column, rather than being given the column's
+          // width — so a line that wraps here wraps in the same place on paper.
+          ...(printable
+            ? {
+                position: "relative",
+                width: `${PAGE.width}mm`,
+                minHeight: `${PAGE.height * pages}mm`,
+                px: `${PAGE.margin}mm`,
+                py: `${PAGE.margin}mm`,
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+              }
+            : { px: { xs: 3, sm: 6 }, py: { xs: 3.5, sm: 5 } }),
         })}
       >
+        {/* Where each sheet ends.
+
+            The letter is one continuous flow rather than N separate elements,
+            because splitting it would mean choosing where to cut a paragraph
+            and cutting a line of text in half looks like a rendering fault.
+            These mark the fold instead: the reader can see what lands on page
+            two, and the browser does the real fragmentation when it prints. */}
+        {printable
+          ? Array.from({ length: pages - 1 }, (_, index) => (
+              <Box
+                key={index}
+                className="page-edge"
+                aria-hidden
+                sx={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: `${PAGE.height * (index + 1)}mm`,
+                  borderTop: "1px dashed",
+                  borderColor: alpha("#16181d", 0.22),
+                  "&::after": {
+                    content: `"page ${index + 2}"`,
+                    position: "absolute",
+                    right: 6,
+                    top: 3,
+                    fontSize: 9,
+                    letterSpacing: ".08em",
+                    textTransform: "uppercase",
+                    color: alpha("#16181d", 0.35),
+                  },
+                }}
+              />
+            ))
+          : null}
+
+        <Box ref={flowRef}>
         {/* ── Letterhead ─────────────────────────────────────────────────
             The mark, the name, the seat, then the registration line. The logo
             sits left of the name when there is one and the block centres when
@@ -186,7 +466,7 @@ export default function MemorandumLetter({
           <LetterLine label="To" width={70}>
             {approver ? (
               <>
-                {approver}
+                {withCode(approver, memo?.approver_code)}
                 {memo?.approver_post ? `, ${memo.approver_post}` : ""}
               </>
             ) : (
@@ -213,9 +493,11 @@ export default function MemorandumLetter({
           <LetterLine label="From" width={70}>
             {memo?.initiator_name ? (
               <>
-                {memo.initiator_name}
+                {withCode(memo.initiator_name, memo.initiator_code)}
                 {memo.initiator_post ? `, ${memo.initiator_post}` : ""}
               </>
+            ) : draft?.fromName ? (
+              <Muted>{draft.fromName}</Muted>
             ) : (
               <Muted>you</Muted>
             )}
@@ -249,14 +531,24 @@ export default function MemorandumLetter({
         </Box>
 
         {/* ── The foot of the page ───────────────────────────────────── */}
-        {memo?.initiator_name ? (
+        {memo?.initiator_name || draft?.fromName ? (
           <Box sx={{ pt: 6, display: "flex", justifyContent: "flex-end" }}>
             <Box sx={{ textAlign: "center", minWidth: 210 }}>
               <Box sx={{ borderTop: "1px solid", borderColor: alpha("#16181d", 0.4), pt: 0.75 }}>
-                <Typography sx={{ fontFamily: "inherit", fontSize: ".88rem", fontWeight: 600 }}>
-                  {memo.initiator_name}
+                <Typography
+                  sx={{
+                    fontFamily: "inherit",
+                    fontSize: ".88rem",
+                    fontWeight: 600,
+                    // Greyed until it is real, matching the From line.
+                    color: memo?.initiator_name ? "inherit" : "#9aa1ae",
+                  }}
+                >
+                  {memo?.initiator_name
+                    ? withCode(memo.initiator_name, memo.initiator_code)
+                    : draft?.fromName}
                 </Typography>
-                {memo.initiator_post ? (
+                {memo?.initiator_post ? (
                   <Typography sx={{ fontFamily: "inherit", fontSize: ".78rem", color: "#5a6070" }}>
                     {memo.initiator_post}
                   </Typography>
@@ -265,6 +557,8 @@ export default function MemorandumLetter({
             </Box>
           </Box>
         ) : null}
+        </Box>
+      </Box>
       </Box>
     </Box>
   );

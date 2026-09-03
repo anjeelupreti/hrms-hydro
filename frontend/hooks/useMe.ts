@@ -9,6 +9,10 @@ type Me = {
   role: "owner" | "hr_admin" | "hr_officer" | "employee";
   is_superuser: boolean;
   employee_id: number | null;
+  /** The name a letter would be signed with, not the login. */
+  full_name: string;
+  /** Empty for an account with no employee record. */
+  employee_code: string;
   /** True while the password is one the system generated and mailed in plain
    *  text — a new account, or a confirmed reset. The shell blocks on this
    *  until they choose their own. */

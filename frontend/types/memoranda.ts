@@ -118,15 +118,19 @@ export type MemorandumListItem = {
   stage_display: string;
   initiator: number;
   initiator_name: string;
+  /** The employee ID, shown beside the name — see `withCode`. */
+  initiator_code: string;
   /** The office they hold, for the From line. A memorandum addresses a chair
    *  as much as a person. */
   initiator_post: string;
   approver: number | null;
   approver_name: string | null;
+  approver_code: string;
   /** The office the approver holds, for the To line. */
   approver_post: string;
   current_holder: number | null;
   current_holder_name: string | null;
+  current_holder_code: string;
   current_index: number;
   attachment_count: number;
   recommender_count: number;

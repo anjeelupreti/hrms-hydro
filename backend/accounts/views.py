@@ -127,6 +127,14 @@ class MeView(APIView):
                 "role": request.user.role,
                 "is_superuser": request.user.is_superuser,
                 "employee_id": employee.id if employee else None,
+                # Who this is, in the words a letter would use. Sent here
+                # because the memorandum page shows the signed-in person in its
+                # "From" line before anything has been saved — and it had only
+                # the username to show, which is not what a memorandum is signed
+                # with. Falls back to the username for a system account with no
+                # employee record.
+                "full_name": request.user.get_full_name() or request.user.get_username(),
+                "employee_code": (getattr(employee, "employee_code", "") or "") if employee else "",
                 # The shell reads this and sends them to change it before
                 # anything else. Exposed rather than enforced with a wall:
                 # the risk here is a generated password living forever, not

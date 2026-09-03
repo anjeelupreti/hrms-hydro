@@ -17,6 +17,17 @@ def _name(employee):
     return user.get_full_name() or user.get_username()
 
 
+def _code(employee):
+    """The employee ID, for putting beside a name.
+
+    A memorandum is signed by people whose names repeat — two Sitas in accounts,
+    three Gurungs on the site team — and once it is printed and filed there is
+    nothing else on the page to tell them apart. The ID is the part that is
+    unique, so it travels with the name.
+    """
+    return getattr(employee, "employee_code", "") or ""
+
+
 def _post(employee):
     """The office somebody holds, for a To or From line.
 
@@ -164,6 +175,9 @@ class MemorandumListSerializer(serializers.ModelSerializer):
     initiator_post = serializers.SerializerMethodField()
     approver_post = serializers.SerializerMethodField()
     current_holder_name = serializers.SerializerMethodField()
+    initiator_code = serializers.SerializerMethodField()
+    approver_code = serializers.SerializerMethodField()
+    current_holder_code = serializers.SerializerMethodField()
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     stage_display = serializers.CharField(source="get_stage_display", read_only=True)
     attachment_count = serializers.IntegerField(read_only=True)
@@ -178,9 +192,9 @@ class MemorandumListSerializer(serializers.ModelSerializer):
             "company_logo", "company_registration", "company_pan",
             "company_phone", "company_email",
             "status", "status_display", "stage", "stage_display",
-            "initiator", "initiator_name", "initiator_post",
-            "approver", "approver_name", "approver_post",
-            "current_holder", "current_holder_name", "current_index",
+            "initiator", "initiator_name", "initiator_post", "initiator_code",
+            "approver", "approver_name", "approver_post", "approver_code",
+            "current_holder", "current_holder_name", "current_holder_code", "current_index",
             "attachment_count", "recommender_count", "is_locked",
             "submitted_at", "decided_at", "created_at",
         ]
@@ -224,6 +238,15 @@ class MemorandumListSerializer(serializers.ModelSerializer):
 
     def get_current_holder_name(self, obj):
         return _name(obj.current_holder)
+
+    def get_initiator_code(self, obj):
+        return _code(obj.initiator)
+
+    def get_approver_code(self, obj):
+        return _code(obj.approver)
+
+    def get_current_holder_code(self, obj):
+        return _code(obj.current_holder)
 
 
 class MemorandumSerializer(MemorandumListSerializer):
