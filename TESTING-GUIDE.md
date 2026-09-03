@@ -402,8 +402,19 @@ A travel order: approved **before** departure, reported on return.
 3. Sign in as the approver: **Approve** or **Reject**, with a note.
 4. As the traveller, write the **report** and **Complete with report**. An empty
    report is refused.
-5. On a completed visit, **Write timesheet lines** creates one entry per day
+5. **Who else went** — add companions under the report. A name is all that is
+   required; picking a staff member fills it in for you. Somebody who does not
+   work here — a hired driver, a ward representative, a contractor's foreman —
+   is recorded by name with an organisation and their part.
+6. On a completed visit, **Write timesheet lines** creates one entry per day
    against the project. Press it twice — the second time adds nothing.
+
+> The companion list stays open until the visit is closed, deliberately. Half of
+> who actually went is only known after setting off.
+
+**Deleting.** Only an unsent **draft**, and only your own — try deleting an
+approved or completed visit and it is refused, because it may carry a report,
+timesheet lines and an expense claim. Cancel it instead.
 
 ### The one worth checking carefully
 
@@ -478,8 +489,6 @@ Things that are missing or partial. These are known, not surprises to find.
 
 | Area | Limitation |
 |---|---|
-| **Field visit participants** | The dialog lists who else went, but there is no control to add or remove them yet |
-| **Deleting drafts** | Memorandum drafts, field visits and events cannot be deleted from the UI |
 | **Frontend tests** | There is no browser test suite. The backend has 1,341 tests; the UI is verified by hand |
 | **The owner has no employee record** | So the owner cannot raise a memorandum, request leave, or appear in a chain |
 | **Dev mode** | The frontend container runs a production build. A source change needs `docker compose restart frontend` |

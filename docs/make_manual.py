@@ -886,6 +886,7 @@ def field_visits(m: Manual) -> None:
         "Click Save as draft. The visit opens.",
         "Click Send for approval.",
         "The approver opens it and clicks Approve or Reject, with a note.",
+        "Who else went — add companions under the report. A name is all that is required; picking a staff member fills it in. Somebody who does not work here is recorded by name, with an organisation and their part.",
         "On return, the traveller writes the report and clicks Complete with report.",
         "Optionally, click Write timesheet lines to turn the visit into time entries.",
     ])
@@ -1259,8 +1260,7 @@ def limitations(m: Manual) -> None:
     m.table(
         ["Area", "Limitation"],
         [
-            ["Field visit participants", "The visit shows who else went, and there is no control in the interface to add or remove them yet."],
-            ["Deleting drafts", "Memorandum drafts, field visits and events cannot be deleted from the interface. Submitted memoranda are never deletable by design."],
+            ["Deleting", "Only unsent drafts can be deleted, and only by whoever raised them. A submitted memorandum, an approved field visit and anything else with a trail behind it are never deletable — by design, not omission."],
             ["Single sign-on", "Not implemented. There is no Google or Microsoft sign-in, and on a single-company installation there is no second identity provider to federate with."],
             ["Self-service sign-up", "There is none, deliberately. Accounts are created from inside the product."],
             ["Public website", "Removed. This build has no marketing site or careers portal."],
