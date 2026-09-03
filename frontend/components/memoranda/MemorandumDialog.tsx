@@ -397,7 +397,13 @@ export default function MemorandumDialog({
                       borderColor: "divider",
                       borderRadius: 2,
                       overflow: "hidden",
-                      bgcolor: theme.palette.background.paper,
+                      // 🔒 `theme.vars`, not `theme.palette`. The theme is built
+                      // with `cssVariables` + `colorSchemes`, so reading
+                      // `theme.palette.background.paper` here resolves the
+                      // *light* value once and keeps it — this bar came out
+                      // white in dark mode, under white icons, which read as
+                      // the toolbar having no controls at all.
+                      bgcolor: theme.vars.palette.background.paper,
                     })}
                   >
                     {toolbar}
@@ -575,8 +581,8 @@ export default function MemorandumDialog({
               p: 2.5,
               borderRadius: 2,
               border: "1px solid",
-              borderColor: theme.palette.primary.main,
-              bgcolor: alpha(theme.palette.primary.main, 0.04),
+              borderColor: theme.vars.palette.primary.main,
+              bgcolor: `rgba(${theme.vars.palette.primary.mainChannel} / 0.04)`,
             })}
           >
             <Typography
@@ -1391,10 +1397,13 @@ function WhoseTurn({ memo, isNew }: { memo: Memorandum | null; isNew: boolean })
         p: 2,
         borderRadius: 2,
         border: "1px solid",
-        borderColor: memo.can_act ? theme.palette.primary.main : theme.palette.divider,
+        // 🔒 `theme.vars` throughout. `theme.palette` under this theme is
+        // resolved once against the light scheme and never updates, so the
+        // "not your turn" ground came out as a light wash on a dark dialog.
+        borderColor: memo.can_act ? theme.vars.palette.primary.main : theme.vars.palette.divider,
         bgcolor: memo.can_act
-          ? alpha(theme.palette.primary.main, 0.05)
-          : alpha(theme.palette.text.primary, 0.02),
+          ? `rgba(${theme.vars.palette.primary.mainChannel} / 0.05)`
+          : theme.vars.palette.action.hover,
       })}
     >
       <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.5, flexWrap: "wrap" }} useFlexGap>

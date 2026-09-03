@@ -379,12 +379,20 @@ export default function MemorandumLetter({
             ? {
                 p: "14px",
                 borderRadius: 1.5,
-                bgcolor:
-                  theme.palette.mode === "dark"
-                    ? alpha(theme.palette.common.black, 0.45)
-                    : "#e4e6ea",
+                // 🔒 **`theme.palette.mode` is a lie under this theme.** It is
+                // built with `cssVariables` + `colorSchemes`, so `mode` stays
+                // whatever it was at creation and never reports "dark" — a
+                // branch on it renders the light arm forever. `applyStyles`
+                // emits a rule under the dark selector instead.
+                bgcolor: "#e4e6ea",
                 border: "1px solid",
-                borderColor: alpha(theme.palette.common.black, theme.palette.mode === "dark" ? 0.5 : 0.1),
+                borderColor: alpha("#000", 0.1),
+                ...theme.applyStyles("dark", {
+                  // Darker than the dialog behind it, so the sheet reads as
+                  // paper lying on something rather than as a floating slab.
+                  backgroundColor: alpha("#000", 0.45),
+                  borderColor: alpha("#000", 0.5),
+                }),
               }
             : {}),
         })}
@@ -489,6 +497,27 @@ export default function MemorandumLetter({
               }}
             >
               {company || "—"}
+            </Typography>
+            {/* **What the document is, under whose paper it is on.**
+
+                Deliberately small and under the name rather than a banner
+                across the top. A letterhead names the organisation; the word
+                that says which kind of document this is belongs beneath it, in
+                the size a printed form uses — large capitals across the head of
+                the page is what a template generator produces and a typist
+                never would. */}
+            <Typography
+              sx={{
+                fontFamily: "inherit",
+                fontSize: ".68rem",
+                fontWeight: 700,
+                letterSpacing: ".22em",
+                textTransform: "uppercase",
+                color: "#5a6070",
+                mt: 0.4,
+              }}
+            >
+              Memorandum
             </Typography>
             {memo?.company_address ? (
               <Typography

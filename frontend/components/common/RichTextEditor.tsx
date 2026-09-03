@@ -1,5 +1,8 @@
 "use client";
 
+import AddIcon from "@mui/icons-material/Add";
+import BorderColorIcon from "@mui/icons-material/BorderColor";
+import RemoveIcon from "@mui/icons-material/Remove";
 import FormatAlignCenterIcon from "@mui/icons-material/FormatAlignCenter";
 import FormatClearIcon from "@mui/icons-material/FormatClear";
 import FormatColorTextIcon from "@mui/icons-material/FormatColorText";
@@ -59,12 +62,31 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
  * holds the text, and the DOM holds the selection.
  */
 
-const FONT_SIZES = [
-  { label: "Small", value: "2" },
-  { label: "Normal", value: "3" },
-  { label: "Large", value: "5" },
-  { label: "Huge", value: "6" },
-];
+/**
+ * Sizes as numbers, the way a word processor lists them.
+ *
+ * **`execCommand("fontSize")` only understands 1–7.** Those are the old HTML
+ * `<font size>` buckets, which is why this menu used to say Small / Normal /
+ * Large / Huge — four vague words for a document that has to come out at a
+ * stated point size, and no way to ask for 11. The sizes below are applied by
+ * marking the selection with bucket 7 and then rewriting those markers into a
+ * real `font-size` (see `applyFontSize`), which is the one reliable way to get
+ * an arbitrary size out of `execCommand`.
+ *
+ * In points, because that is what the office asks for — "twelve point", not
+ * "sixteen pixels" — and what the printer will reproduce.
+ */
+const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
+
+/** What the body face is, so the box shows a number rather than nothing. */
+const DEFAULT_SIZE_PT = 11;
+
+const PT_PER_PX = 0.75;
+
+/** How large the insert-table picker is. Ten by eight covers anything that
+ *  belongs in a letter; beyond that a table wants a spreadsheet. */
+const GRID_COLUMNS = 10;
+const GRID_ROWS = 8;
 
 const BLOCKS = [
   { label: "Paragraph", value: "p" },
@@ -104,6 +126,9 @@ const BLOCKS = [
  */
 const FONTS: { label: string; value: string; probe?: string }[] = [
   { label: "Default", value: "" },
+  // Unicode Nepali, shipped with the application — `next/font` self-hosts Noto
+  // Sans Devanagari at build time, so this one is always there.
+  { label: "Devanagari", value: "var(--font-devanagari), 'Noto Sans Devanagari', sans-serif" },
   { label: "Preeti", value: "Preeti", probe: "Preeti" },
   { label: "Kalimati", value: "Kalimati", probe: "Kalimati" },
   { label: "Sagarmatha", value: "Sagarmatha", probe: "Sagarmatha" },
@@ -124,6 +149,15 @@ const FONTS: { label: string; value: string; probe?: string }[] = [
  */
 function fontIsInstalled(family: string) {
   if (typeof document === "undefined") return true;
+  // A face served by `@font-face` is not "installed" and measures identically
+  // to its fallback until it has loaded, so ask the font loader first — that is
+  // the authoritative answer for anything the application ships or an
+  // administrator has dropped into `public/fonts`.
+  try {
+    if (document.fonts?.check(`12px "${family}"`)) return true;
+  } catch {
+    // Not implemented everywhere; the measurement below still decides.
+  }
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
   if (!context) return true;
@@ -201,6 +235,9 @@ export default function RichTextEditor({
   const [block, setBlock] = useState("p");
   const [tableMenu, setTableMenu] = useState<HTMLElement | null>(null);
   const [inTable, setInTable] = useState(false);
+  const [sizePt, setSizePt] = useState(DEFAULT_SIZE_PT);
+  /** The shape being hovered in the insert-table grid, or null. */
+  const [grid, setGrid] = useState<{ rows: number; columns: number } | null>(null);
 
   // Probed once per mount, not per render: it draws to a canvas, and the answer
   // cannot change while the page is open.
@@ -244,6 +281,17 @@ export default function RichTextEditor({
       setBlock("p");
     }
     setInTable(Boolean(cellAtCaret(ref.current)));
+
+    // The size the caret is actually sitting in, read off the computed style
+    // rather than from `queryCommandValue("fontSize")` — that answers with the
+    // old 1–7 bucket, which cannot tell 11pt from 12pt.
+    const selection = window.getSelection();
+    const node = selection?.anchorNode ?? null;
+    const element = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+    if (element && ref.current?.contains(element)) {
+      const px = parseFloat(window.getComputedStyle(element).fontSize);
+      if (Number.isFinite(px)) setSizePt(Math.round(px * PT_PER_PX));
+    }
   }, [disabled]);
 
   function run(command: string, argument?: string) {
@@ -267,6 +315,65 @@ export default function RichTextEditor({
     document.execCommand(command, false, argument);
     syncToolbar();
     report();
+  }
+
+  /**
+   * Set the selection to a real point size.
+   *
+   * **`execCommand("fontSize")` cannot express one.** It takes the old HTML
+   * `<font size>` buckets, 1 to 7, and nothing else — so a document that has to
+   * come out at 11pt could only be given "Normal". The way round it, and the
+   * only reliable one, is to let the command do the hard part: it works out
+   * which nodes the selection covers and splits them correctly, marking each
+   * with bucket 7. Those markers are then rewritten into a `font-size` the
+   * sanitiser keeps. `styleWithCSS` is turned *off* for this one command so the
+   * markers come out as `<font size="7">`, which is unambiguous to find —
+   * turned on it would emit a span with `font-size: xx-large`, which is not.
+   */
+  function applyFontSize(points: number) {
+    if (disabled) return;
+    const node = ref.current;
+    if (!node) return;
+
+    // **Only when the selection is actually in here.** `execCommand` applies to
+    // whatever the document has selected, so picking a size while the caret sat
+    // in the subject field did nothing to the letter — and the box still
+    // changed to the new number, which said it had worked. Putting the caret
+    // back in the text is the honest recovery: the size then lands on the next
+    // thing typed rather than on nothing.
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode ?? null;
+    if (!anchor || !node.contains(anchor)) {
+      node.focus();
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      range.collapse(false);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+    node.focus();
+    try {
+      document.execCommand("styleWithCSS", false, "false");
+    } catch {
+      // Not implemented everywhere; the sweep below still finds the markers.
+    }
+    document.execCommand("fontSize", false, "7");
+    for (const marker of Array.from(node.querySelectorAll('font[size="7"]'))) {
+      const span = document.createElement("span");
+      span.style.fontSize = `${points}pt`;
+      while (marker.firstChild) span.appendChild(marker.firstChild);
+      marker.replaceWith(span);
+    }
+    setSizePt(points);
+    report();
+  }
+
+  /** One step up or down the list, from wherever the caret is. */
+  function stepFontSize(direction: 1 | -1) {
+    const index = FONT_SIZES.findIndex((size) => size >= sizePt);
+    const at = index === -1 ? FONT_SIZES.length - 1 : index;
+    const next = FONT_SIZES[Math.min(Math.max(at + direction, 0), FONT_SIZES.length - 1)];
+    applyFontSize(next);
   }
 
   /**
@@ -340,7 +447,12 @@ export default function RichTextEditor({
           flexWrap: "wrap",
           alignItems: "center",
           p: 0.5,
-          bgcolor: alpha(theme.palette.text.primary, 0.03),
+          // 🔒 Was `alpha(theme.palette.text.primary, 0.03)`, which under a
+          // `cssVariables` theme resolves the light ink once and never changes
+          // — the same faint dark wash in both schemes. `action.hover` is the
+          // palette's own overlay and is defined per scheme, so it lifts off
+          // the surface in dark as well as light.
+          bgcolor: theme.vars.palette.action.hover,
           borderBottom: "1px solid",
           borderColor: "divider",
         })}
@@ -391,21 +503,61 @@ export default function RichTextEditor({
           ))}
         </Select>
 
-        <Select
-          size="small"
-          value=""
-          displayEmpty
-          renderValue={() => "Size"}
-          onChange={(e) => run("fontSize", String(e.target.value))}
-          disabled={disabled}
-          sx={{ minWidth: 84, "& .MuiSelect-select": { py: 0.5, fontSize: 13 } }}
-        >
-          {FONT_SIZES.map((f) => (
-            <MenuItem key={f.value} value={f.value} sx={{ fontSize: 13 }}>
-              {f.label}
-            </MenuItem>
-          ))}
-        </Select>
+        {/* **A number, and a way to nudge it.** This was a four-item menu
+            reading Small / Normal / Large / Huge, because that is all
+            `execCommand` offers — useless for a document that has to be set at
+            a stated point size. */}
+        <Stack direction="row" sx={{ alignItems: "center" }}>
+          <Tooltip title="Smaller">
+            <span>
+              <ToggleButton
+                size="small"
+                value="smaller"
+                disabled={disabled}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => stepFontSize(-1)}
+                sx={{ border: 0, p: 0.4 }}
+              >
+                <RemoveIcon fontSize="small" />
+              </ToggleButton>
+            </span>
+          </Tooltip>
+
+          <Select
+            size="small"
+            value={sizePt}
+            onChange={(e) => applyFontSize(Number(e.target.value))}
+            disabled={disabled}
+            // The caret can sit in a size that is not on the list — text pasted
+            // from elsewhere, or a heading. Rendering the value rather than
+            // relying on a matching option keeps the box truthful instead of
+            // showing blank.
+            renderValue={(value) => String(value)}
+            MenuProps={{ slotProps: { paper: { sx: { maxHeight: 320 } } } }}
+            sx={{ minWidth: 66, "& .MuiSelect-select": { py: 0.5, fontSize: 13, textAlign: "center" } }}
+          >
+            {FONT_SIZES.map((size) => (
+              <MenuItem key={size} value={size} sx={{ fontSize: 13 }}>
+                {size}
+              </MenuItem>
+            ))}
+          </Select>
+
+          <Tooltip title="Larger">
+            <span>
+              <ToggleButton
+                size="small"
+                value="larger"
+                disabled={disabled}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => stepFontSize(1)}
+                sx={{ border: 0, p: 0.4 }}
+              >
+                <AddIcon fontSize="small" />
+              </ToggleButton>
+            </span>
+          </Tooltip>
+        </Stack>
 
         <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
 
@@ -533,24 +685,57 @@ export default function RichTextEditor({
           onClose={() => setTableMenu(null)}
           slotProps={{ paper: { sx: { minWidth: 210 } } }}
         >
-          <MenuItem
-            sx={{ fontSize: 13 }}
-            onClick={() => {
-              setTableMenu(null);
-              run("insertHTML", tableHtml(3, 3));
-            }}
-          >
-            Insert 3 x 3 table
-          </MenuItem>
-          <MenuItem
-            sx={{ fontSize: 13 }}
-            onClick={() => {
-              setTableMenu(null);
-              run("insertHTML", tableHtml(5, 2));
-            }}
-          >
-            Insert 5 x 2 table
-          </MenuItem>
+          {/* **Pick the size, rather than take what is offered.** Two preset
+              buttons meant anybody wanting four columns had to insert three and
+              add one, every time. This is the grid every word processor has:
+              drag across it and the table is that shape. */}
+          <Box sx={{ px: 1.5, pt: 1, pb: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              {grid ? `${grid.rows} × ${grid.columns} table` : "Insert a table"}
+            </Typography>
+            <Box
+              onMouseLeave={() => setGrid(null)}
+              sx={{
+                mt: 0.75,
+                display: "grid",
+                gridTemplateColumns: `repeat(${GRID_COLUMNS}, 16px)`,
+                gap: "2px",
+              }}
+            >
+              {Array.from({ length: GRID_ROWS * GRID_COLUMNS }, (_, index) => {
+                const row = Math.floor(index / GRID_COLUMNS) + 1;
+                const column = (index % GRID_COLUMNS) + 1;
+                const lit = grid !== null && row <= grid.rows && column <= grid.columns;
+                return (
+                  <Box
+                    key={index}
+                    onMouseEnter={() => setGrid({ rows: row, columns: column })}
+                    onClick={() => {
+                      setGrid(null);
+                      setTableMenu(null);
+                      run("insertHTML", tableHtml(row, column));
+                    }}
+                    sx={(theme) => ({
+                      height: 16,
+                      borderRadius: "2px",
+                      cursor: "pointer",
+                      border: "1px solid",
+                      // 🔒 `theme.vars`, never `theme.palette`: under a
+                      // `cssVariables` theme the latter resolves the light
+                      // scheme once and keeps it, so an unlit cell's border
+                      // would be a light-mode divider on a dark ground.
+                      borderColor: lit
+                        ? theme.vars.palette.primary.main
+                        : theme.vars.palette.divider,
+                      bgcolor: lit
+                        ? `rgba(${theme.vars.palette.primary.mainChannel} / 0.35)`
+                        : "transparent",
+                    })}
+                  />
+                );
+              })}
+            </Box>
+          </Box>
           <Divider />
           {(
             [
@@ -653,6 +838,31 @@ export default function RichTextEditor({
               sx={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
               onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
                 run("foreColor", event.target.value)
+              }
+            />
+          </ToggleButton>
+        </Tooltip>
+
+        <Tooltip title="Highlight">
+          <ToggleButton
+            size="small"
+            value="highlight"
+            disabled={disabled}
+            component="label"
+            onMouseDown={(e) => e.preventDefault()}
+            sx={{ border: 0, p: 0.5, position: "relative", cursor: "pointer" }}
+          >
+            <BorderColorIcon fontSize="small" />
+            <Box
+              component="input"
+              type="color"
+              defaultValue="#ffee58"
+              sx={{ position: "absolute", width: 0, height: 0, opacity: 0 }}
+              // `hiliteColor` rather than `backColor`: with `styleWithCSS` on —
+              // which `run` sets — `backColor` paints the whole block in some
+              // browsers, so highlighting three words shades the paragraph.
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                run("hiliteColor", event.target.value)
               }
             />
           </ToggleButton>
@@ -784,7 +994,7 @@ export default function RichTextEditor({
         borderRadius: 2,
         overflow: "hidden",
         opacity: disabled ? 0.6 : 1,
-        "&:focus-within": { borderColor: theme.palette.primary.main },
+        "&:focus-within": { borderColor: theme.vars.palette.primary.main },
       })}
     >
       {toolbar}
