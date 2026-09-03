@@ -182,7 +182,12 @@ export default function MemorandumLetter({
     const node = sheetRef.current?.parentElement;
     if (!node || typeof ResizeObserver === "undefined") return;
     const fit = () => {
-      const available = node.clientWidth;
+      // The content box, not `clientWidth` — that includes the desk's padding,
+      // so the sheet was scaled to the full width and then drawn inside the
+      // padding, overhanging the desk on one side.
+      const style = window.getComputedStyle(node);
+      const available =
+        node.clientWidth - parseFloat(style.paddingLeft || "0") - parseFloat(style.paddingRight || "0");
       const wanted = PAGE.width * PX_PER_MM;
       setScale(available > 0 ? Math.min(1, available / wanted) : 1);
     };
@@ -351,14 +356,38 @@ export default function MemorandumLetter({
         </Stack>
       ) : null}
 
-      {/* The scaling wrapper. `transform` does not affect layout, so the height
-          is restated here — without it the surrounding column would size itself
-          to the unscaled sheet and leave a long gap underneath. */}
+      {/* **A desk for the paper to sit on.**
+
+          A white sheet on the near-white application background had nothing to
+          separate them: the page had no visible edge, so where the paper
+          stopped and the screen carried on was a guess — and the margin, which
+          is most of an A4, read as empty screen rather than as part of the
+          document. A slightly darker ground behind it and a real edge on the
+          sheet make it a piece of paper again. Dark in both schemes for the
+          same reason a light box would not work on a dark theme.
+
+          Also the scaling wrapper: `transform` does not affect layout, so the
+          height is restated here — without it the surrounding column would size
+          itself to the unscaled sheet and leave a long gap underneath. */}
       <Box
-        sx={{
-          height: printable ? `${PAGE.height * PX_PER_MM * pages * scale}px` : undefined,
+        sx={(theme) => ({
+          height: printable
+            ? `${PAGE.height * PX_PER_MM * pages * scale + (printable ? 28 : 0)}px`
+            : undefined,
           overflow: "hidden",
-        }}
+          ...(printable
+            ? {
+                p: "14px",
+                borderRadius: 1.5,
+                bgcolor:
+                  theme.palette.mode === "dark"
+                    ? alpha(theme.palette.common.black, 0.45)
+                    : "#e4e6ea",
+                border: "1px solid",
+                borderColor: alpha(theme.palette.common.black, theme.palette.mode === "dark" ? 0.5 : 0.1),
+              }
+            : {}),
+        })}
       >
       <Box
         ref={sheetRef}
@@ -371,10 +400,13 @@ export default function MemorandumLetter({
           bgcolor: "#ffffff",
           color: "#16181d",
           borderRadius: 1,
+          // A visible edge, not a hint of one. This was `black 0.14` with a
+          // soft shadow, which is invisible against a light background — the
+          // whole point of the border is to say where the paper ends.
           border: "1px solid",
-          borderColor: alpha(theme.palette.common.black, 0.14),
-          boxShadow: `0 1px 2px ${alpha(theme.palette.common.black, 0.06)},
-                      0 14px 40px -18px ${alpha(theme.palette.common.black, 0.35)}`,
+          borderColor: alpha("#16181d", 0.28),
+          boxShadow: `0 2px 4px ${alpha("#16181d", 0.12)},
+                      0 18px 48px -20px ${alpha("#16181d", 0.5)}`,
           fontFamily: '"Georgia", "Times New Roman", serif',
           // **A4, at its real size.** The sheet is laid out in millimetres and
           // then scaled to fit the column, rather than being given the column's
