@@ -38,8 +38,8 @@ const devanagari = Noto_Sans_Devanagari({
 export const metadata: Metadata = {
   // The system title. Company name is added by the top bar, not here —
   // this string is also what a bookmark and a browser tab show.
-  title: "Xenex HRMS",
-  description: "HR, payroll and attendance for growing teams.",
+  title: "Xenex OS",
+  description: "An operating system for the business — people, work, money and the record of it.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

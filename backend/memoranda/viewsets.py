@@ -391,6 +391,12 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         )
 
     @action(detail=True, methods=["post"])
+    def archive(self, request, *args, **kwargs):
+        """File it away. Initiator only — see `workflow.archive`."""
+        memo = self.get_object()
+        return self._run(workflow.archive, memo, self._me(), actor=request.user)
+
+    @action(detail=True, methods=["post"])
     def approve(self, request, *args, **kwargs):
         memo = self.get_object()
         return self._run(

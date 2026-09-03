@@ -332,6 +332,8 @@ class MemorandumEvent(models.Model):
         #: absent. A kind of its own rather than a `PROCEEDED` by the wrong
         #: person: the log has to show that this recommender did not see it.
         SKIPPED = "skipped", "Skipped"
+        #: Filed by the initiator once the matter was closed.
+        ARCHIVED = "archived", "Archived"
         RESUBMITTED = "resubmitted", "Sent forward again"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"

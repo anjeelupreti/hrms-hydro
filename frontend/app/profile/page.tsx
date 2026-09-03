@@ -20,8 +20,14 @@ import { employeeHref } from "@/lib/employeeProfile";
  * either could state.
  *
  * The route stays because it is in the sidebar, in old links and in people's
- * habits. It now forwards, carrying `?tab=` through so the portal's "My
- * payslips" chip still lands on the payslips.
+ * habits.
+ *
+ * **Where it forwards to depends on whether a tab was named.** "My profile" in
+ * the account menu is a bare link and now lands on **My workspace** — that is
+ * the page somebody signing in wants, and the employee record is the HR view of
+ * a person, which is a different question wearing the same words. A link that
+ * names a tab (`?tab=payroll`, the portal's "My payslips" chip) still goes to
+ * the record, because it is asking for something the workspace does not hold.
  */
 export default function ProfilePage() {
   return (
@@ -43,13 +49,21 @@ function ProfileRedirect() {
   const { data: me, isLoading } = useMe();
   const employeeId = me?.employee_id ?? null;
 
-  useEffect(() => {
-    if (employeeId == null) return;
-    const query = searchParams.toString();
-    router.replace(employeeHref(employeeId) + (query ? `?${query}` : ""));
-  }, [employeeId, router, searchParams]);
+  const tab = searchParams.get("tab");
 
-  if (isLoading || employeeId != null) {
+  useEffect(() => {
+    // No tab named: this is the account menu's "My profile", which belongs on
+    // the workspace. It does not need an employee record to get there, so it
+    // runs before the `employeeId` guard below.
+    if (!tab) {
+      router.replace("/portal");
+      return;
+    }
+    if (employeeId == null) return;
+    router.replace(`${employeeHref(employeeId)}?${searchParams.toString()}`);
+  }, [employeeId, router, searchParams, tab]);
+
+  if (isLoading || !tab || employeeId != null) {
     return (
       <PageContainer>
         <Skeleton variant="rounded" height={260} />

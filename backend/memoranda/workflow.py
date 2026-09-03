@@ -406,6 +406,37 @@ def skip(memo, employee, *, comment="", actor=None):
     return memo
 
 
+@transaction.atomic
+def archive(memo, employee, *, actor=None):
+    """File it away. The initiator only.
+
+    **Not a decision.** An approved or rejected memorandum is evidence and
+    stays exactly as it is; this says the matter it concerned is closed and it
+    need not sit in anybody's working list any longer. The initiator is the one
+    who can say that, because they are the one who knows whether the thing it
+    asked for actually happened — the approver signed a request, not an outcome.
+
+    A memorandum still travelling cannot be archived: that would take it off the
+    desk of whoever is holding it and leave them with no way to act on it, which
+    is a cancellation wearing the wrong word.
+    """
+    if employee is None or memo.initiator_id != employee.pk:
+        raise NotYourTurn("Only the initiator can archive a memorandum.")
+    if memo.status == Memorandum.Status.ARCHIVED:
+        raise MemorandumError("This memorandum is already archived.")
+    if memo.status == Memorandum.Status.IN_PROGRESS:
+        raise MemorandumError(
+            "This memorandum is still with somebody. It can be archived once it "
+            "has been decided, or while it is a draft."
+        )
+
+    memo.status = Memorandum.Status.ARCHIVED
+    memo.updated_by = actor
+    memo.save(update_fields=["status", "updated_by", "updated_at"])
+    log(memo, MemorandumEvent.Kind.ARCHIVED, actor=actor, employee=employee)
+    return memo
+
+
 def eligible_return_targets(memo):
     """Who this memorandum can be sent back to.
 

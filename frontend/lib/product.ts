@@ -10,7 +10,13 @@
  * what it is called.
  */
 
-export const PRODUCT_NAME = "Xenex HRMS";
+/**
+ * **"OS", not "HRMS".** The product stopped being a human-resources system the
+ * moment it started carrying memoranda, field visits, sites, projects and the
+ * client desk — the name was describing one drawer of it. Everything that
+ * shows a name reads this constant, which is the point of it existing.
+ */
+export const PRODUCT_NAME = "Xenex OS";
 
 /** For places the full name would crowd — a nav mark, a favicon tooltip. */
 export const PRODUCT_SHORT = "Xenex";

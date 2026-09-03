@@ -13,6 +13,7 @@ import Typography from "@mui/material/Typography";
 import NextLink from "next/link";
 import { useParams } from "next/navigation";
 
+import { PRODUCT_NAME } from "@/lib/product";
 import DateText from "@/components/common/DateText";
 import PageContainer from "@/components/shell/PageContainer";
 import { useEnrollment } from "@/hooks/useTraining";
@@ -120,7 +121,7 @@ export default function CertificatePage() {
         }}
       >
         <Typography sx={{ color: "#4f46e5", letterSpacing: 3, fontWeight: 700, textTransform: "uppercase", fontSize: 14 }}>
-          HRMS · Learning &amp; Development
+          {PRODUCT_NAME} · Learning &amp; Development
         </Typography>
         <Typography sx={{ fontSize: { xs: 30, sm: 42 }, fontWeight: 700, color: "#0f172a", mt: 2 }}>
           Certificate of Completion

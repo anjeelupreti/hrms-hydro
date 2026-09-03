@@ -958,3 +958,60 @@ def test_the_chain_can_still_be_redrawn_while_somebody_else_holds_it(memo, cast)
         cast["a"].pk,
         cast["c"].pk,
     ]
+
+
+# ── Filing it away ───────────────────────────────────────────────────────
+
+
+def test_the_initiator_can_archive_a_decided_memorandum(memo, cast, recommend):
+    submit(memo)
+    for person in (cast["a"], cast["b"], cast["c"]):
+        proceed(memo, person, action=recommend, comment="")
+    decide(memo, cast["approver"], approve=True)
+
+    response = _client(cast["initiator"]).post(f"{LIST}{memo.pk}/archive/", {}, format="json")
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert memo.status == Memorandum.Status.ARCHIVED
+    assert MemorandumEvent.Kind.ARCHIVED in memo.events.values_list("kind", flat=True)
+
+
+def test_only_the_initiator_archives(memo, cast, recommend):
+    submit(memo)
+    for person in (cast["a"], cast["b"], cast["c"]):
+        proceed(memo, person, action=recommend, comment="")
+    decide(memo, cast["approver"], approve=True)
+
+    response = _client(cast["approver"]).post(f"{LIST}{memo.pk}/archive/", {}, format="json")
+
+    assert response.status_code == 403, response.data
+
+
+def test_a_memorandum_still_with_somebody_cannot_be_archived(memo, cast):
+    """That would take it off the holder's desk and leave them no way to act —
+    a cancellation wearing the wrong word."""
+    submit(memo)
+
+    response = _client(cast["initiator"]).post(f"{LIST}{memo.pk}/archive/", {}, format="json")
+
+    assert response.status_code == 400, response.data
+    memo.refresh_from_db()
+    assert memo.status == Memorandum.Status.IN_PROGRESS
+
+
+def test_an_archived_memorandum_is_locked(memo, cast):
+    _client(cast["initiator"]).post(f"{LIST}{memo.pk}/archive/", {}, format="json")
+    memo.refresh_from_db()
+    assert memo.status == Memorandum.Status.ARCHIVED
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"content": "<p>After the fact.</p>"}, format="json"
+    )
+
+    # 400, not 403: `is_locked` is the stronger rule and refuses in the
+    # serializer before the whose-turn check is reached. Both are refusals;
+    # this one says *why* in a way the turn rule cannot.
+    assert response.status_code == 400, response.data
+    memo.refresh_from_db()
+    assert "After the fact" not in memo.content

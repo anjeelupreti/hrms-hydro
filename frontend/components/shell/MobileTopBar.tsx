@@ -20,6 +20,7 @@ import { useState, type MouseEvent } from "react";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import ColorModeToggle from "@/components/shell/ColorModeToggle";
 import { useMe } from "@/hooks/useMe";
+import { PRODUCT_NAME, PRODUCT_SHORT } from "@/lib/product";
 import { useUIStore } from "@/lib/store/ui";
 import { useMyProfile } from "@/hooks/useProfile";
 
@@ -87,10 +88,10 @@ export default function MobileTopBar() {
             fontSize: 14,
           }}
         >
-          H
+          {PRODUCT_SHORT.charAt(0)}
         </Box>
         <Typography variant="subtitle2" sx={{ fontWeight: 800 }} color="primary.main">
-          HRMS
+          {PRODUCT_NAME}
         </Typography>
       </Stack>
 
