@@ -399,6 +399,23 @@ class Employee(AuditModel):
     manager = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="direct_reports"
     )
+    #: **Who has to agree, in order. Distinct from `manager`, and both are
+    #: needed.** `manager` is one person and draws the org chart; this is the
+    #: approval chain, which is frequently not the same shape. A site engineer
+    #: reports to the project manager and their leave has to be seen by the site
+    #: in-charge first and then by HR — three people, one line on the chart.
+    #:
+    #: Ordered through `EmployeeSupervisor.order`, because "first the site
+    #: in-charge, then the department head" is the rule itself and not a
+    #: presentation detail: a leave request stops at each in turn.
+    supervisors = models.ManyToManyField(
+        "self",
+        symmetrical=False,
+        through="EmployeeSupervisor",
+        through_fields=("employee", "supervisor"),
+        related_name="supervises",
+        blank=True,
+    )
     # The candidate this employee was hired from, when they came through
     # recruitment rather than being entered by hand.
     #
@@ -962,3 +979,105 @@ class EmployeeChangeRequest(AuditModel):
 
     def __str__(self):
         return f"{self.employee.employee_code}: {self.field} → {self.new_value} ({self.status})"
+
+
+class EmployeeSupervisor(AuditModel):
+    """One rung of somebody's approval chain.
+
+    **A through model rather than a plain `ManyToManyField` because the order
+    matters.** "Supervisor 1, then supervisor 2" is the rule a leave request
+    follows — it stops at each in turn — so the position is data, not the order
+    rows happen to come back in.
+
+    Kept separate from `Employee.manager`, which answers a different question:
+    the manager draws the org chart, the supervisors decide. They are often
+    different people and a system that conflates them either routes approvals
+    up a chart that was never meant to carry them, or draws a chart out of an
+    approval list that has three people at the same level.
+    """
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="supervisor_links"
+    )
+    supervisor = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="supervisee_links"
+    )
+    #: Zero-based position in the chain. Dense and renumbered on every write,
+    #: so it stays a plain index rather than something that has to be searched.
+    order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["order", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["employee", "supervisor"], name="one_row_per_supervisor"
+            ),
+            # Nobody approves their own leave. Cheap to state here and
+            # impossible to get wrong later, unlike a check in one serializer.
+            models.CheckConstraint(
+                condition=~models.Q(employee=models.F("supervisor")),
+                name="supervisor_is_not_self",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.employee} → {self.supervisor} ({self.order})"
+
+
+class Signature(AuditModel):
+    """An employee's signature image, and whether it may be used.
+
+    **Uploaded by the person it belongs to, approved by HR, then applied
+    automatically.** A memorandum that has been recommended and approved gets
+    the signatures of the people who did so printed on it, which is what makes
+    the printed copy the record — and what stops it being one is a signature
+    nobody checked. So the employee provides it and somebody else says yes.
+
+    One live signature per person, kept as a row per version rather than a file
+    that is overwritten: a memorandum signed last year was signed with last
+    year's image, and replacing it in place would silently restate history.
+    """
+
+    class Status(models.TextChoices):
+        #: Uploaded, waiting for HR.
+        PENDING = "pending", "Awaiting approval"
+        #: Usable. Exactly one per employee — see the constraint below.
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+        #: Replaced by a newer approved signature. Kept, not deleted, so a
+        #: document signed with it still resolves.
+        SUPERSEDED = "superseded", "Superseded"
+
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="signatures"
+    )
+    image = models.ImageField(upload_to="signatures/%Y/%m/")
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="signature_decisions",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    #: Why it was turned down. Shown to the employee, who otherwise has to
+    #: guess what was wrong with it.
+    note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            # One usable signature per person. A partial unique index rather
+            # than a flag on Employee: the rule is about this table, and a
+            # second approved row is the thing that must be impossible.
+            models.UniqueConstraint(
+                fields=["employee"],
+                condition=models.Q(status="approved"),
+                name="one_approved_signature_per_employee",
+            )
+        ]
+
+    def __str__(self):
+        return f"Signature for {self.employee} ({self.status})"

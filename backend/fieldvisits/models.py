@@ -47,6 +47,63 @@ def visit_attachment_path(instance, filename):
     return f"fieldvisits/{instance.visit_id or 'new'}/{filename}"
 
 
+class Site(AuditModel):
+    """A place people are sent to, and who signs off going there.
+
+    **Why this exists now when `destination` was free text.** Free text was the
+    right call while a visit was only a description of itself — "the headrace
+    tunnel, ch. 1400" is not a row in a lookup table. What changed is that a
+    travel order has to be validated by somebody who knows the place, and
+    "somebody who knows the place" cannot be derived from a string. A site is
+    the thing that carries those people.
+
+    `destination` stays, and stays free text. A site is optional: a visit to a
+    ward office still records where it went without anybody having to create a
+    ward office first, and the day that ward office becomes a regular
+    destination it can be promoted to a site without rewriting the history.
+    """
+
+    name = models.CharField(max_length=200)
+    #: Short form for a dropdown and a report column — "SJ-HW" for the Sanjen
+    #: headworks. Not an identifier: `pk` is.
+    code = models.CharField(max_length=30, blank=True)
+    company = models.ForeignKey(
+        "companies.Company", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="sites",
+    )
+    district = models.CharField(max_length=100, blank=True)
+    province = models.CharField(max_length=100, blank=True)
+    address = models.CharField(max_length=300, blank=True)
+    description = models.TextField(blank=True)
+
+    #: **Who can validate a trip here.** A requester picks their approver from
+    #: these *or* from their own supervisors — see
+    #: `fieldvisits.services.eligible_approvers`. Site supervisors are the
+    #: people who know whether the visit is necessary and whether the dates make
+    #: sense; a line manager sitting in the head office frequently does not.
+    supervisors = models.ManyToManyField(
+        "employees.Employee", blank=True, related_name="supervised_sites"
+    )
+
+    #: Retired rather than deleted. A site with ten years of visits behind it
+    #: cannot be removed without taking the history with it, and "we do not go
+    #: there any more" is not "it never existed".
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["code"],
+                condition=~models.Q(code=""),
+                name="one_site_per_code",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class FieldVisit(AuditModel):
     """One journey to site, from request to report."""
 
@@ -92,6 +149,27 @@ class FieldVisit(AuditModel):
         on_delete=models.SET_NULL, related_name="field_visits",
     )
 
+    #: Optional, and deliberately so — see `Site`. Where it is set, the site's
+    #: supervisors join the requester's own as people who may approve the trip.
+    site = models.ForeignKey(
+        "fieldvisits.Site", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="visits",
+    )
+    #: **Who was asked to approve it, chosen by the requester.** From the site's
+    #: supervisors or their own — at least one has to exist or the request
+    #: cannot be made, which is the point: a travel order nobody is named on is
+    #: one that sits in a queue nobody owns.
+    approver = models.ForeignKey(
+        "employees.Employee", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="field_visits_to_approve",
+    )
+
+    #: **The date the requester says the trip is for, which is not the date the
+    #: row was made.** Visits are written up after the fact all the time — an
+    #: emergency call-out at 2am is recorded the next morning — so `starts_on`
+    #: may be in the past and that is not an error. `created_at` and
+    #: `updated_at` from `AuditModel` say when the record was actually touched,
+    #: which is what an auditor needs to tell a late entry from a back-dated one.
     purpose = models.CharField(max_length=20, choices=Purpose.choices, default=Purpose.INSPECTION)
     title = models.CharField(max_length=200)
     #: Where. Free text rather than a `Site` table: a visit goes to "the

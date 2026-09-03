@@ -46,6 +46,12 @@ class ApprovalStep(AuditModel):
     class ApproverRole(models.TextChoices):
         MANAGER = "manager", "Requester's Manager"
         HR_ADMIN = "hr_admin", "Any HR Admin"
+        #: **Each of the requester's supervisors, in their order.** Expands to
+        #: as many steps as that person has supervisors — which is why it
+        #: cannot be written as a fixed row per step: two people on the same
+        #: chain can have two supervisors and four. See
+        #: `leave.services.effective_chain`, which does the expanding.
+        SUPERVISOR = "supervisor", "Each of the requester's supervisors"
 
     chain = models.ForeignKey(ApprovalChain, on_delete=models.CASCADE, related_name="steps")
     sequence = models.PositiveIntegerField()
@@ -138,3 +144,4 @@ class ApprovalAction(models.Model):
 
     def __str__(self):
         return f"{self.leave_request_id} step {self.step_sequence}: {self.decision}"
+

@@ -164,23 +164,96 @@ def get_default_chain():
     return chain
 
 
+def effective_chain(leave_request):
+    """The steps this request actually has to pass, in order.
+
+    **A configured chain cannot say "each of their supervisors".** The chain is
+    one row per step and the number of supervisors varies per person — two here,
+    four there — so `SUPERVISOR` is expanded here, at the point the request is
+    made, into one step per supervisor in the order that person's chain gives
+    them. Everything else passes through unchanged.
+
+    Returns `(sequence, role, employee_or_none)` triples. The employee is set
+    only for a supervisor step: `MANAGER` resolves against the requester and
+    `HR_ADMIN` is a capability rather than a named person, so neither has one.
+
+    Resolved live rather than copied onto the request. That is the weaker
+    choice — somebody's supervisors changing mid-request changes who is asked —
+    and it is the one that matches the rest of this module, where `MANAGER`
+    has always resolved the same way. Copying the chain at submission is the
+    right fix and belongs with a stored per-request chain, not here.
+    """
+    supervisors = [
+        link.supervisor
+        for link in leave_request.employee.supervisor_links.select_related("supervisor__user").all()
+    ]
+
+    steps = []
+    sequence = 1
+    for step in get_default_chain().steps.all():
+        role = step.approver_role
+        # **`MANAGER` means "the people who sign this person off", and that is
+        # the supervisors when there are any.** Expanding it here rather than
+        # re-seeding the chain as `SUPERVISOR` is deliberate: every existing
+        # installation already has `MANAGER` seeded, so a migration would be
+        # needed to change them and an installation that missed it would keep
+        # routing leave past the supervisors entirely. Somebody with no
+        # supervisors still goes to their manager, exactly as before.
+        if role in (ApprovalStep.ApproverRole.SUPERVISOR, ApprovalStep.ApproverRole.MANAGER):
+            if supervisors:
+                for supervisor in supervisors:
+                    steps.append((sequence, ApprovalStep.ApproverRole.SUPERVISOR, supervisor))
+                    sequence += 1
+                continue
+            # No supervisors. A `SUPERVISOR` step with nobody in it is skipped
+            # rather than turned into a manager step it was not configured as.
+            if role == ApprovalStep.ApproverRole.SUPERVISOR:
+                continue
+        steps.append((sequence, role, None))
+        sequence += 1
+    return steps
+
+
 def can_act_on_step(user, leave_request, step):
     """Whether `user` is the resolved approver for this step. MANAGER
     resolves to the requester's manager specifically; HR_ADMIN resolves
     to *any* HR admin or superuser, not one fixed person."""
-    if step.approver_role == ApprovalStep.ApproverRole.HR_ADMIN:
+    if step is None:
+        return False
+    # Accepts either the resolved `(sequence, role, employee)` this module now
+    # passes around, or a bare `ApprovalStep` — which is what a caller holding
+    # a configured chain row has, and what the tests document. Normalising here
+    # rather than at each call site keeps the one public predicate usable from
+    # both.
+    if isinstance(step, ApprovalStep):
+        role, supervisor = step.approver_role, None
+    else:
+        _sequence, role, supervisor = step
+    if role == ApprovalStep.ApproverRole.HR_ADMIN:
         # HR_ADMIN resolves to a capability, not to a named person: anyone
         # holding `leave.approve` is the approver for this step.
         return can(user, Perm.LEAVE_APPROVE)
-    if step.approver_role == ApprovalStep.ApproverRole.MANAGER:
+    if role == ApprovalStep.ApproverRole.MANAGER:
         manager = leave_request.employee.manager
         return manager is not None and manager.user_id == user.id
+    if role == ApprovalStep.ApproverRole.SUPERVISOR:
+        # A named person, and only that person. The whole point of an ordered
+        # chain is that supervisor two cannot sign before supervisor one.
+        return supervisor is not None and supervisor.user_id == user.id
     return False
 
 
 def _current_step(leave_request):
-    chain = get_default_chain()
-    return chain.steps.filter(sequence=leave_request.current_step).first()
+    """The step the request is sitting on, as a `(sequence, role, employee)`.
+
+    Was a lookup into `ApprovalChain.steps` by sequence, which cannot work once
+    a step expands into several — the sequence numbers a request moves through
+    are no longer the sequence numbers stored on the chain.
+    """
+    for step in effective_chain(leave_request):
+        if step[0] == leave_request.current_step:
+            return step
+    return None
 
 
 @transaction.atomic
@@ -231,7 +304,17 @@ def _notify_approvers_for_step(leave_request, step):
         f"requested {leave_request.days_requested} day(s) of {leave_request.leave_type.name} "
         f"({leave_request.start_date} to {leave_request.end_date}){suffix}."
     )
-    if step.approver_role == ApprovalStep.ApproverRole.MANAGER:
+    _sequence, role, supervisor = step
+    if role == ApprovalStep.ApproverRole.SUPERVISOR:
+        # A named person. `notify` sends both the in-app row and the email, so
+        # a supervisor who is not in the product that day still hears about it.
+        notify(
+            supervisor.user,
+            "leave_requested",
+            message,
+            email_subject="Leave request awaiting your approval",
+        )
+    elif role == ApprovalStep.ApproverRole.MANAGER:
         manager = leave_request.employee.manager
         if manager is None:
             # No one to approve this step — auto-skip it rather than
@@ -276,8 +359,14 @@ def decide(leave_request, actor, decision, comment=""):
 
 
 def _advance_or_finalize(leave_request, actor=None, auto_skip_reason=None):
-    chain = get_default_chain()
-    next_step = chain.steps.filter(sequence=leave_request.current_step + 1).first()
+    # The *expanded* chain, not the configured one. A `SUPERVISOR` step
+    # becomes one step per supervisor, so the sequence numbers a request moves
+    # through no longer match the rows on `ApprovalChain` — looking the next
+    # one up there stopped the request after the first supervisor.
+    next_step = next(
+        (step for step in effective_chain(leave_request) if step[0] == leave_request.current_step + 1),
+        None,
+    )
 
     # A skipped step is still a decision, so it gets an approval row. Discard
     # `auto_skip_reason` instead and "who approved step one?" has no answer at
@@ -316,7 +405,7 @@ def _advance_or_finalize(leave_request, actor=None, auto_skip_reason=None):
         )
         return
 
-    leave_request.current_step = next_step.sequence
+    leave_request.current_step = next_step[0]
     leave_request.updated_by = actor
     leave_request.save(update_fields=["current_step", "updated_by", "updated_at"])
     _notify_approvers_for_step(leave_request, next_step)

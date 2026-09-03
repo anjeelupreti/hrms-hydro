@@ -130,6 +130,12 @@ class Memorandum(AuditModel):
         IN_PROGRESS = "in_progress", "In progress"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"
+        #: Filed away by the initiator. **Not a decision** — a decided
+        #: memorandum is evidence and stays that way — this is the register
+        #: saying the matter is closed and it need not appear in anybody's
+        #: working list. Only the initiator archives, because the initiator is
+        #: the one who knows whether the thing it asked for actually happened.
+        ARCHIVED = "archived", "Archived"
 
     class Stage(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -213,7 +219,7 @@ class Memorandum(AuditModel):
         approved memorandum that can still be edited is not a record of what
         was approved.
         """
-        return self.status in (self.Status.APPROVED, self.Status.REJECTED)
+        return self.status in (self.Status.APPROVED, self.Status.REJECTED, self.Status.ARCHIVED)
 
     @property
     def chain(self):

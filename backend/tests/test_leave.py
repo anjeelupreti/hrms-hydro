@@ -17,7 +17,7 @@ import pytest
 
 from accounts.models import User
 from core.calendars import fiscal_year_for
-from employees.models import Employee
+from employees.models import Employee, EmployeeSupervisor
 from leave.models import (
     ApprovalAction,
     ApprovalStep,
@@ -29,6 +29,7 @@ from leave.services import (
     calculate_days,
     can_act_on_step,
     decide,
+    effective_chain,
     get_default_chain,
     get_or_create_balance,
     submit_leave_request,
@@ -712,3 +713,78 @@ def test_a_malformed_date_is_refused(company, admin_client):
     response = admin_client.get("/api/v1/leave/requests/day-count/?start=friday&end=2026-03-09")
 
     assert response.status_code == 400
+
+
+# ── The supervisors are the chain ────────────────────────────────────────
+
+
+def test_leave_goes_to_each_supervisor_in_order(company, staff, boss, company_probationer, annual):
+    """**Every supervisor, in the order they were listed.** A site engineer's
+    leave has to be seen by the site in-charge before the department head, and
+    a chain that asks them both at once — or asks only one — is not the rule
+    the office runs on."""
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=1)
+
+    request = submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
+    chain = effective_chain(request)
+
+    # Two supervisor steps, then the configured HR step.
+    assert [row[1] for row in chain] == [
+        ApprovalStep.ApproverRole.SUPERVISOR,
+        ApprovalStep.ApproverRole.SUPERVISOR,
+        ApprovalStep.ApproverRole.HR_ADMIN,
+    ]
+    assert [row[2] for row in chain[:2]] == [boss, company_probationer]
+
+    # And only the first one may act.
+    assert can_act_on_step(boss.user, request, chain[0]) is True
+    assert can_act_on_step(company_probationer.user, request, chain[0]) is False
+
+
+def test_the_second_supervisor_cannot_sign_before_the_first(
+    company, staff, boss, company_probationer, annual
+):
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=1)
+    request = submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
+
+    assert request.current_step == 1
+
+    # Through the API, because that is where the refusal lives — `decide` is
+    # the transition and does not police who called it.
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(user=company_probationer.user)
+    response = client.post(f"/api/v1/leave/requests/{request.pk}/approve/", {}, format="json")
+
+    assert response.status_code == 403, response.data
+    request.refresh_from_db()
+    assert request.current_step == 1
+
+
+def test_somebody_with_no_supervisors_still_goes_to_their_manager(
+    company, staff, boss, annual, hr_user
+):
+    """The fallback that keeps every existing installation working: the seeded
+    chain says MANAGER, and nobody has supervisors until they are given some."""
+    staff.manager = boss
+    staff.save(update_fields=["manager"])
+    request = submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
+
+    roles = [row[1] for row in effective_chain(request)]
+    assert roles == [ApprovalStep.ApproverRole.MANAGER, ApprovalStep.ApproverRole.HR_ADMIN]
+
+
+def test_a_supervisor_is_notified_when_the_leave_reaches_them(
+    company, staff, boss, annual, mailoutbox
+):
+    """Notified in the product *and* by email — a supervisor who is not signed
+    in that day is exactly the person a request stalls on."""
+    from notifications.models import Notification
+
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
+    submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
+
+    assert Notification.objects.filter(recipient=boss.user, verb="leave_requested").exists()
