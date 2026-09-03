@@ -34,6 +34,15 @@ ALLOWED_TAGS = {
     "h1", "h2", "h3", "h4",
     "blockquote", "pre", "code",
     "a",
+    # Tables. A memorandum that proposes a budget, lists tender bids or sets out
+    # a schedule is a table — written out as paragraphs it stops being readable,
+    # and the alternative is that somebody attaches a spreadsheet and the letter
+    # no longer says what it asks for. `caption` is included because a table in
+    # a formal letter is usually numbered and titled.
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    # A rule between sections. Already in VOID below, which was the only place
+    # it appeared — so it was being dropped on the way in.
+    "hr",
 }
 
 #: Attributes are allowed per tag rather than globally, because `href` on an
@@ -48,6 +57,15 @@ ALLOWED_ATTRIBUTES = {
     "div": {"style"},
     "h1": {"style"}, "h2": {"style"}, "h3": {"style"}, "h4": {"style"},
     "li": {"style"},
+    # Spans are the only structural attributes a table needs. Width and borders
+    # arrive as `style` and are filtered property by property like everywhere
+    # else; `colspan`/`rowspan` are plain integers and carry nothing.
+    "table": {"style"},
+    "thead": {"style"}, "tbody": {"style"}, "tfoot": {"style"},
+    "tr": {"style"},
+    "th": {"style", "colspan", "rowspan"},
+    "td": {"style", "colspan", "rowspan"},
+    "caption": {"style"},
 }
 
 #: CSS properties a formatting toolbar legitimately produces. Anything else —
@@ -56,6 +74,11 @@ ALLOWED_STYLES = {
     "text-align", "font-weight", "font-style", "text-decoration",
     "font-size", "font-family", "color", "background-color",
     "margin-left", "padding-left",
+    # Table geometry. `border-collapse` is what stops a table drawing a double
+    # rule around every cell, and without `width` a table cannot be made to fill
+    # the page — both are inert.
+    "width", "border", "border-collapse", "border-color", "border-width",
+    "border-style", "padding", "vertical-align",
 }
 
 #: Tags whose *contents* go with them. Stripping `<script>` and keeping its
@@ -130,6 +153,19 @@ class _Sanitizer(HTMLParser):
                 value = _clean_style(value or "")
                 if not value:
                     continue
+            elif name in ("colspan", "rowspan"):
+                # Escaping already makes these harmless to parse. Clamping is
+                # about layout: `colspan="99999"` is not an attack but it does
+                # blow the table off the page, and a span is only ever a small
+                # integer. Anything that is not one is dropped rather than
+                # guessed at.
+                try:
+                    span = int(value or "1")
+                except (TypeError, ValueError):
+                    continue
+                if span < 1:
+                    continue
+                value = str(min(span, 64))
             elif name == "target":
                 # A link that opens a tab must not hand it a reference back —
                 # `rel` is forced below rather than trusted from the input.

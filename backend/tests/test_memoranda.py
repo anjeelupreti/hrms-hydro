@@ -784,3 +784,50 @@ def test_acting_out_of_turn_is_a_403_not_a_400(memo, cast, recommend):
     # And a genuinely bad request is still a 400, so the two stay distinguishable.
     no_action = _client(cast["a"]).post(f"{LIST}{memo.id}/proceed/", {}, format="json")
     assert no_action.status_code == 400
+
+
+def test_a_table_survives_being_saved(memo, cast):
+    """A memorandum that proposes a budget or lists tender bids *is* a table.
+    Before this the tags were not on the allow-list, so the sanitiser threw the
+    structure away and left the cell text run together as one paragraph — the
+    author saw their table vanish on save with nothing to explain it."""
+    html = (
+        '<table style="width: 100%; border-collapse: collapse">'
+        "<caption>Bids received</caption>"
+        '<thead><tr><th colspan="2">Contractor</th><th>Amount</th></tr></thead>'
+        "<tbody><tr><td>Himal Nirman</td><td>Butwal</td><td>4,20,000</td></tr></tbody>"
+        "</table>"
+    )
+    response = _client(cast["initiator"]).patch(f"{LIST}{memo.pk}/", {"content": html}, format="json")
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    for tag in ("<table", "<caption>", "<thead>", "<tr>", "<th", "<td>"):
+        assert tag in memo.content, f"{tag} was stripped"
+    assert 'colspan="2"' in memo.content
+    assert "border-collapse" in memo.content
+    assert "Himal Nirman" in memo.content
+
+
+def test_a_table_cannot_carry_an_event_handler_or_a_span_that_breaks_the_page(memo, cast):
+    """Allowing tables must not quietly widen what an attribute may hold."""
+    html = (
+        '<table onmouseover="steal()">'
+        '<tr><td colspan="99999" style="background-image: url(javascript:alert(1))">x</td>'
+        '<td colspan="0">y</td><td colspan="nope">z</td></tr>'
+        "</table>"
+    )
+    response = _client(cast["initiator"]).patch(f"{LIST}{memo.pk}/", {"content": html}, format="json")
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert "onmouseover" not in memo.content
+    assert "steal()" not in memo.content
+    assert "javascript:" not in memo.content
+    assert "background-image" not in memo.content
+    # Clamped to something a page can actually draw, and nonsense dropped
+    # outright rather than guessed at.
+    assert 'colspan="99999"' not in memo.content
+    assert 'colspan="64"' in memo.content
+    assert 'colspan="0"' not in memo.content
+    assert 'colspan="nope"' not in memo.content
