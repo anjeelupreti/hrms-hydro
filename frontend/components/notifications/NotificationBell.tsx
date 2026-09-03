@@ -12,6 +12,7 @@ import Button from "@mui/material/Button";
 import Divider from "@mui/material/Divider";
 import IconButton from "@mui/material/IconButton";
 import Popover from "@mui/material/Popover";
+import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import useMediaQuery from "@mui/material/useMediaQuery";
@@ -157,7 +158,7 @@ function NotificationPanel({
   onClose: () => void;
   onItemClick: (n: Notification) => void;
 }) {
-  const { data: notifications } = useNotifications(1, 20);
+  const { data: notifications, isPending, isError, refetch } = useNotifications(1, 20);
   const markAll = useMarkAllNotificationsRead();
   const { data: unread } = useUnreadCount();
   const items = notifications?.results ?? [];
@@ -224,7 +225,41 @@ function NotificationPanel({
           contents. The panel clipped the overflow and the last notification
           looked cut in half. */}
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}>
-        {items.length === 0 ? (
+        {/* **Three states, not two.**
+
+            This used to be `items.length === 0 ? "all caught up" : list`, and
+            `items` is `data?.results ?? []` — so an in-flight request and a
+            failed one both read as *no notifications*. The badge counts through
+            its own endpoint, which is one small request and lands first, so the
+            panel confidently said "You're all caught up!" directly underneath a
+            red 14. The count was never wrong; the list was lying about not
+            having loaded.
+
+            The panel is mounted by the popover, so every first open starts with
+            an empty cache and shows this. */}
+        {isPending ? (
+          <Stack sx={{ p: 2 }} spacing={1.5}>
+            {[0, 1, 2, 3].map((row) => (
+              <Stack key={row} direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
+                <Skeleton variant="circular" width={32} height={32} />
+                <Stack sx={{ flex: 1 }}>
+                  <Skeleton variant="text" width="90%" />
+                  <Skeleton variant="text" width="35%" />
+                </Stack>
+              </Stack>
+            ))}
+          </Stack>
+        ) : isError ? (
+          <Stack sx={{ alignItems: "center", justifyContent: "center", py: 6, px: 2 }} spacing={1}>
+            <NotificationsNoneIcon sx={{ fontSize: 40, color: "text.disabled" }} />
+            <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
+              Your notifications could not be loaded.
+            </Typography>
+            <Button size="small" onClick={() => refetch()}>
+              Try again
+            </Button>
+          </Stack>
+        ) : items.length === 0 ? (
           <Stack sx={{ alignItems: "center", justifyContent: "center", py: 8, px: 2 }}>
             <NotificationsNoneIcon sx={{ fontSize: 48, color: "text.disabled", mb: 1 }} />
             <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
