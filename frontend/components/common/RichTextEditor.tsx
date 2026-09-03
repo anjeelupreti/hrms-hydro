@@ -31,7 +31,8 @@ import ToggleButton from "@mui/material/ToggleButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { alpha } from "@mui/material/styles";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SxProps, Theme } from "@mui/material/styles";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 /**
  * A paragraph builder — bold, italic, headings, lists, alignment.
@@ -168,12 +169,32 @@ export default function RichTextEditor({
   disabled = false,
   minHeight = 260,
   placeholder = "Write the memorandum…",
+  renderLayout,
+  surfaceSx,
 }: {
   value: string;
   onChange: (html: string) => void;
   disabled?: boolean;
   minHeight?: number;
   placeholder?: string;
+  /**
+   * Put the toolbar and the writing surface wherever the caller needs them.
+   *
+   * **Because the memorandum is written on the page itself.** The two used to
+   * be welded into one bordered box, which forced the layout that box implies:
+   * an editor over here and a preview of the letter over there, so the author
+   * typed into a grey form and watched a document appear somewhere else. What
+   * they actually want is Word — the controls along the top, and the paper
+   * underneath with the words landing on it.
+   *
+   * A render prop rather than two exported components because the toolbar and
+   * the surface share the selection, the mark state and the `execCommand`
+   * plumbing; splitting them into siblings would mean lifting all of that into
+   * a context for the sake of one layout.
+   */
+  renderLayout?: (parts: { toolbar: ReactNode; surface: ReactNode }) => ReactNode;
+  /** Styles for the writing surface — used to make it inherit the page. */
+  surfaceSx?: SxProps<Theme>;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [marks, setMarks] = useState<Mark[]>([]);
@@ -310,17 +331,7 @@ export default function RichTextEditor({
 
   const isEmpty = !value || value === "<br>" || value === "<p></p>";
 
-  return (
-    <Box
-      sx={(theme) => ({
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: 2,
-        overflow: "hidden",
-        opacity: disabled ? 0.6 : 1,
-        "&:focus-within": { borderColor: theme.palette.primary.main },
-      })}
-    >
+  const toolbar = (
       <Stack
         direction="row"
         spacing={0.25}
@@ -683,7 +694,9 @@ export default function RichTextEditor({
           )
         )}
       </Stack>
+  );
 
+  const surface = (
       <Box sx={{ position: "relative" }}>
         {isEmpty ? (
           <Typography
@@ -753,9 +766,29 @@ export default function RichTextEditor({
               borderColor: "divider",
               color: "text.secondary",
             },
+            // Last, so a caller placing this on the letter can hand it the
+            // page's serif and its ink and have them win.
+            ...surfaceSx,
           }}
         />
       </Box>
+  );
+
+  if (renderLayout) return <>{renderLayout({ toolbar, surface })}</>;
+
+  return (
+    <Box
+      sx={(theme) => ({
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 2,
+        overflow: "hidden",
+        opacity: disabled ? 0.6 : 1,
+        "&:focus-within": { borderColor: theme.palette.primary.main },
+      })}
+    >
+      {toolbar}
+      {surface}
     </Box>
   );
 }

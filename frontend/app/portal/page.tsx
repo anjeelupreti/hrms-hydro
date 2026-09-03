@@ -16,7 +16,9 @@ import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 
 import AttendanceMiniMonth from "@/components/attendance/AttendanceMiniMonth";
+import AnnouncementsRail from "@/components/dashboard/AnnouncementsRail";
 import AssignedToMe from "@/components/portal/AssignedToMe";
+import NeedsYourTurn from "@/components/portal/NeedsYourTurn";
 import StaffIdCard from "@/components/portal/StaffIdCard";
 import NotesCard from "@/components/portal/NotesCard";
 import TodoList from "@/components/portal/TodoList";
@@ -242,7 +244,19 @@ export default function PortalPage() {
       {/* Full width above the two input cards rather than beside them. A list
           wants length, not a half column — and with nothing assigned it is a
           single strip rather than a 450px box holding one sentence. */}
+      {/* **What is waiting on you, before what you have to do.**
+          A memorandum halts until its holder moves it — the chain has no
+          timeout — so somebody not noticing it is their turn stops the document
+          for everybody behind them. The bell said so once and then cleared
+          itself; this is the page people actually open. */}
+      <NeedsYourTurn />
       <AssignedToMe />
+
+      {/* Announcements live here rather than on the dashboard. The dashboard is
+          the HR view of the organisation and most of the company never opens
+          it; a notice everybody is meant to read belongs on the page everybody
+          has. Silent when there is nothing current. */}
+      <AnnouncementsRail />
       <Box
         sx={{
           mt: 2,

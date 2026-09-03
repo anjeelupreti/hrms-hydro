@@ -6,6 +6,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LockIcon from "@mui/icons-material/Lock";
 import SendIcon from "@mui/icons-material/Send";
+import SkipNextIcon from "@mui/icons-material/SkipNext";
 import UndoIcon from "@mui/icons-material/Undo";
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
@@ -30,6 +31,7 @@ import { useEffect, useMemo, useState } from "react";
 import DateField from "@/components/common/DateField";
 import DateText from "@/components/common/DateText";
 import RichTextEditor, { RichText } from "@/components/common/RichTextEditor";
+import StateChip from "@/components/common/StateChip";
 import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
 import { withCode } from "@/lib/people";
@@ -46,11 +48,13 @@ import {
   useRejectMemorandum,
   useRemoveMemorandumAttachment,
   useResubmitMemorandum,
+  useSkipMemorandum,
   useSaveMemorandum,
   useSendBackMemorandum,
   useSubmitMemorandum,
 } from "@/hooks/useMemoranda";
 import {
+  MEMO_STATUS_TONE,
   type Memorandum,
   type MemorandumFormValues,
 } from "@/types/memoranda";
@@ -108,6 +112,7 @@ export default function MemorandumDialog({
   const proceed = useProceedMemorandum();
   const sendBack = useSendBackMemorandum();
   const resubmit = useResubmitMemorandum();
+  const skipHolder = useSkipMemorandum();
   const approve = useApproveMemorandum();
   const reject = useRejectMemorandum();
   const addComment = useCommentOnMemorandum();
@@ -129,6 +134,7 @@ export default function MemorandumDialog({
   // remark would find it attached to whichever button they pressed next.
   const [remark, setRemark] = useState("");
   const [mentions, setMentions] = useState<number[]>([]);
+  const [skipReason, setSkipReason] = useState("");
   const [commentFiles, setCommentFiles] = useState<File[]>([]);
 
   const isNew = memo === null;
@@ -154,6 +160,24 @@ export default function MemorandumDialog({
     memo !== null &&
     (memo.status === "draft" ||
       (memo.my_role === "initiator" && memo.current_holder === memo.initiator));
+
+  /**
+   * Can this person move it past whoever is holding it?
+   *
+   * The initiator only, while it is in flight, on somebody else's desk, and not
+   * yet at the approver — mirroring `workflow.skip`, which refuses each of
+   * those. Drawn from the record's own fields rather than a server flag because
+   * every part of the rule is already on it; a flag would be a fifth thing to
+   * keep in step.
+   */
+  const canSkip =
+    !locked &&
+    memo !== null &&
+    memo.status === "in_progress" &&
+    memo.my_role === "initiator" &&
+    memo.stage !== "approve" &&
+    memo.current_holder !== null &&
+    memo.current_holder !== memo.initiator;
 
   const { data: companyPage } = useCompanies();
   const companyName =
@@ -334,125 +358,210 @@ export default function MemorandumDialog({
              in-place editing was reaching for, without the two fighting over
              one set of colours. It is also how the reader thinks about it:
              the document, and the work being done to it. */
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={3}
-            sx={{ alignItems: "flex-start" }}
-          >
-            {/* The page. Sticky on a wide screen so it stays in view while the
-                working column beside it is scrolled — the point of the split is
-                seeing the effect of what you type. */}
-            <Box
-              sx={{
-                flex: { md: "1 1 58%" },
-                minWidth: 0,
-                width: "100%",
-                position: { md: "sticky" },
-                top: { md: 0 },
-              }}
-            >
-              <MemorandumLetter
-                printable
-                memo={memo}
-                draft={{
-                  subject: values.subject,
-                  content: values.content,
-                  memo_date: values.memo_date,
-                  companyName,
-                  approverName,
-                  throughNames,
-                  fromName: me ? withCode(me.full_name, me.employee_code) : null,
-                }}
-              />
-            </Box>
+          <RichTextEditor
+            value={values.content}
+            disabled={!canEditBody}
+            onChange={(html) => set("content", html)}
+            // The page's own face and ink, so the words look on screen the way
+            // they will look printed. Without this the surface keeps the
+            // application's sans-serif on the application's background and the
+            // letter has a grey rectangle stamped into the middle of it.
+            surfaceSx={{
+              p: 0,
+              minHeight: 0,
+              fontFamily: "inherit",
+              fontSize: ".95rem",
+              lineHeight: 1.75,
+              color: "#16181d",
+              "& p": { margin: "0 0 .85em" },
+              "& ul, & ol": { margin: "0 0 .85em", paddingLeft: "1.4em" },
+            }}
+            renderLayout={({ toolbar, surface }) => (
+              <Stack spacing={2}>
+                {/* ── The ribbon ───────────────────────────────────────────
+                    Across the top, the way a word processor puts it, rather
+                    than welded to a box in a column. Somebody who has written
+                    memoranda on paper for thirty years is being asked to do it
+                    on a screen; the closer this is to the tool they already
+                    know, the less of it they have to be taught.
 
-            {/* The working column. */}
-            <Stack spacing={3} sx={{ flex: { md: "1 1 42%" }, minWidth: 0, width: "100%" }}>
-              {isDraft && !locked ? (
-                <Box>
-                  <SectionHeading
-                    title="Compose"
-                    hint="The page beside this updates as you type."
-                  />
-                  <Stack spacing={2} sx={{ mt: 1.5 }}>
-                    <CompanyPicker
-                      label="Company"
-                      required
-                      value={values.company}
-                      onChange={(id) => set("company", id)}
-                      size="small"
-                      helperText="Its code goes into the memorandum number."
-                    />
-                    <DateField
-                      label="Date"
-                      required
-                      value={values.memo_date}
-                      onChange={(value) => set("memo_date", value)}
-                      helperText="Must be today when you submit."
-                    />
-                    <TextField
-                      label="Subject"
-                      fullWidth
-                      required
-                      size="small"
-                      value={values.subject}
-                      onChange={(e) => set("subject", e.target.value)}
-                    />
-                  </Stack>
-                </Box>
-              ) : null}
+                    Sticky, because the page below is a metre of A4 and controls
+                    that scroll away are controls you have to go and find. */}
+                {canEditBody ? (
+                  <Box
+                    sx={(theme) => ({
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 3,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      overflow: "hidden",
+                      bgcolor: theme.palette.background.paper,
+                    })}
+                  >
+                    {toolbar}
+                  </Box>
+                ) : null}
 
-              {canEditBody ? (
-                <Box>
-                  <SectionHeading
-                    title="The memorandum"
-                    hint={
-                      isDraft
-                        ? undefined
-                        : "The only field that can still be changed once it is on its way."
-                    }
-                  />
-                  <Box sx={{ mt: 1.5 }}>
-                    <RichTextEditor
-                      value={values.content}
-                      onChange={(html) => set("content", html)}
+                <Stack
+                  direction={{ xs: "column", md: "row" }}
+                  spacing={3}
+                  sx={{ alignItems: "flex-start" }}
+                >
+                  {/* ── The page ─────────────────────────────────────────
+                      The whole left side, and the writing happens on it: the
+                      surface goes into the letter's body, so the words land
+                      where they will print instead of in a form beside a
+                      preview of themselves. */}
+                  <Box sx={{ flex: { md: "1 1 62%" }, minWidth: 0, width: "100%" }}>
+                    <MemorandumLetter
+                      printable
+                      memo={memo}
+                      body={canEditBody ? surface : undefined}
+                      draft={{
+                        subject: values.subject,
+                        content: values.content,
+                        memo_date: values.memo_date,
+                        companyName,
+                        approverName,
+                        throughNames,
+                        fromName: me ? withCode(me.full_name, me.employee_code) : null,
+                      }}
                     />
                   </Box>
-                </Box>
-              ) : null}
 
-              <AttachmentsSection
-                memo={memo}
-                isNew={isNew}
-                canAttach={canAttach}
-                file={file}
-                setFile={setFile}
-                caption={caption}
-                setCaption={setCaption}
-                onAttach={() => {
-                  if (!memo || !file) return;
-                  run(addAttachment.mutateAsync({ id: memo.id, file, caption }), () => {
-                    setFile(null);
-                    setCaption("");
-                  });
-                }}
-                onRemove={(attachmentId) => {
-                  if (!memo) return;
-                  removeAttachment.mutate({ id: memo.id, attachmentId });
-                }}
-                busy={addAttachment.isPending}
-              />
+                  {/* ── The rail ─────────────────────────────────────────
+                      Whose turn it is first, because that is the question
+                      anybody opening this has; then who signs it, then what
+                      has happened. Sticky for the same reason the ribbon is —
+                      the page beside it is taller than the screen. */}
+                  <Stack
+                    spacing={3}
+                    sx={{
+                      flex: { md: "1 1 38%" },
+                      minWidth: 0,
+                      width: "100%",
+                      position: { md: "sticky" },
+                      top: { md: 64 },
+                      maxHeight: { md: "calc(100vh - 190px)" },
+                      overflowY: { md: "auto" },
+                      pr: { md: 0.5 },
+                    }}
+                  >
+                    <WhoseTurn memo={memo} isNew={isNew} />
 
-              <ChainTab
-                memo={memo}
-                values={values}
-                set={set}
-                editable={isNew || Boolean(memo?.can_edit_chain)}
-              />
+                    {/* **Routing around somebody who is away.**
+                        The chain has no timeout and only the holder can act, so
+                        a recommender on leave stops the memorandum dead. This
+                        is the initiator's way past — and only theirs, only
+                        while somebody else is holding it, and never over the
+                        approver, who has nobody after them to send it to. */}
+                    {canSkip ? (
+                      <Box>
+                        <SectionHeading
+                          title="Waiting on somebody who is away?"
+                          hint="Moves it to the next person. Recorded as a skip, not as their recommendation."
+                        />
+                        <Stack spacing={1.5} sx={{ mt: 1.5 }}>
+                          <TextField
+                            label="Why (optional)"
+                            size="small"
+                            fullWidth
+                            value={skipReason}
+                            onChange={(event) => setSkipReason(event.target.value)}
+                            placeholder="On leave until Sunday"
+                          />
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            startIcon={<SkipNextIcon />}
+                            disabled={skipHolder.isPending}
+                            onClick={() => {
+                              if (!memo) return;
+                              run(
+                                skipHolder.mutateAsync({ id: memo.id, comment: skipReason }),
+                                () => setSkipReason("")
+                              );
+                            }}
+                            sx={{ alignSelf: "flex-start" }}
+                          >
+                            Move past {memo?.current_holder_name ?? "them"}
+                          </Button>
+                        </Stack>
+                      </Box>
+                    ) : null}
 
-              <HistoryTab memo={memo} />
-            </Stack>
-          </Stack>
+                    {isDraft && !locked ? (
+                      <Box>
+                        <SectionHeading
+                          title="Basic details"
+                          hint="Fixed once the memorandum is on its way."
+                        />
+                        <Stack spacing={2} sx={{ mt: 1.5 }}>
+                          <CompanyPicker
+                            label="Company"
+                            required
+                            value={values.company}
+                            onChange={(id) => set("company", id)}
+                            size="small"
+                            helperText="Its code goes into the memorandum number."
+                          />
+                          <DateField
+                            label="Date"
+                            required
+                            value={values.memo_date}
+                            onChange={(value) => set("memo_date", value)}
+                            helperText="Must be today when you submit."
+                          />
+                          <TextField
+                            label="Subject"
+                            fullWidth
+                            required
+                            size="small"
+                            value={values.subject}
+                            onChange={(e) => set("subject", e.target.value)}
+                          />
+                        </Stack>
+                      </Box>
+                    ) : null}
+
+                    <ChainTab
+                      memo={memo}
+                      values={values}
+                      set={set}
+                      editable={isNew || Boolean(memo?.can_edit_chain)}
+                    />
+
+                    <AttachmentsSection
+                      memo={memo}
+                      isNew={isNew}
+                      canAttach={canAttach}
+                      file={file}
+                      setFile={setFile}
+                      caption={caption}
+                      setCaption={setCaption}
+                      onAttach={() => {
+                        if (!memo || !file) return;
+                        run(addAttachment.mutateAsync({ id: memo.id, file, caption }), () => {
+                          setFile(null);
+                          setCaption("");
+                        });
+                      }}
+                      onRemove={(attachmentId) => {
+                        if (!memo) return;
+                        removeAttachment.mutate({ id: memo.id, attachmentId });
+                      }}
+                      busy={addAttachment.isPending}
+                    />
+
+                    <HistoryTab memo={memo} />
+                  </Stack>
+                </Stack>
+              </Stack>
+            )}
+          />
         )}
 
         {/* ── The action bar ─────────────────────────────────────────────
@@ -838,6 +947,7 @@ const KIND_COLOUR: Record<string, "primary" | "warning" | "success" | "error" | 
   rejected: "error",
   edited: "info",
   commented: "info",
+  skipped: "warning",
 };
 
 /**
@@ -1243,5 +1353,75 @@ function SectionHeading({
         </Typography>
       ) : null}
     </Stack>
+  );
+}
+
+/**
+ * Whose desk it is on, and what it is.
+ *
+ * **The first question anybody opening a memorandum has.** It was answerable
+ * only by reading the status chip in one corner, the holder chip in another and
+ * the chain further down — three places for one sentence. The client's own
+ * template puts From, To, Current Handler and Status in a block at the top, and
+ * they are right: on paper that block is what you look at before you read a
+ * word of it.
+ */
+function WhoseTurn({ memo, isNew }: { memo: Memorandum | null; isNew: boolean }) {
+  if (isNew || !memo) {
+    return (
+      <Alert severity="info" icon={false} sx={{ py: 1 }}>
+        A new memorandum. It gets its number when you submit it.
+      </Alert>
+    );
+  }
+
+  const rows: [string, React.ReactNode][] = [
+    ["Reference", memo.memo_id ?? "issued on submission"],
+    ["From", withCode(memo.initiator_name, memo.initiator_code)],
+    ["To", memo.approver_name ? withCode(memo.approver_name, memo.approver_code) : "—"],
+    [
+      "With",
+      memo.current_holder_name ? withCode(memo.current_holder_name, memo.current_holder_code) : "—",
+    ],
+  ];
+
+  return (
+    <Box
+      sx={(theme) => ({
+        p: 2,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: memo.can_act ? theme.palette.primary.main : theme.palette.divider,
+        bgcolor: memo.can_act
+          ? alpha(theme.palette.primary.main, 0.05)
+          : alpha(theme.palette.text.primary, 0.02),
+      })}
+    >
+      <Stack direction="row" spacing={1} sx={{ alignItems: "center", mb: 1.5, flexWrap: "wrap" }} useFlexGap>
+        <StateChip label={memo.status_display} tone={MEMO_STATUS_TONE[memo.status]} />
+        {/* Said plainly rather than left to be worked out from the holder's
+            name. "It is your turn" is the whole reason somebody opens this. */}
+        {memo.can_act ? (
+          <Chip size="small" color="primary" label="It is your turn" />
+        ) : null}
+      </Stack>
+
+      <Stack spacing={0.75}>
+        {rows.map(([label, value]) => (
+          <Stack key={label} direction="row" spacing={1.5} sx={{ alignItems: "baseline" }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ width: 76, flexShrink: 0, textTransform: "uppercase", letterSpacing: ".04em" }}
+            >
+              {label}
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 600, minWidth: 0 }}>
+              {value}
+            </Typography>
+          </Stack>
+        ))}
+      </Stack>
+    </Box>
   );
 }

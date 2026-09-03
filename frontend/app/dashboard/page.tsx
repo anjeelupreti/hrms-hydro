@@ -13,7 +13,6 @@ import { motion } from "motion/react";
 import HeroPanel from "@/components/common/HeroPanel";
 import PageContainer from "@/components/shell/PageContainer";
 import ClockWidget from "@/components/attendance/ClockWidget";
-import AnnouncementsRail from "@/components/dashboard/AnnouncementsRail";
 import AttentionBar from "@/components/dashboard/AttentionBar";
 import HiringFunnel from "@/components/dashboard/HiringFunnel";
 import ClaimsFlow from "@/components/dashboard/ClaimsFlow";
@@ -111,12 +110,14 @@ export default function Home() {
     <PageContainer>
       <DashboardTopBar recentEmployees={summary?.recent_employees ?? []} />
 
-      {/* One strip rather than a stack of full-width alerts: `AttentionBar`
-          for what needs a decision, `AnnouncementsRail` for what needs knowing.
-          Both vanish when empty, so nothing stands between the reader and the
+      {/* One strip rather than a stack of full-width alerts: what needs a
+          decision, and nothing else. Announcements used to sit here too and
+          have moved to My workspace — the dashboard is the HR view of the
+          organisation and most of the company never opens it, so a notice
+          everybody is meant to read was on the one page they do not have.
+          Vanishes when empty, so nothing stands between the reader and the
           first number unless it has earned the space. */}
       <AttentionBar pendingApprovals={summary?.pending_my_approval ?? 0} />
-      <AnnouncementsRail />
 
       {/*
         The page leads with one number rather than four equal tiles.

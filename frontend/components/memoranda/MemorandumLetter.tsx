@@ -78,6 +78,7 @@ export default function MemorandumLetter({
   /** Draft values, so the page reads correctly before anything is saved. */
   draft,
   printable = false,
+  body,
 }: {
   memo: Memorandum | null;
   draft?: {
@@ -108,6 +109,15 @@ export default function MemorandumLetter({
    * where somebody is actually working on it.
    */
   printable?: boolean;
+  /**
+   * The writing surface, when the memorandum is being written *on the page*.
+   *
+   * Given, this replaces the rendered content in the body — so the author types
+   * where the words will print rather than into a box beside a preview of
+   * them. Omitted, the page renders what has been saved, which is what every
+   * read-only use of this component wants.
+   */
+  body?: ReactNode;
 }) {
   const subject = draft?.subject ?? memo?.subject ?? "";
   const content = draft?.content ?? memo?.content ?? "";
@@ -209,10 +219,32 @@ export default function MemorandumLetter({
       return;
     }
 
-    // Emotion injects MUI's styles as <style> tags at runtime, so copying the
-    // document's own head is the only way the copy looks like the original.
-    const head = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-      .map((node) => node.outerHTML)
+    /**
+     * The page's styles, read out of the CSSOM rather than off the DOM.
+     *
+     * **`outerHTML` on the `<style>` tags is not enough and looks like it is.**
+     * In a production build Emotion inserts rules with `sheet.insertRule` for
+     * speed, which leaves the `<style>` elements present but empty — copying
+     * their markup yields a head full of nothing. The printed letter came out
+     * with its typography roughly right (inherited and inline styles survive)
+     * and every flex row collapsed: "Ref:" and its value ran together, the
+     * letterhead lost its centring, and the double rule under it stacked into
+     * four lines. It read as the layout being wrong rather than as the
+     * stylesheet being absent.
+     *
+     * Cross-origin sheets throw on `cssRules` and cannot be read at all, so
+     * those are re-linked by href and left to the print window to fetch.
+     */
+    const head = Array.from(document.styleSheets)
+      .map((sheet) => {
+        try {
+          return `<style>${Array.from(sheet.cssRules)
+            .map((rule) => rule.cssText)
+            .join("\n")}</style>`;
+        } catch {
+          return sheet.href ? `<link rel="stylesheet" href="${sheet.href}">` : "";
+        }
+      })
       .join("");
 
     doc.open();
@@ -519,7 +551,10 @@ export default function MemorandumLetter({
         <Box
           sx={{
             pt: 2.5,
-            minHeight: 220,
+            // Enough of the sheet to be clickable. Writing happens in here, and
+            // a body sized to its own text leaves most of page one inert — you
+            // click where you want to carry on and nothing takes the caret.
+            minHeight: body ? `${(PAGE.height - PAGE.margin * 2) * 0.62}mm` : 220,
             fontSize: ".95rem",
             lineHeight: 1.75,
             "& p": { margin: "0 0 .85em" },
@@ -527,7 +562,7 @@ export default function MemorandumLetter({
             "& :last-child": { marginBottom: 0 },
           }}
         >
-          {content ? <RichText html={content} /> : <Muted>Nothing written yet.</Muted>}
+          {body ?? (content ? <RichText html={content} /> : <Muted>Nothing written yet.</Muted>)}
         </Box>
 
         {/* ── The foot of the page ───────────────────────────────────── */}
