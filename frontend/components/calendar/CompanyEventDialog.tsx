@@ -21,6 +21,15 @@ type Props = {
   initialStart: Date | null;
   initialEnd: Date | null;
   editingEvent: CompanyEvent | null;
+  /**
+   * Open for reading, with nothing to press.
+   *
+   * Detail is not an editing privilege. Somebody who cannot manage the calendar
+   * still needs to know where a meeting is and what it is about, and a row that
+   * does nothing when clicked reads as broken rather than as restricted — so
+   * everybody opens the event and only a manager gets the controls.
+   */
+  readOnly?: boolean;
 };
 
 function toLocalInput(date: Date) {
@@ -35,7 +44,14 @@ function toLocalInput(date: Date) {
 // a useEffect+setState sync (which trips react-hooks/set-state-in-effect
 // and cascades renders). Same shape as EmployeeFormDialog's outer/inner
 // split.
-export default function CompanyEventDialog({ open, onClose, initialStart, initialEnd, editingEvent }: Props) {
+export default function CompanyEventDialog({
+  open,
+  onClose,
+  initialStart,
+  initialEnd,
+  editingEvent,
+  readOnly = false,
+}: Props) {
   const formKey = editingEvent ? `edit-${editingEvent.id}` : `new-${initialStart?.toISOString() ?? "blank"}`;
   return (
     <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
@@ -45,6 +61,7 @@ export default function CompanyEventDialog({ open, onClose, initialStart, initia
         initialStart={initialStart}
         initialEnd={initialEnd}
         editingEvent={editingEvent}
+        readOnly={readOnly}
       />
     </Dialog>
   );
@@ -52,7 +69,7 @@ export default function CompanyEventDialog({ open, onClose, initialStart, initia
 
 type FormProps = Omit<Props, "open">;
 
-function CompanyEventForm({ onClose, initialStart, initialEnd, editingEvent }: FormProps) {
+function CompanyEventForm({ onClose, initialStart, initialEnd, editingEvent, readOnly }: FormProps) {
   const createEvent = useCreateCompanyEvent();
   const updateEvent = useUpdateCompanyEvent();
   const deleteEvent = useDeleteCompanyEvent();
@@ -138,15 +155,21 @@ function CompanyEventForm({ onClose, initialStart, initialEnd, editingEvent }: F
         </Stack>
       </DialogContent>
       <DialogActions>
-        {editingEvent && (
+        {editingEvent && !readOnly && (
           <Button color="error" onClick={handleDelete} disabled={deleteEvent.isPending} sx={{ mr: "auto" }}>
             Delete
           </Button>
         )}
-        <Button onClick={onClose}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={createEvent.isPending || updateEvent.isPending}>
-          Save
-        </Button>
+        <Button onClick={onClose}>{readOnly ? "Close" : "Cancel"}</Button>
+        {readOnly ? null : (
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={createEvent.isPending || updateEvent.isPending}
+          >
+            Save
+          </Button>
+        )}
       </DialogActions>
     </>
   );

@@ -187,8 +187,16 @@ export default function CompanyCalendarPage() {
     setDialogOpen(true);
   }
 
+  /**
+   * Open an event. Everybody may; only a manager may change it.
+   *
+   * This used to return early for anybody without `settings.manage`, so a
+   * click on an event did nothing at all — which reads as a broken calendar
+   * rather than a restricted one. Reading where a meeting is and what it is
+   * about is not an editing privilege; the dialog carries `readOnly` and takes
+   * its own controls away.
+   */
   function openEvent(event: CompanyEvent) {
-    if (!canManage) return;
     setEditingEvent(event);
     setDialogRange(null);
     setDialogOpen(true);
@@ -223,21 +231,41 @@ export default function CompanyCalendarPage() {
     setDialogOpen(true);
   }
 
-  // Events, flattened to the Gregorian day they fall on. The Bikram Sambat
-  // grid matches on that: storage stays Gregorian everywhere, and only the
-  // *labelling* changes with the company's calendar.
-  const localEvents = useMemo(
-    () =>
-      calendarEvents.map((e) => ({
-        id: e.id,
-        title: e.title,
-        // Local midnight, not `toISOString()` — that shifts a Kathmandu
-        // evening back a day, which puts a 6pm meeting on the wrong cell.
-        date: `${e.start.getFullYear()}-${`${e.start.getMonth() + 1}`.padStart(2, "0")}-${`${e.start.getDate()}`.padStart(2, "0")}`,
-        color: EVENT_META[e.resource.event_type]?.color ?? EVENT_META.other.color,
-      })),
-    [calendarEvents]
-  );
+  /**
+   * Events, on **every** day they cover.
+   *
+   * This used to emit one entry per event, keyed on its start date — so a
+   * three-day audit appeared on the Monday and nowhere else, and somebody
+   * looking at the Wednesday saw a free day. The Gregorian grid spans them
+   * correctly, which is why the bug only showed on the Bikram Sambat side and
+   * looked like the event had not saved.
+   *
+   * Local midnight throughout, never `toISOString()` — that shifts a Kathmandu
+   * evening back a day and puts a 6pm meeting on the wrong cell.
+   */
+  const localEvents = useMemo(() => {
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, "0")}-${`${d.getDate()}`.padStart(2, "0")}`;
+
+    return calendarEvents.flatMap((e) => {
+      const colour = EVENT_META[e.resource.event_type]?.color ?? EVENT_META.other.color;
+      const days: { id: number; title: string; date: string; color: string }[] = [];
+
+      // Walk by local date rather than by adding 24 hours: a day is not always
+      // 24 hours long, and the arithmetic version drifts across a DST change.
+      const cursor = new Date(e.start.getFullYear(), e.start.getMonth(), e.start.getDate());
+      const last = new Date(e.end.getFullYear(), e.end.getMonth(), e.end.getDate());
+
+      // A guard, not an expectation: an end before its start is bad data rather
+      // than a reason to loop forever, and 366 is longer than any event a
+      // calendar cell should be drawing.
+      for (let guard = 0; cursor <= last && guard < 366; guard += 1) {
+        days.push({ id: e.id, title: e.title, date: iso(cursor), color: colour });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return days.length > 0 ? days : [{ id: e.id, title: e.title, date: iso(e.start), color: colour }];
+    });
+  }, [calendarEvents]);
 
   const eventPropGetter = (event: RbcEvent) => {
     const color = EVENT_META[event.resource.event_type]?.color ?? EVENT_META.other.color;
@@ -413,6 +441,13 @@ export default function CompanyCalendarPage() {
               events={localEvents}
               holidays={holidayMap}
               workingDays={workingDays}
+              // Clicking the event itself opens it, rather than opening the
+              // day's "new event" form underneath it — which is what happened
+              // before, and reads as the event not being clickable at all.
+              onSelectEvent={(id) => {
+                const found = calendarEvents.find((e) => e.id === id);
+                if (found) openEvent(found.resource);
+              }}
               onSelectDay={
                 canManage
                   ? (gregorian) => {
@@ -459,12 +494,17 @@ export default function CompanyCalendarPage() {
             workingDays={workingDays}
             events={calendarEvents.map((e) => e.resource)}
             holidays={isShown("holiday") ? (holidayPage?.results ?? []) : []}
-            onSelectEvent={canManage ? openEvent : undefined}
+            // Open for everybody. Detail is not an editing privilege, and a
+            // row that does nothing when clicked reads as broken rather than
+            // as restricted — the dialog itself is read-only for anybody who
+            // may not manage the calendar.
+            onSelectEvent={openEvent}
           />
         </Card>
       </Stack>
 
       <CompanyEventDialog
+        readOnly={!canManage}
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         initialStart={dialogRange?.start ?? null}

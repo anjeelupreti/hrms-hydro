@@ -7,7 +7,9 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import InputAdornment from "@mui/material/InputAdornment";
+import MenuItem from "@mui/material/MenuItem";
 import Popover from "@mui/material/Popover";
+import Select from "@mui/material/Select";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
@@ -165,6 +167,26 @@ function BikramSambatField({
   }
 
   const shown = month.data;
+
+  /**
+   * The twelve month names of whichever calendar the company runs.
+   *
+   * Served with the month rather than hardcoded: a Bikram Sambat company needs
+   * Baishakh through Chaitra and a Gregorian one needs January through
+   * December, and a list written here would be right for one of them.
+   */
+  const monthOptions = shown?.month_names ?? [];
+
+  /**
+   * A century around the year in view, which is what a date field has to
+   * reach: a date of birth is eighty years back and a licence expiry is ten
+   * forward. Rebuilt from whatever is on screen, so paging past the end of the
+   * list extends it rather than stopping.
+   */
+  const yearOptions = (() => {
+    const centre = shown?.year ?? new Date().getFullYear();
+    return Array.from({ length: 121 }, (_, index) => centre - 90 + index);
+  })();
   // Blanks before the first day so the columns line up with the weekday header.
   const leadingBlanks = shown ? shown.days[0].weekday : 0;
 
@@ -202,13 +224,63 @@ function BikramSambatField({
         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
         <Box sx={{ p: 1.5, width: 296 }}>
-          <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", mb: 1 }}>
+          {/* **The month and the year are dropdowns, not a caption.**
+              They used to be a static label between two chevrons, which is fine
+              for stepping to next month and useless for anything else: a date
+              of birth, a licence issued in 2074, a probation date two years out
+              — all of them meant clicking an arrow twenty or forty times.
+              Picking the month and the year directly is one click each. */}
+          <Stack direction="row" spacing={0.5} sx={{ alignItems: "center", mb: 1 }}>
             <IconButton size="small" onClick={() => shift(-1)} aria-label="Previous month">
               <ChevronLeftIcon fontSize="small" />
             </IconButton>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              {shown ? `${shown.month_name} ${shown.year}` : "…"}
-            </Typography>
+
+            <Select
+              size="small"
+              variant="standard"
+              disableUnderline
+              value={shown ? shown.month : ""}
+              onChange={(event) =>
+                setViewing({
+                  year: shown?.year ?? new Date().getFullYear(),
+                  month: Number(event.target.value),
+                })
+              }
+              sx={{
+                flex: 1,
+                "& .MuiSelect-select": { py: 0.25, fontSize: 14, fontWeight: 700 },
+              }}
+            >
+              {monthOptions.map((name, index) => (
+                <MenuItem key={name} value={index + 1} sx={{ fontSize: 14 }}>
+                  {name}
+                </MenuItem>
+              ))}
+            </Select>
+
+            <Select
+              size="small"
+              variant="standard"
+              disableUnderline
+              value={shown ? shown.year : ""}
+              onChange={(event) =>
+                setViewing({
+                  year: Number(event.target.value),
+                  month: shown?.month ?? 1,
+                })
+              }
+              // A long list, so it scrolls rather than running off the screen —
+              // which is the other half of "no scroll available for them".
+              MenuProps={{ slotProps: { paper: { sx: { maxHeight: 280 } } } }}
+              sx={{ "& .MuiSelect-select": { py: 0.25, fontSize: 14, fontWeight: 700 } }}
+            >
+              {yearOptions.map((year) => (
+                <MenuItem key={year} value={year} sx={{ fontSize: 14 }}>
+                  {year}
+                </MenuItem>
+              ))}
+            </Select>
+
             <IconButton size="small" onClick={() => shift(1)} aria-label="Next month">
               <ChevronRightIcon fontSize="small" />
             </IconButton>

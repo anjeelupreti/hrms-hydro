@@ -91,6 +91,7 @@ export default function BikramMonthGrid({
   holidays,
   workingDays,
   onSelectDay,
+  onSelectEvent,
 }: {
   /**
    * The month to draw, resolved by the page.
@@ -113,6 +114,14 @@ export default function BikramMonthGrid({
    */
   workingDays: number[];
   onSelectDay?: (gregorianDate: string) => void;
+  /**
+   * Clicking the event itself, rather than the day under it.
+   *
+   * Without this the click fell through to `onSelectDay` and opened the "new
+   * event" form on top of the event somebody was trying to read — which is
+   * indistinguishable from the event not being clickable.
+   */
+  onSelectEvent?: (eventId: number) => void;
 }) {
   if (!month) {
     return (
@@ -324,12 +333,27 @@ export default function BikramMonthGrid({
                   <Tooltip key={event.id} title={event.title}>
                     <Stack
                       direction="row"
+                      onClick={
+                        onSelectEvent
+                          ? (clickEvent) => {
+                              // The cell underneath opens a *new* event for
+                              // that day. Without stopping here, clicking an
+                              // existing one opened the create form over it.
+                              clickEvent.stopPropagation();
+                              onSelectEvent(event.id);
+                            }
+                          : undefined
+                      }
                       sx={{
                         alignItems: "center",
                         gap: 0.5,
                         px: 0.55,
                         py: 0.2,
                         borderRadius: "5px",
+                        cursor: onSelectEvent ? "pointer" : "inherit",
+                        "&:hover": onSelectEvent
+                          ? { filter: "brightness(0.94)" }
+                          : undefined,
                         // Tinted, with the hue carried by a bar rather than a
                         // solid fill. White 11px type on a mid-saturation block
                         // is the least legible thing on the page, and four
