@@ -160,6 +160,15 @@ export const useSendBackMemorandum = transition<{
   comment?: string;
 }>("send-back");
 export const useResubmitMemorandum = transition<{ comment?: string }>("resubmit");
+/**
+ * Move it past whoever is holding it.
+ *
+ * The initiator's release valve when a recommender is on leave or off site:
+ * the chain has no timeout and the holder is the only one who can act, so
+ * without this a memorandum stops dead on an empty desk. Logged as a skip, not
+ * as a recommendation — see `workflow.skip`.
+ */
+export const useSkipMemorandum = transition<{ comment?: string }>("skip");
 export const useApproveMemorandum = transition<{ comment?: string }>("approve");
 export const useRejectMemorandum = transition<{ comment?: string }>("reject");
 /**

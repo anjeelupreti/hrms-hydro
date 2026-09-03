@@ -193,7 +193,39 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             workflow.set_chain(memo, recommender_ids, actor=self.request.user)
         workflow.log(memo, MemorandumEvent.Kind.CREATED, actor=self.request.user, employee=me)
 
+    #: The text, which is the one document field that survives submission and
+    #: therefore the only one this rule has to cover. `subject`, `memo_date`
+    #: and `company` are frozen outright once a memorandum is sent — the
+    #: serializer refuses them with a 400 whoever asks and wherever it is
+    #: sitting — so putting them here would only change which of two refusals
+    #: came back first. The chain and the approver are excluded on purpose;
+    #: see `perform_update`.
+    DOCUMENT_FIELDS = frozenset({"content"})
+
     def perform_update(self, serializer):
+        # **Whose turn it is, enforced here and not only drawn in the browser.**
+        # There was no check at all on this path: the queryset decides who may
+        # *see* a memorandum, and everybody who could see one could PATCH it. So
+        # the initiator could rewrite the text while a recommender was reading
+        # it — somebody could be approving paragraph three while it was being
+        # replaced underneath them, and what they signed was not what they read.
+        #
+        # Scoped to the document rather than to the whole request, because the
+        # chain deliberately stays editable off-desk: a recommender goes on
+        # leave and the initiator has to be able to route around them without
+        # waiting for the person who is absent.
+        me = self._me()
+        touches_document = self.DOCUMENT_FIELDS & set(serializer.validated_data)
+        if touches_document and not workflow.may_write(serializer.instance, me):
+            raise NotYourTurn(
+                "This memorandum is not with you. You can change what it says "
+                "when it is a draft, or when it has been sent back to you."
+            )
+        if not touches_document and not (
+            me and not serializer.instance.is_locked and serializer.instance.initiator_id == me.pk
+        ):
+            raise NotYourTurn("Only the initiator can change who signs this memorandum.")
+
         recommender_ids = serializer.validated_data.pop("recommender_ids", None)
         memo = serializer.instance
         was_content = serializer.validated_data.get("content")
@@ -340,6 +372,18 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         memo = self.get_object()
         return self._run(
             workflow.resubmit,
+            memo,
+            self._me(),
+            comment=request.data.get("comment", ""),
+            actor=request.user,
+        )
+
+    @action(detail=True, methods=["post"])
+    def skip(self, request, *args, **kwargs):
+        """Move it past whoever is holding it. Initiator only — see `workflow.skip`."""
+        memo = self.get_object()
+        return self._run(
+            workflow.skip,
             memo,
             self._me(),
             comment=request.data.get("comment", ""),

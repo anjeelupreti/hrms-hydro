@@ -72,6 +72,30 @@ def _label(employee):
     return f"{name} ({code})" if code else name
 
 
+def may_write(memo, employee) -> bool:
+    """May this person change what the memorandum *says*, right now?
+
+    **Being the author is not enough; it has to be on their desk.** The rule
+    used to be "the initiator, until it is decided", which let the author keep
+    editing the text while it sat with a recommender — so somebody could be
+    reading paragraph three, and approving it, while it was being rewritten
+    underneath them. What they then signed is not what they read.
+
+    On their desk means one of two things: it is still a draft and has not gone
+    anywhere, or it has been sent back to them, which is the entire point of
+    sending one back — somebody says the third paragraph is wrong and the
+    initiator fixes the third paragraph.
+
+    A draft has no `current_holder` (it is on nobody's desk yet), which is why
+    that case is tested separately rather than folded into the holder check.
+    """
+    if employee is None or memo.is_locked:
+        return False
+    if memo.initiator_id != employee.pk:
+        return False
+    return memo.status == Memorandum.Status.DRAFT or memo.current_holder_id == employee.pk
+
+
 def _role_of(memo, employee):
     """What this person is on this memo, if anything."""
     if employee is None:
@@ -327,6 +351,56 @@ def proceed(memo, employee, *, action, comment="", actor=None):
     log(
         memo, MemorandumEvent.Kind.PROCEEDED,
         actor=actor, employee=employee, action=action, comment=comment,
+    )
+    _announce(memo)
+    return memo
+
+
+@transaction.atomic
+def skip(memo, employee, *, comment="", actor=None):
+    """The initiator moves it past whoever is holding it.
+
+    **Because people are away.** A recommender goes on leave, or is at the
+    headworks with no signal, and the memorandum stops dead on their desk with
+    nobody able to move it — the chain has no timeout and the holder is the
+    only one who can act. This is the initiator's release valve: it advances
+    the cursor exactly one step, the same as `proceed` would, without pretending
+    the absent person did anything.
+
+    **Logged as a skip, not as a recommendation.** The whole value of the chain
+    is that the approver can see who has read it; an entry saying this person
+    proceeded when they never opened it would make the log a lie. `SKIPPED`
+    says what happened, and `has_ever_acted` deliberately does not count it —
+    so somebody skipped over can still be sent back to and can still act if
+    they return before it is decided.
+
+    Only the initiator, and never over the approver: skipping the person who
+    decides would not send it anywhere, it would just be an approval nobody
+    gave.
+    """
+    if memo.is_locked:
+        raise MemorandumError("This memorandum has been decided and cannot be changed.")
+    if employee is None or memo.initiator_id != employee.pk:
+        raise NotYourTurn("Only the initiator can move a memorandum past somebody.")
+    if memo.status != Memorandum.Status.IN_PROGRESS:
+        raise MemorandumError("This memorandum is not with anybody yet.")
+    if memo.stage == Memorandum.Stage.APPROVE:
+        raise MemorandumError(
+            "The approver cannot be skipped — there is nobody after them to send it to."
+        )
+    if memo.current_holder_id == employee.pk:
+        raise MemorandumError("It is on your own desk. Send it forward rather than skipping.")
+
+    skipped = memo.current_holder
+    _place_at(memo, memo.current_index + 1)
+    memo.updated_by = actor
+    memo.save(update_fields=["stage", "current_index", "current_holder", "updated_by", "updated_at"])
+    log(
+        memo,
+        MemorandumEvent.Kind.SKIPPED,
+        actor=actor,
+        employee=employee,
+        comment=comment or f"Moved past {_label(skipped)}.",
     )
     _announce(memo)
     return memo

@@ -23,6 +23,7 @@ from memoranda.models import Memorandum, MemorandumAction, MemorandumEvent
 from memoranda.workflow import (
     MemorandumError,
     decide,
+    has_ever_acted,
     eligible_return_targets,
     proceed,
     resubmit,
@@ -404,17 +405,25 @@ def test_rejection_closes_it_the_same_way(memo, cast, recommend):
 # ── Over the wire ────────────────────────────────────────────────────────
 
 
-def test_the_content_can_be_corrected_while_it_is_in_flight(memo, cast):
-    """The point of sending one back."""
+def test_the_content_cannot_be_rewritten_while_somebody_else_holds_it(memo, cast):
+    """This used to assert the opposite, and the opposite was wrong.
+
+    The text stayed editable by the initiator for as long as the memorandum was
+    undecided — including while it sat on a recommender's desk. So somebody
+    could be reading paragraph three, and approving it, while it was being
+    replaced underneath them: what they signed was not what they read. The
+    correction happens when it comes *back*, which is what a return is for —
+    see `test_sent_back_to_the_initiator_returns_the_pen`.
+    """
     submit(memo)
 
     response = _client(cast["initiator"]).patch(
         f"{LIST}{memo.pk}/", {"content": "<p>Corrected third paragraph.</p>"}, format="json"
     )
 
-    assert response.status_code == 200, response.data
+    assert response.status_code == 403, response.data
     memo.refresh_from_db()
-    assert "Corrected" in memo.content
+    assert "Corrected" not in memo.content
 
 
 def test_the_subject_and_date_are_fixed_once_submitted(memo, cast):
@@ -831,3 +840,121 @@ def test_a_table_cannot_carry_an_event_handler_or_a_span_that_breaks_the_page(me
     assert 'colspan="64"' in memo.content
     assert 'colspan="0"' not in memo.content
     assert 'colspan="nope"' not in memo.content
+
+
+# ── Whose turn it is ─────────────────────────────────────────────────────
+
+def test_the_holder_is_not_given_the_pen_either(memo, cast):
+    """A recommender holds it, but the text is the initiator's. Holding it
+    means acting on it — proceeding, returning — not rewriting it."""
+    submit(memo)
+
+    response = _client(cast["a"]).patch(
+        f"{LIST}{memo.pk}/", {"content": "<p>My version.</p>"}, format="json"
+    )
+
+    assert response.status_code == 403, response.data
+
+
+def test_a_draft_is_still_the_initiator_s_to_write(memo, cast):
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"content": "<p>Revised.</p>"}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert "Revised." in memo.content
+
+
+def test_sent_back_to_the_initiator_returns_the_pen(memo, cast):
+    """The whole point of a return: somebody says the third paragraph is wrong
+    and the initiator fixes the third paragraph."""
+    submit(memo)
+    send_back(memo, cast["a"], to=cast["initiator"], comment="Third paragraph is wrong.")
+    memo.refresh_from_db()
+    assert memo.current_holder_id == cast["initiator"].pk
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"content": "<p>Third paragraph fixed.</p>"}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert "Third paragraph fixed." in memo.content
+
+
+# ── Skipping somebody who is away ────────────────────────────────────────
+
+
+def test_the_initiator_can_move_it_past_an_absent_recommender(memo, cast):
+    """A recommender goes on leave and the memorandum stops dead on their desk:
+    the chain has no timeout and the holder is the only one who can act."""
+    submit(memo)
+    memo.refresh_from_db()
+    assert memo.current_holder_id == cast["a"].pk
+
+    response = _client(cast["initiator"]).post(
+        f"{LIST}{memo.pk}/skip/", {"comment": "On leave until Sunday."}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert memo.current_holder_id == cast["b"].pk
+
+
+def test_a_skip_is_logged_as_a_skip_and_not_as_a_recommendation(memo, cast):
+    """The value of the chain is that the approver can see who has read it. An
+    entry saying this person proceeded, when they never opened it, would make
+    the log a lie."""
+    submit(memo)
+    _client(cast["initiator"]).post(f"{LIST}{memo.pk}/skip/", {}, format="json")
+
+    kinds = list(memo.events.values_list("kind", flat=True))
+    assert MemorandumEvent.Kind.SKIPPED in kinds
+    assert MemorandumEvent.Kind.PROCEEDED not in kinds
+    # And being skipped is not having acted, so they can still be returned to
+    # and can still act if they come back before it is decided.
+    assert not has_ever_acted(memo, cast["a"])
+
+
+def test_only_the_initiator_can_skip(memo, cast):
+    submit(memo)
+
+    response = _client(cast["b"]).post(f"{LIST}{memo.pk}/skip/", {}, format="json")
+
+    assert response.status_code == 403, response.data
+    memo.refresh_from_db()
+    assert memo.current_holder_id == cast["a"].pk
+
+
+def test_the_approver_cannot_be_skipped(memo, cast, recommend):
+    """There is nobody after them to send it to — it would be an approval that
+    nobody gave."""
+    submit(memo)
+    for person in (cast["a"], cast["b"], cast["c"]):
+        proceed(memo, person, action=recommend, comment="")
+    memo.refresh_from_db()
+    assert memo.stage == Memorandum.Stage.APPROVE
+
+    response = _client(cast["initiator"]).post(f"{LIST}{memo.pk}/skip/", {}, format="json")
+
+    assert response.status_code == 400, response.data
+
+
+def test_the_chain_can_still_be_redrawn_while_somebody_else_holds_it(memo, cast):
+    """Deliberately *not* gated on whose desk it is on. A recommender is off
+    site with no signal; the initiator has to be able to route around them
+    without waiting for the person who is absent."""
+    submit(memo)
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/",
+        {"recommender_ids": [cast["a"].pk, cast["c"].pk]},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert list(memo.recommenders.order_by("order").values_list("employee_id", flat=True)) == [
+        cast["a"].pk,
+        cast["c"].pk,
+    ]

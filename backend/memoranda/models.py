@@ -322,6 +322,10 @@ class MemorandumEvent(models.Model):
         PROCEEDED = "proceeded", "Sent on"
         #: Sent back. `returned_to` says to whom.
         RETURNED = "returned", "Sent back"
+        #: The initiator moved it past somebody who could not act — usually
+        #: absent. A kind of its own rather than a `PROCEEDED` by the wrong
+        #: person: the log has to show that this recommender did not see it.
+        SKIPPED = "skipped", "Skipped"
         RESUBMITTED = "resubmitted", "Sent forward again"
         APPROVED = "approved", "Approved"
         REJECTED = "rejected", "Rejected"

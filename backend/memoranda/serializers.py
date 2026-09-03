@@ -314,15 +314,28 @@ class MemorandumSerializer(MemorandumListSerializer):
         return bool(me and not obj.is_locked and obj.current_holder_id == me.pk)
 
     def get_can_edit_content(self, obj):
-        """The one field that survives submission — until it is decided.
+        """The one field that survives submission — while it is on their desk.
 
-        That is the point of sending a memorandum back: somebody says the third
-        paragraph is wrong and the initiator fixes the third paragraph.
+        See `workflow.may_write`. The browser draws its editor from this, and
+        the same function guards the write, so the two cannot drift.
         """
-        me = self._me()
-        return bool(me and not obj.is_locked and obj.initiator_id == me.pk)
+        from memoranda.workflow import may_write
+
+        return may_write(obj, self._me())
 
     def get_can_edit_chain(self, obj):
+        """Who signs it stays the initiator's, wherever it currently sits.
+
+        Deliberately *not* the `may_write` rule that governs the text. A
+        recommender goes on leave, or is off site with no signal, and the memo
+        stops dead on their desk — the initiator has to be able to take them
+        out of the chain or move somebody ahead of them without waiting for the
+        person who is absent. `set_chain` already refuses the two changes that
+        would rewrite history: somebody who has acted cannot be removed, and
+        neither can the person holding it right now. Skipping *that* person is
+        `skip`, which is an act with a name and a log line rather than a quiet
+        edit.
+        """
         me = self._me()
         return bool(me and not obj.is_locked and obj.initiator_id == me.pk)
 

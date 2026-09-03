@@ -68,7 +68,11 @@ export type MemorandumEventKind =
   | "approved"
   | "rejected"
   | "edited"
-  | "commented";
+  | "commented"
+  /** The initiator moved it past somebody who could not act — usually absent.
+   *  Distinct from "proceeded" on purpose: the log must not say a recommender
+   *  handled a memorandum they never opened. */
+  | "skipped";
 
 export type MemorandumEvent = {
   id: number;
