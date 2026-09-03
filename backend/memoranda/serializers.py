@@ -141,6 +141,21 @@ class MemorandumListSerializer(serializers.ModelSerializer):
     #: The seat, for the letterhead. A memorandum is printed and filed, and a
     #: letterhead with no address on it is not one.
     company_address = serializers.SerializerMethodField()
+    #: The mark at the top of the page. A letterhead without one is a typed
+    #: sheet, not a letterhead — and every company here has a logo field
+    #: precisely so its paper looks like its paper.
+    company_logo = serializers.SerializerMethodField()
+    #: The line under the address: registration and PAN, which is what a
+    #: Nepali company's letterhead carries and what anybody filing the printout
+    #: needs off the page.
+    company_registration = serializers.CharField(
+        source="company.registration_number", read_only=True, default=""
+    )
+    company_pan = serializers.CharField(
+        source="company.pan_vat_number", read_only=True, default=""
+    )
+    company_phone = serializers.CharField(source="company.phone", read_only=True, default="")
+    company_email = serializers.CharField(source="company.email", read_only=True, default="")
     initiator_name = serializers.SerializerMethodField()
     approver_name = serializers.SerializerMethodField()
     #: Post held, for the To and From lines. A memorandum addresses an office
@@ -160,6 +175,8 @@ class MemorandumListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "memo_id", "subject", "memo_date",
             "company", "company_name", "company_code", "company_address",
+            "company_logo", "company_registration", "company_pan",
+            "company_phone", "company_email",
             "status", "status_display", "stage", "stage_display",
             "initiator", "initiator_name", "initiator_post",
             "approver", "approver_name", "approver_post",
@@ -173,6 +190,19 @@ class MemorandumListSerializer(serializers.ModelSerializer):
 
     def get_approver_name(self, obj):
         return _name(obj.approver)
+
+    def get_company_logo(self, obj):
+        """An absolute URL when there is a request to build one from.
+
+        Relative otherwise, which is what a management command or a task gets —
+        those never render a letterhead, so a path they cannot resolve costs
+        nothing, and raising instead would break them for no gain.
+        """
+        logo = getattr(obj.company, "logo", None)
+        if not logo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(logo.url) if request else logo.url
 
     def get_company_address(self, obj):
         company = obj.company

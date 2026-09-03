@@ -62,6 +62,33 @@ const BLOCKS = [
   { label: "Quote", value: "blockquote" },
 ];
 
+/**
+ * The faces a memorandum actually gets typed in.
+ *
+ * **Preeti is why this list exists.** It is the legacy Nepali font almost every
+ * office in the country still types in: it is not Unicode Devanagari but an
+ * ASCII font whose glyphs *look* Nepali, so `s;kgL` renders as कम्पनी only when
+ * the Preeti face is applied. Text pasted from an older document therefore
+ * arrives as Latin gibberish in any other font, and somebody typing on a Preeti
+ * keyboard layout sees the same. Offering the face is the whole fix — the
+ * characters were always right, they were being drawn with the wrong shapes.
+ *
+ * Kalimati and Sagarmatha are the other two in common use and cost a line each.
+ * Unicode Devanagari is served by the body face and needs no entry.
+ *
+ * Applied with `fontName`, which writes a `<font face>` the sanitiser keeps as
+ * a style — so the face survives being saved and read back, which is the only
+ * thing that makes it useful.
+ */
+const FONTS = [
+  { label: "Default", value: "" },
+  { label: "Preeti", value: "Preeti" },
+  { label: "Kalimati", value: "Kalimati" },
+  { label: "Sagarmatha", value: "Sagarmatha" },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Mono", value: "ui-monospace, monospace" },
+];
+
 type Mark = "bold" | "italic" | "underline" | "strikeThrough";
 
 export default function RichTextEditor({
@@ -120,6 +147,18 @@ export default function RichTextEditor({
     // clicking a toolbar button moves focus to the button otherwise, and the
     // command lands on nothing.
     ref.current?.focus();
+    // **Spans, not `<font>`.** With `styleWithCSS` off — the default in
+    // Chromium — `fontName` and `fontSize` emit `<font face>` and `<font
+    // size>`, and `<font>` is not on the sanitiser's tag allow-list. The tag is
+    // dropped on save and the face goes with it, so choosing Preeti would work
+    // until the moment it was stored. Turning it on makes the same commands
+    // write `<span style="font-family: …">`, which the sanitiser keeps because
+    // `font-family` is an allowed property.
+    try {
+      document.execCommand("styleWithCSS", false, "true");
+    } catch {
+      // Not implemented everywhere; the command below still runs.
+    }
     document.execCommand(command, false, argument);
     syncToolbar();
     report();
@@ -161,6 +200,26 @@ export default function RichTextEditor({
           {BLOCKS.map((b) => (
             <MenuItem key={b.value} value={b.value} sx={{ fontSize: 13 }}>
               {b.label}
+            </MenuItem>
+          ))}
+        </Select>
+
+        <Select
+          size="small"
+          value=""
+          displayEmpty
+          renderValue={() => "Font"}
+          onChange={(e) => run("fontName", String(e.target.value))}
+          disabled={disabled}
+          sx={{ minWidth: 92, "& .MuiSelect-select": { py: 0.5, fontSize: 13 } }}
+        >
+          {FONTS.map((f) => (
+            <MenuItem
+              key={f.label}
+              value={f.value}
+              sx={{ fontSize: 13, fontFamily: f.value || undefined }}
+            >
+              {f.label}
             </MenuItem>
           ))}
         </Select>

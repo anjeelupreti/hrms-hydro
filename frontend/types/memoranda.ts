@@ -103,6 +103,15 @@ export type MemorandumListItem = {
   company_code: string;
   /** The seat, for the letterhead. A letterhead with no address is not one. */
   company_address: string;
+  /** The mark at the top of the page. Absolute when the request could build
+   *  one; null when the company has no logo. */
+  company_logo: string | null;
+  /** The line under the address — what a Nepali company's letterhead carries
+   *  and what anybody filing the printout needs off the page. */
+  company_registration: string;
+  company_pan: string;
+  company_phone: string;
+  company_email: string;
   status: MemorandumStatus;
   status_display: string;
   stage: MemorandumStage;

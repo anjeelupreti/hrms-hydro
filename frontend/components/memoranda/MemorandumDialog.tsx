@@ -17,7 +17,6 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Divider from "@mui/material/Divider";
-import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Skeleton from "@mui/material/Skeleton";
@@ -34,6 +33,7 @@ import RichTextEditor, { RichText } from "@/components/common/RichTextEditor";
 import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
 import { useCompanies } from "@/hooks/useCompanies";
+import { useEmployees } from "@/hooks/useEmployees";
 import {
   useAddMemorandumAttachment,
   useApproveMemorandum,
@@ -157,6 +157,23 @@ export default function MemorandumDialog({
     companyPage?.results?.find((c) => c.id === values.company)?.name ?? memo?.company_name ?? null;
   const approverName = memo?.approver === values.approver ? memo?.approver_name ?? null : null;
 
+  /**
+   * The Through line, in the order the chain will see it.
+   *
+   * Read from the *form values* rather than the saved record, so somebody
+   * picking recommenders watches them appear on the page. Falls back to the
+   * saved row's name when the directory page has not loaded that person.
+   */
+  const { data: staffPage } = useEmployees({ page: 1, pageSize: 200 });
+  const throughNames = values.recommender_ids
+    .map(
+      (id) =>
+        staffPage?.results?.find((person) => person.id === id)?.full_name ??
+        memo?.recommenders.find((row) => row.employee === id)?.employee_name ??
+        null
+    )
+    .filter((name): name is string => Boolean(name));
+
   useEffect(() => {
     if (!open) return;
     setValues(
@@ -270,7 +287,7 @@ export default function MemorandumDialog({
     approve.isPending || reject.isPending || resubmit.isPending;
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
       <DialogTitle sx={{ pb: 1.5 }}>
         <Stack direction="row" spacing={1.5} sx={{ alignItems: "center", flexWrap: "wrap" }}>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>
@@ -302,101 +319,134 @@ export default function MemorandumDialog({
         {loading ? (
           <Skeleton variant="rounded" height={480} />
         ) : (
-          <Stack spacing={3.5}>
-            {/* ── The letter ────────────────────────────────────────────
-                One page, in the order a memorandum is actually laid out.
-                Where a field may still be changed, the control sits in the
-                place its value would be printed — so filling this in is
-                filling in the letter, not filling in a form about a letter. */}
-            <MemorandumLetter
-              memo={memo}
-              draft={{
-                subject: values.subject,
-                content: values.content,
-                memo_date: values.memo_date,
-                companyName: companyName,
-                approverName: approverName,
+          /* ── Page on the left, everything else on the right ────────────
+             The controls used to sit *inside* the page, in the places their
+             values print. It read well as an idea and badly on screen: a
+             rich-text toolbar inside a white sheet inherits the sheet's serif
+             and its ink, so the controls washed out against the paper and the
+             thing meant to look like a document looked like a form wearing one.
+
+             Split, each half gets to be itself. The page renders live as the
+             column beside it is typed into — which is the same immediacy the
+             in-place editing was reaching for, without the two fighting over
+             one set of colours. It is also how the reader thinks about it:
+             the document, and the work being done to it. */
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={3}
+            sx={{ alignItems: "flex-start" }}
+          >
+            {/* The page. Sticky on a wide screen so it stays in view while the
+                working column beside it is scrolled — the point of the split is
+                seeing the effect of what you type. */}
+            <Box
+              sx={{
+                flex: { md: "1 1 58%" },
+                minWidth: 0,
+                width: "100%",
+                position: { md: "sticky" },
+                top: { md: 0 },
               }}
-              slots={{
-                company: isDraft && !locked ? (
-                  <CompanyPicker
-                    label="Company"
-                    required
-                    value={values.company}
-                    onChange={(id) => set("company", id)}
-                    size="small"
+            >
+              <MemorandumLetter
+                memo={memo}
+                draft={{
+                  subject: values.subject,
+                  content: values.content,
+                  memo_date: values.memo_date,
+                  companyName,
+                  approverName,
+                  throughNames,
+                }}
+              />
+            </Box>
+
+            {/* The working column. */}
+            <Stack spacing={3} sx={{ flex: { md: "1 1 42%" }, minWidth: 0, width: "100%" }}>
+              {isDraft && !locked ? (
+                <Box>
+                  <SectionHeading
+                    title="Compose"
+                    hint="The page beside this updates as you type."
                   />
-                ) : undefined,
-                date: isDraft && !locked ? (
-                  <Box sx={{ maxWidth: 200 }}>
+                  <Stack spacing={2} sx={{ mt: 1.5 }}>
+                    <CompanyPicker
+                      label="Company"
+                      required
+                      value={values.company}
+                      onChange={(id) => set("company", id)}
+                      size="small"
+                      helperText="Its code goes into the memorandum number."
+                    />
                     <DateField
-                      label=""
+                      label="Date"
                       required
                       value={values.memo_date}
                       onChange={(value) => set("memo_date", value)}
+                      helperText="Must be today when you submit."
+                    />
+                    <TextField
+                      label="Subject"
+                      fullWidth
+                      required
+                      size="small"
+                      value={values.subject}
+                      onChange={(e) => set("subject", e.target.value)}
+                    />
+                  </Stack>
+                </Box>
+              ) : null}
+
+              {canEditBody ? (
+                <Box>
+                  <SectionHeading
+                    title="The memorandum"
+                    hint={
+                      isDraft
+                        ? undefined
+                        : "The only field that can still be changed once it is on its way."
+                    }
+                  />
+                  <Box sx={{ mt: 1.5 }}>
+                    <RichTextEditor
+                      value={values.content}
+                      onChange={(html) => set("content", html)}
                     />
                   </Box>
-                ) : undefined,
+                </Box>
+              ) : null}
 
-                subject: isDraft && !locked ? (
-                  <TextField
-                    fullWidth
-                    required
-                    variant="standard"
-                    placeholder="What this memorandum is about"
-                    value={values.subject}
-                    onChange={(e) => set("subject", e.target.value)}
-                  />
-                ) : undefined,
-                body: canEditBody ? (
-                  <RichTextEditor
-                    value={values.content}
-                    onChange={(html) => set("content", html)}
-                  />
-                ) : undefined,
-              }}
-            />
-
-            {/* ── Attachments ───────────────────────────────────────────
-                The initiator's, and only while it is theirs to change: a
-                draft, or one that has come back to them. A chain that has
-                read three annexes must not find a fourth appear underneath
-                its signatures. */}
-            <AttachmentsSection
-              memo={memo}
-              isNew={isNew}
-              canAttach={canAttach}
-              file={file}
-              setFile={setFile}
-              caption={caption}
-              setCaption={setCaption}
-              onAttach={() => {
-                if (!memo || !file) return;
-                run(
-                  addAttachment.mutateAsync({ id: memo.id, file, caption }),
-                  () => {
+              <AttachmentsSection
+                memo={memo}
+                isNew={isNew}
+                canAttach={canAttach}
+                file={file}
+                setFile={setFile}
+                caption={caption}
+                setCaption={setCaption}
+                onAttach={() => {
+                  if (!memo || !file) return;
+                  run(addAttachment.mutateAsync({ id: memo.id, file, caption }), () => {
                     setFile(null);
                     setCaption("");
-                  }
-                );
-              }}
-              onRemove={(attachmentId) => {
-                if (!memo) return;
-                removeAttachment.mutate({ id: memo.id, attachmentId });
-              }}
-              busy={addAttachment.isPending}
-            />
+                  });
+                }}
+                onRemove={(attachmentId) => {
+                  if (!memo) return;
+                  removeAttachment.mutate({ id: memo.id, attachmentId });
+                }}
+                busy={addAttachment.isPending}
+              />
 
-            {/* ── Who signs it, and who approves it ─────────────────────── */}
-            <ChainTab
-              memo={memo}
-              values={values}
-              set={set}
-              editable={isNew || Boolean(memo?.can_edit_chain)}
-            />
+              <ChainTab
+                memo={memo}
+                values={values}
+                set={set}
+                editable={isNew || Boolean(memo?.can_edit_chain)}
+              />
 
-            {/* ── What has happened to it ───────────────────────────────── */}
-            <HistoryTab memo={memo} />
+              <HistoryTab memo={memo} />
+            </Stack>
           </Stack>
         )}
 
