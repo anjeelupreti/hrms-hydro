@@ -189,7 +189,7 @@ end date.
 
 ---
 
-## 5. Memoranda
+## 5. Memorandum
 
 ![Memoranda](docs/screenshots/05-memoranda.png)
 
@@ -206,22 +206,64 @@ memoranda covering every state.
 
 Searching switches to a flat result list across everything you can see.
 
+### It opens as a letter
+
+There are no tabs. A memorandum is one page, laid out the way one is actually
+written:
+
+```
+              Sanjen Jalavidyut Company Limited
+                       Rasuwa, Bagmati
+                        MEMORANDUM
+────────────────────────────────────────────────────────
+Ref:   2026-09-02-SJCL-0005            Date:  17 Bhadra 2083
+To:    Rajendra Poudel, Chief Executive Officer
+From:  Hari Pariyar, Shift Engineer
+────────────────────────────────────────────────────────
+Subject:  Revision of the Sanjen access road alignment
+
+    …the proposal…
+```
+
+**Where a field can still be changed, the control is in the place its value
+would be printed.** The company picker *is* the letterhead. The subject box *is*
+the subject line. The editor *is* the body. There is nothing to learn beyond
+where to click.
+
+The **status** and **who is holding it** sit clipped to the top-right corner,
+outside the sheet — a real memorandum does not carry a chip reading "in
+progress".
+
+Below the page, in order: **Attachments**, **Who signs it** (recommenders, then
+the approver — who becomes the To), and **What has happened to it**.
+
+| Line | Changeable |
+|---|---|
+| Ref | Never typed. Issued by the system at submission |
+| Date | While it is a draft, and must be today when you submit |
+| To | Until it reaches them — chosen under *Who signs it* |
+| From | Never. Whoever raised it |
+| Subject | While it is a draft |
+| Body | The one field that survives submission, by the initiator |
+
 ### Raising one
 
-1. Click **New memorandum**.
-2. Pick a **company** — its code goes into the memorandum number.
+1. Click **New memorandum**. A blank letter opens.
+2. Click the **letterhead** and pick a company — its code goes into the number.
 3. The **date** is today and must still be today when you submit. Backdating is
    refused: a memorandum is dated the day it is raised.
-4. Write a **subject**.
-5. Write the **content** in the rich-text editor — bold, italic, underline, font
-   size, lists, alignment.
-6. Choose **recommenders** in the order they should see it, and **one approver**.
+4. Click the **subject line** and write one.
+5. Click into the **page** and write the proposal — bold, italic, underline,
+   font size, lists, alignment.
+6. Scroll below the page to **Who signs it**. Add **recommenders** in the order
+   they should see it, then **one approver**.
 7. Click **Save draft**.
 
 > The dialog reopens on the saved draft rather than closing. Attachments hang off
 > a memorandum, so there has to be one before you can attach anything.
 
-8. Now attach files. Multiple, each with an optional caption.
+8. Now attach files. Multiple, each with an optional caption. This is the
+   initiator's, and only on their turn — a draft, or one sent back to them.
 9. Click **Submit**.
 
 The number appears: `2026-09-02-VLUCL-0001` — date, company code, serial. It is
@@ -248,6 +290,10 @@ down the chain who spots a problem before it reaches them.
 - **Attach** puts files on the comment. These are separate from the memorandum's
   annexes and do not appear in its attachment list — a reply is not part of the
   proposal.
+
+> **One comment box per person.** Whoever is holding it comments in the action
+> panel, where the note travels with the decision. Everybody else uses the box
+> below the history. If you can see two, that is a bug — report it.
 
 ### The five people in the seeded chains
 
@@ -301,8 +347,8 @@ The clearest single test, end to end:
    again.
 6. Sign in as `rajendra.poudel` and **Approve**.
 7. Now try to change anything — the content, a comment, a rejection. All
-   refused. Check the **History** tab: every step is there, in order, with who
-   and when.
+   refused. Scroll to **What has happened to it** below the page: every step is
+   there, in order, with who and when.
 
 ### What can be edited, and when
 

@@ -632,24 +632,59 @@ def memoranda(m: Manual) -> None:
         widths=[0.35, 1.5, 4.65],
     )
 
-    m.h2("5.2 Raising one")
+    m.h2("5.2 The letter")
+    m.p(
+        "A memorandum opens as the sheet of paper it replaces: a letterhead with "
+        "the company and its seat, then Ref and Date, then To and From, then the "
+        "Subject, then the body, and a signature at the foot. There are no tabs "
+        "and nothing to switch between."
+    )
+    m.rich(
+        ("Where a field can still be changed, the control sits where its value "
+         "would be printed", True),
+        (". The company picker is the letterhead. The subject box is the subject "
+         "line. The editor is the body. Filling one in is filling in the letter, "
+         "which is the point: there is nothing to learn beyond where to click.",
+         False),
+    )
+    m.table(
+        ["Line", "What goes there", "When it can be changed"],
+        [
+            ["Ref", "The memorandum number", "Issued by the system at submission. Never typed."],
+            ["Date", "The date it is raised", "While it is a draft. It must be today when you submit."],
+            ["To", "The approver", "Until it reaches them. Chosen under Who signs it."],
+            ["From", "You, and the post you hold", "Never — it is whoever raised it."],
+            ["Subject", "One line, what this is about", "While it is a draft."],
+            ["Body", "The proposal itself", "While anybody in the chain still has it, by the initiator. The one field that survives submission."],
+        ],
+        widths=[0.7, 2.4, 3.4],
+    )
+    m.note(
+        "The status and who is holding it sit on a tab clipped to the top-right "
+        "corner, outside the sheet. A real memorandum does not carry a chip "
+        "reading “in progress” — that is something the system knows about the "
+        "document, not something the document says.",
+        "note",
+    )
+
+    m.h2("5.3 Raising one")
     m.figure("fig-memorandum-new", "Figure 5.2 — A new memorandum")
     m.h3("Step by step")
     m.steps([
-        "Click Memoranda in the sidebar, under Workplace.",
-        "Click New memorandum, at the top right. A dialog opens on the Memorandum tab.",
-        "Company — click the dropdown and choose one of the four entities. Its code becomes part of the memorandum number, so this cannot be changed after submission.",
-        "Date — already filled in with today. It must still be today when you submit.",
-        "Subject — one line, what this is about.",
-        "Content — the rich-text box. The toolbar gives bold, italic, underline, strike-through, font size, bulleted and numbered lists, alignment, and undo.",
-        "Click the Chain tab to choose who sees it.",
-        "Recommenders — add people in the order they should see it. The order is the order you add them in.",
-        "Approver — one person, chosen from the same picker.",
+        "Click Memorandum in the sidebar, under Workplace.",
+        "Click New memorandum, at the top right. A blank letter opens.",
+        "Company — click the letterhead at the top of the page and choose one of the four entities. Its code becomes part of the memorandum number, so it cannot be changed after submission.",
+        "Date — on the right of the Ref line, already filled in with today.",
+        "Subject — click the subject line and type one line saying what this is about.",
+        "Body — click into the page and write. The toolbar gives bold, italic, underline, strike-through, font size, bulleted and numbered lists, alignment, and undo.",
+        "Scroll below the page to Who signs it.",
+        "Recommenders — add people in the order they should see it. The order you pick them is the order they get it.",
+        "Approver — one person, beside the recommenders. They become the To of the letter.",
         "Click Save draft. The dialog reopens on the saved draft.",
         "Attachments — now use Choose a file, add a caption, and click Attach. Repeat for as many as you need.",
         "Click Submit.",
     ])
-    m.figure("fig-memorandum-chain", "Figure 5.3 — Choosing the chain")
+    m.figure("fig-memorandum-chain", "Figure 5.3 — Below the page: attachments, who signs it, and the history")
     m.note(
         "The dialog reopens rather than closing when you save a new draft. "
         "Attachments hang off a memorandum, so one has to exist before there is "
@@ -666,7 +701,7 @@ def memoranda(m: Manual) -> None:
          "number out of the company's register. The serial runs per company.", False),
     )
 
-    m.h2("5.3 Handling one")
+    m.h2("5.4 Handling one")
     m.figure("fig-memorandum-open", "Figure 5.4 — A memorandum in flight")
     m.p(
         "When a memorandum reaches you it appears under Needs you. Open it and "
@@ -684,11 +719,20 @@ def memoranda(m: Manual) -> None:
         widths=[1.2, 5.3],
     )
 
-    m.h2("5.4 Comments, mentions and files")
+    m.h2("5.5 Comments, mentions and files")
     m.p(
         "Anybody who can see a memorandum can comment on it — including "
         "somebody three steps down the chain who spots a problem before it "
         "reaches them. A comment can carry two extra things."
+    )
+    m.note(
+        "There is one comment box per person, and where it is depends on whose "
+        "turn it is. Whoever is holding the memorandum comments in the action "
+        "panel, where the note travels with the decision. Everybody else uses "
+        "the box below the history. Two boxes that look the same, one of which "
+        "silently attaches to whichever button you press next, is a choice "
+        "nobody should have to make.",
+        "note",
     )
     m.h3("Naming somebody")
     m.steps([
@@ -717,7 +761,7 @@ def memoranda(m: Manual) -> None:
         "note",
     )
 
-    m.h2("5.5 The rules")
+    m.h2("5.6 The rules")
     m.p(
         "These are enforced by the system, not by convention. Each one refuses "
         "with a sentence saying why."
@@ -737,7 +781,7 @@ def memoranda(m: Manual) -> None:
         widths=[2.3, 4.2],
     )
 
-    m.h2("5.6 The cycle")
+    m.h2("5.7 The cycle")
     m.p(
         "Returning is not a dead end and not a reset. The memorandum is at a "
         "position in its chain; sending it back moves that position backwards, "
@@ -760,7 +804,7 @@ def memoranda(m: Manual) -> None:
         "warn",
     )
 
-    m.h2("5.7 The history")
+    m.h2("5.8 The history")
     m.figure("fig-memorandum-history", "Figure 5.5 — The full history")
     m.p(
         "Every memorandum carries a complete log: who did what, in what words, "
@@ -770,7 +814,7 @@ def memoranda(m: Manual) -> None:
     )
     m.p("The words in the log are frozen when the entry is written. Renaming an action later does not rewrite history.")
 
-    m.h2("5.8 The action vocabulary")
+    m.h2("5.9 The action vocabulary")
     m.figure("fig-memorandum-actions", "Figure 5.6 — The configurable action table")
     m.rich(
         ("Every organisation argues over its own words — recommended, noted, "
@@ -782,7 +826,7 @@ def memoranda(m: Manual) -> None:
     )
     m.h3("Step by step: adding a word")
     m.steps([
-        "Go to Memoranda and click Actions, or Settings then Memorandum actions.",
+        "Go to Memorandum and click Actions, or Settings then Memorandum actions.",
         "Click Add an action.",
         "Word — what appears in the log. For example, Endorsed.",
         "Code — a short identifier, upper case.",
