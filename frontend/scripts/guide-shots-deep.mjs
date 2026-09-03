@@ -89,6 +89,22 @@ async function shot(name) {
   console.log(`  shot ${name}`);
 }
 
+/**
+ * Scroll the open dialog's body to a fraction of its height.
+ *
+ * The memorandum is one page rather than three tabs, so documenting the bands
+ * under the letter means scrolling to them. A fraction rather than a pixel
+ * count: the page is as long as its content, and a fixed offset would land
+ * somewhere different on every memorandum.
+ */
+async function scrollDialogTo(fraction) {
+  const body = page.locator('[role="dialog"] .MuiDialogContent-root').first();
+  await body.evaluate((el, f) => {
+    el.scrollTop = (el.scrollHeight - el.clientHeight) * f;
+  }, fraction);
+  await page.waitForTimeout(1200);
+}
+
 /** Press Escape until no dialog is left standing, so the next step starts clean. */
 async function clearDialogs() {
   for (let i = 0; i < 4; i += 1) {
@@ -129,8 +145,9 @@ const STEPS = [
   {
     name: "33-memorandum-chain",
     async run() {
-      await page.getByRole("tab", { name: /chain/i }).click({ timeout: 10_000 });
-      await page.waitForTimeout(1500);
+      // Not a tab any more — the chain is a band below the letter, so this
+      // scrolls the dialog to it rather than clicking something that is gone.
+      await scrollDialogTo(0.62);
     },
   },
   {
@@ -145,8 +162,7 @@ const STEPS = [
   {
     name: "35-memorandum-history",
     async run() {
-      await page.getByRole("tab", { name: /history/i }).click({ timeout: 10_000 });
-      await page.waitForTimeout(1500);
+      await scrollDialogTo(1);
     },
   },
   {

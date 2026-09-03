@@ -287,6 +287,10 @@ function LetterLine({
           fontFamily: "inherit",
           fontSize: ".9rem",
           fontWeight: bold ? 700 : 400,
+          // `flex: 1` so a slot can fill the line. Without it the value is a
+          // shrink-to-fit inline span, and the subject box was cut off after
+          // twenty characters — you could not read what you had just typed.
+          flex: 1,
           minWidth: 0,
           wordBreak: "break-word",
         }}
