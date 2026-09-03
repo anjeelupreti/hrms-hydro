@@ -203,7 +203,14 @@ services:
     # The cost is that a source change needs a `docker compose restart frontend`
     # to be picked up, which is the right trade for an environment whose job is
     # to be tried rather than edited.
-    command: sh -c "npm install && npm run build && npm run start -- -p 3000"
+    # `--prefer-offline` uses the cache rather than re-checking the registry for
+    # packages that have not moved; `--no-audit` and `--no-fund` skip two passes
+    # that print advice nobody reads during a container start. Together they
+    # take the no-op install from about fifteen seconds to two.
+    command: >
+      sh -c "npm install --prefer-offline --no-audit --no-fund
+      && npm run build
+      && npm run start -- -p 3000"
     # It still exits silently if the box runs out of memory mid-build, and an
     # exit code of 0 makes that look like a clean shutdown. Restarting is not a
     # fix for the memory use; it is a fix for the *silence*.
@@ -277,6 +284,23 @@ services:
       #
       # A named volume keeps the cache inside the Linux VM where the container
       # actually runs. Nothing in it is source, so losing it costs one rebuild.
+      # **`node_modules` in a named volume, not on the bind mount.**
+      #
+      # This is the single biggest thing in the build time. `../frontend:/app`
+      # crosses the Windows host filesystem, and a Next build reads essentially
+      # every file of every one of ~500 packages — each read paying the
+      # crossing. The measured build on the host is 81 seconds; in the container
+      # it was four to five minutes, and the difference is almost entirely this
+      # directory.
+      #
+      # A named volume lives in the Linux VM, so those reads are local. It also
+      # keeps the host's `node_modules` — built against Windows — from being
+      # seen by an Alpine container that needs Linux binaries for anything with
+      # a native component.
+      #
+      # It is populated by the `npm install` in the command below and survives
+      # restarts, so only a changed `package.json` costs anything.
+      - hrms_frontend_modules:/app/node_modules
       - hrms_frontend_next:/app/.next
     ports:
       - "3001:3000"
@@ -286,6 +310,11 @@ services:
       - backend
 
 volumes:
+  hrms_frontend_modules:
+    # Named for the same reason as the others: Compose would otherwise derive it
+    # from the `deployment/` folder name and collide with any project laid out
+    # the same way.
+    name: hrms_hydro_frontend_modules
   hrms_frontend_next:
     # Named for the same reason as the database below: compose would otherwise
     # derive it from the `deployment/` folder name and collide with any other
