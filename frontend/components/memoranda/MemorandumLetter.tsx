@@ -842,33 +842,13 @@ export default function MemorandumLetter({
           </Box>
         ) : null}
 
-        {/* ── The foot of the page ───────────────────────────────────── */}
-        {memo?.initiator_name || draft?.fromName ? (
-          <Box sx={{ pt: 6, display: "flex", justifyContent: "flex-end" }}>
-            <Box sx={{ textAlign: "center", minWidth: 210 }}>
-              <Box sx={{ borderTop: "1px solid", borderColor: alpha("#16181d", 0.4), pt: 0.75 }}>
-                <Typography
-                  sx={{
-                    fontFamily: "inherit",
-                    fontSize: ".88rem",
-                    fontWeight: 600,
-                    // Greyed until it is real, matching the From line.
-                    color: memo?.initiator_name ? "inherit" : "#9aa1ae",
-                  }}
-                >
-                  {memo?.initiator_name
-                    ? withCode(memo.initiator_name, memo.initiator_code)
-                    : draft?.fromName}
-                </Typography>
-                {memo?.initiator_post ? (
-                  <Typography sx={{ fontFamily: "inherit", fontSize: ".78rem", color: "#5a6070" }}>
-                    {memo.initiator_post}
-                  </Typography>
-                ) : null}
-              </Box>
-            </Box>
-          </Box>
-        ) : null}
+        {/* The initiator's signature block used to close the page here, and is
+            gone. They are already named on the From line at the top, which is
+            where a letter says who it is from — repeating them over a rule at
+            the foot made the author look like a signatory to their own
+            request. The marks that belong on the page are the ones that were
+            given *to* it: the recommenders who acted and the approver who
+            decided, which is the block above. */}
         </Box>
       </Box>
       </Box>
