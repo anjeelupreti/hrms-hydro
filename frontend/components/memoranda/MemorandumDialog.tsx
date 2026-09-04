@@ -7,6 +7,8 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import LockIcon from "@mui/icons-material/Lock";
 import SendIcon from "@mui/icons-material/Send";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
+import EditIcon from "@mui/icons-material/Edit";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import UndoIcon from "@mui/icons-material/Undo";
 import Alert from "@mui/material/Alert";
 import Avatar from "@mui/material/Avatar";
@@ -18,6 +20,8 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Divider from "@mui/material/Divider";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import Skeleton from "@mui/material/Skeleton";
@@ -41,7 +45,6 @@ import { useMe } from "@/hooks/useMe";
 import {
   useAddMemorandumAttachment,
   useApproveMemorandum,
-  useCommentOnMemorandum,
   useDeleteMemorandum,
   useMemorandumActions,
   useProceedMemorandum,
@@ -167,7 +170,6 @@ export default function MemorandumDialog({
   const skipHolder = useSkipMemorandum();
   const approve = useApproveMemorandum();
   const reject = useRejectMemorandum();
-  const addComment = useCommentOnMemorandum();
   const destroy = useDeleteMemorandum();
   const addAttachment = useAddMemorandumAttachment();
   const removeAttachment = useRemoveMemorandumAttachment();
@@ -181,13 +183,16 @@ export default function MemorandumDialog({
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
-  // Separate from `comment`, which is the note that travels *with* an action
-  // (approve, send back). Sharing one field meant a holder typing a standalone
-  // remark would find it attached to whichever button they pressed next.
-  const [remark, setRemark] = useState("");
-  const [mentions, setMentions] = useState<number[]>([]);
   const [skipReason, setSkipReason] = useState("");
-  const [commentFiles, setCommentFiles] = useState<File[]>([]);
+  /**
+   * Editing, or looking at it.
+   *
+   * Starts on Edit for a draft you are writing and on Preview for anything
+   * else — opening a memorandum that is with somebody else to read it is by
+   * far the commonest thing anybody does here, and landing them in an editor
+   * asks them to work out that they are not meant to be typing.
+   */
+  const [editing, setEditing] = useState(true);
 
   const isNew = memo === null;
   const isDraft = isNew || memo?.status === "draft";
@@ -271,6 +276,8 @@ export default function MemorandumDialog({
     setActionId("");
     setReturnTo("");
     setError(null);
+    // A new memorandum is written; an existing one is usually read.
+    setEditing(memo === null || memo.status === "draft");
   }, [open, memo]);
 
   // The default target is the initiator, which is where a returned memorandum
@@ -431,146 +438,136 @@ export default function MemorandumDialog({
             renderLayout={({ toolbar, surface }) => (
               <Stack spacing={2}>
                 {/* ── The ribbon ───────────────────────────────────────────
-                    Across the top, the way a word processor puts it, rather
-                    than welded to a box in a column. Somebody who has written
-                    memoranda on paper for thirty years is being asked to do it
-                    on a screen; the closer this is to the tool they already
-                    know, the less of it they have to be taught.
+                    Across the top, the way a word processor puts it. Sticky,
+                    because the page below is a metre of A4 and controls that
+                    scroll away are controls you have to go and find.
 
-                    Sticky, because the page below is a metre of A4 and controls
-                    that scroll away are controls you have to go and find. */}
-                {canEditBody ? (
-                  <Box
-                    sx={(theme) => ({
-                      position: "sticky",
-                      top: 0,
-                      zIndex: 3,
-                      border: "1px solid",
-                      borderColor: "divider",
-                      borderRadius: 2,
-                      overflow: "hidden",
-                      // 🔒 `theme.vars`, not `theme.palette`. The theme is built
-                      // with `cssVariables` + `colorSchemes`, so reading
-                      // `theme.palette.background.paper` here resolves the
-                      // *light* value once and keeps it — this bar came out
-                      // white in dark mode, under white icons, which read as
-                      // the toolbar having no controls at all.
-                      bgcolor: theme.vars.palette.background.paper,
-                    })}
-                  >
-                    {toolbar}
-                  </Box>
-                ) : null}
-
+                    **Only while editing.** Reading a memorandum needs no
+                    toolbar, and Preview takes it away — which is the whole
+                    point of the toggle beside it. */}
                 <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  spacing={3}
-                  sx={{ alignItems: "flex-start" }}
+                  direction="row"
+                  spacing={1}
+                  sx={{
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 3,
+                    alignItems: "flex-start",
+                  }}
                 >
-                  {/* ── The page ─────────────────────────────────────────
-                      The whole left side, and the writing happens on it: the
-                      surface goes into the letter's body, so the words land
-                      where they will print instead of in a form beside a
-                      preview of themselves. */}
-                  <Box sx={{ flex: { md: "1 1 62%" }, minWidth: 0, width: "100%" }}>
-                    <MemorandumLetter
-                      printable
-                      memo={memo}
-                      body={canEditBody ? surface : undefined}
-                      history={memo?.events ?? []}
-                      // **Filled in on the form, not beside it.** These used to
-                      // be a "Basic details" card in the rail, which made the
-                      // page a live preview of a form — the consequence of an
-                      // edit happening somewhere else. Somebody who has filled
-                      // in paper forms for thirty years knows how to fill in
-                      // the blanks on the form.
-                      // **`canEditBody`, not `canEditChain`.** They look
-                      // interchangeable and are not: the chain stays editable
-                      // off-desk on purpose, so the initiator can route around
-                      // somebody who is away. What the letter *says* — its
-                      // company, date and subject — is only theirs while it is
-                      // on their desk. Gated on the chain flag, the company
-                      // picker appeared when it was somebody else's turn and
-                      // the API then refused the write: a control that exists
-                      // to be rejected.
-                      fields={
-                        canEditBody
-                          ? {
-                              company: (
-                                <CompanyPicker
-                                  label=""
-                                  value={values.company}
-                                  onChange={(id) => set("company", id)}
-                                  size="small"
-                                  sx={LETTERHEAD_INPUT}
-                                />
-                              ),
-                              // Frozen outright once submitted — the chain has
-                              // been reading them, and changing them beneath
-                              // their comments would make every one a comment
-                              // on a different document. So they are blanks
-                              // only while it is still a draft.
-                              date: isDraft ? (
-                                <DateField
-                                  label=""
-                                  value={values.memo_date}
-                                  onChange={(value) => set("memo_date", value)}
-                                  size="small"
-                                  sx={DATE_INPUT}
-                                />
-                              ) : undefined,
-                              subject: isDraft ? (
-                                <TextField
-                                  placeholder="Subject"
-                                  fullWidth
-                                  size="small"
-                                  variant="standard"
-                                  value={values.subject}
-                                  onChange={(e) => set("subject", e.target.value)}
-                                  sx={INLINE_INPUT}
-                                />
-                              ) : undefined,
-                            }
-                          : undefined
-                      }
-                      draft={{
-                        subject: values.subject,
-                        content: values.content,
-                        memo_date: values.memo_date,
-                        companyName,
-                        approverName,
-                        throughNames,
-                        fromName: me ? withCode(me.full_name, me.employee_code) : null,
-                      }}
-                    />
-                  </Box>
+                  {editing && canEditBody ? (
+                    <Box
+                      sx={(theme) => ({
+                        flex: 1,
+                        minWidth: 0,
+                        border: "1px solid",
+                        borderColor: "divider",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                        bgcolor: theme.vars.palette.background.paper,
+                      })}
+                    >
+                      {toolbar}
+                    </Box>
+                  ) : (
+                    <Box sx={{ flex: 1 }} />
+                  )}
 
-                  {/* ── The rail ─────────────────────────────────────────
-                      Whose turn it is first, because that is the question
-                      anybody opening this has; then who signs it, then what
-                      has happened. Sticky for the same reason the ribbon is —
-                      the page beside it is taller than the screen. */}
-                  <Stack
-                    spacing={3}
-                    sx={{
-                      flex: { md: "1 1 38%" },
-                      minWidth: 0,
-                      width: "100%",
-                      position: { md: "sticky" },
-                      top: { md: 64 },
-                      maxHeight: { md: "calc(100vh - 190px)" },
-                      overflowY: { md: "auto" },
-                      pr: { md: 0.5 },
-                    }}
-                  >
+                  {/* **One surface, and a switch — not two panes.**
+
+                      This was an editor on the right and a live preview of it
+                      on the left: two copies of the same document, side by
+                      side, each half the width it wanted. What somebody
+                      filling in a form needs is the form, and what they need
+                      afterwards is to see it clean. So the page is the only
+                      surface, and Preview takes the blanks and the ribbon away
+                      rather than putting a second copy beside them. */}
+                  {canEditBody ? (
+                    <ToggleButtonGroup
+                      exclusive
+                      size="small"
+                      value={editing ? "edit" : "preview"}
+                      onChange={(_event, next) => {
+                        if (next) setEditing(next === "edit");
+                      }}
+                      sx={(theme) => ({
+                        bgcolor: theme.vars.palette.background.paper,
+                        flexShrink: 0,
+                      })}
+                    >
+                      <ToggleButton value="edit" sx={{ px: 1.5 }}>
+                        <EditIcon fontSize="small" sx={{ mr: 0.75 }} />
+                        Edit
+                      </ToggleButton>
+                      <ToggleButton value="preview" sx={{ px: 1.5 }}>
+                        <VisibilityIcon fontSize="small" sx={{ mr: 0.75 }} />
+                        Preview
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                  ) : null}
+                </Stack>
+
+                {/* ── The page, and nothing beside it ──────────────────── */}
+                <MemorandumLetter
+                  printable
+                  memo={memo}
+                  body={editing && canEditBody ? surface : undefined}
+                  history={memo?.events ?? []}
+                  fields={
+                    editing && canEditBody
+                      ? {
+                          company: (
+                            <CompanyPicker
+                              label=""
+                              value={values.company}
+                              onChange={(id) => set("company", id)}
+                              size="small"
+                              sx={LETTERHEAD_INPUT}
+                            />
+                          ),
+                          date: isDraft ? (
+                            <DateField
+                              label=""
+                              value={values.memo_date}
+                              onChange={(value) => set("memo_date", value)}
+                              size="small"
+                              sx={DATE_INPUT}
+                            />
+                          ) : undefined,
+                          subject: isDraft ? (
+                            <TextField
+                              placeholder="Subject"
+                              fullWidth
+                              size="small"
+                              value={values.subject}
+                              onChange={(e) => set("subject", e.target.value)}
+                              sx={INLINE_INPUT}
+                            />
+                          ) : undefined,
+                        }
+                      : undefined
+                  }
+                  draft={{
+                    subject: values.subject,
+                    content: values.content,
+                    memo_date: values.memo_date,
+                    companyName,
+                    approverName,
+                    throughNames,
+                    fromName: me ? withCode(me.full_name, me.employee_code) : null,
+                  }}
+                />
+
+                {/* ── The rest of the form, under the page ──────────────
+                    **Only while editing.** These are inputs — who signs it,
+                    what is attached — and they belong with the other inputs,
+                    beneath the sheet rather than in a column beside it. In
+                    Preview they are gone, which is what makes Preview worth
+                    pressing. */}
+                {editing ? (
+                  <Stack spacing={3} sx={{ pt: 1 }}>
                     <WhoseTurn memo={memo} isNew={isNew} />
 
-                    {/* **Routing around somebody who is away.**
-                        The chain has no timeout and only the holder can act, so
-                        a recommender on leave stops the memorandum dead. This
-                        is the initiator's way past — and only theirs, only
-                        while somebody else is holding it, and never over the
-                        approver, who has nobody after them to send it to. */}
                     {canSkip ? (
                       <Box>
                         <SectionHeading
@@ -635,10 +632,8 @@ export default function MemorandumDialog({
                       }}
                       busy={addAttachment.isPending}
                     />
-
-                    <HistoryTab memo={memo} />
                   </Stack>
-                </Stack>
+                ) : null}
               </Stack>
             )}
           />
@@ -831,40 +826,20 @@ export default function MemorandumDialog({
           </Box>
         ) : null}
 
-        {/* Anybody who can see it may remark on it — a recommender two steps up
-            who spots something should not have to wait for their turn. */}
-        {/* **One comment box per person, and it depends whose turn it is.**
-            Whoever is holding it comments in the action panel above — the note
-            travels with the decision, which is the comment they actually want
-            to leave, and offering a second box underneath asks them to choose
-            between two things that look the same. Everybody else gets this one,
-            which is the only way they can say anything at all. */}
-        {memo && !locked && !memo.can_act ? (
-          <CommentComposer
-            busy={addComment.isPending}
-            comment={remark}
-            onCommentChange={setRemark}
-            mentions={mentions}
-            onMentionsChange={setMentions}
-            files={commentFiles}
-            onFilesChange={setCommentFiles}
-            onPost={() =>
-              run(
-                addComment.mutateAsync({
-                  id: memo.id,
-                  comment: remark,
-                  mentionIds: mentions,
-                  files: commentFiles,
-                }),
-                () => {
-                  setRemark("");
-                  setMentions([]);
-                  setCommentFiles([]);
-                }
-              )
-            }
-          />
-        ) : null}
+        {/* **No standalone comment box, deliberately.**
+
+            There was one, shown to everybody *except* the person holding the
+            memorandum — which is exactly backwards. A comment on a memorandum
+            is a contribution to a decision, and the only person making one is
+            whoever it is with. Anybody else adding remarks produces a document
+            with opinions on it from people who never had to act, and a holder
+            who has to read them all before doing so.
+
+            So a comment now travels with an action and nowhere else: the note
+            typed in the action panel above, which is attached to the proceed,
+            the return or the decision. Somebody who is not holding it has
+            nothing to say here yet — and when it reaches them, they will. */}
+
       </DialogContent>
 
       <DialogActions>
@@ -1030,266 +1005,11 @@ const KIND_COLOUR: Record<string, "primary" | "warning" | "success" | "error" | 
   skipped: "warning",
 };
 
-/**
- * The cycle, in order, with every comment.
- *
- * This is what a memorandum is actually read for a year later: not what was
- * proposed but who agreed to it, in what words, and how many times it went
- * back first.
- */
-function HistoryTab({ memo }: { memo: Memorandum | null }) {
-  /**
-   * How many times this has been round the loop.
-   *
-   * A memorandum that was sent back, fixed and sent up again looks identical to
-   * one that went straight through — same chain, same words, same holder — and
-   * the difference is exactly what a reader wants to know. Counted from the
-   * log, which is the only place that remembers.
-   */
-  const rounds = (memo?.events ?? []).filter((e) => e.kind === "resubmitted").length;
-  const events = memo?.events ?? [];
-  const heading = (
-    <SectionHeading
-      title="What has happened to it"
-      count={events.length}
-      hint={
-        rounds > 0
-          ? rounds === 1
-            ? "Sent back once and started again."
-            : `Sent back and started again ${rounds} times.`
-          : undefined
-      }
-    />
-  );
+/* `HistoryTab` lived here and is gone: the action log prints on the page
+   itself now — see `MemorandumLetter`'s `history` — because on this document
+   the history is content rather than a side panel, and a second rendering of
+   it beside the page would be the same list twice. */
 
-  if (events.length === 0) {
-    return (
-      <Box>
-        {heading}
-        <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
-          Nothing yet.
-        </Typography>
-      </Box>
-    );
-  }
-  return (
-    <Box>
-      {heading}
-      <Box sx={{ position: "relative", pl: 3, mt: 2 }}>
-      <Box
-        sx={{
-          position: "absolute",
-          left: 7,
-          top: 8,
-          bottom: 8,
-          width: 2,
-          bgcolor: "divider",
-        }}
-      />
-      <Stack spacing={2.5}>
-        {events.map((event) => (
-          <Box key={event.id} sx={{ position: "relative" }}>
-            <Box
-              sx={(theme) => ({
-                position: "absolute",
-                left: -21,
-                top: 4,
-                width: 16,
-                height: 16,
-                borderRadius: "50%",
-                bgcolor: "background.paper",
-                border: "3px solid",
-                borderColor: theme.palette[KIND_COLOUR[event.kind] ?? "info"].main,
-              })}
-            />
-            <Stack direction="row" spacing={1} sx={{ alignItems: "baseline", flexWrap: "wrap" }}>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                {event.actor_label}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {event.action_label || event.kind_display.toLowerCase()}
-              </Typography>
-              {event.returned_to_name ? (
-                <Chip size="small" variant="outlined" label={`to ${event.returned_to_name}`} />
-              ) : null}
-              {event.role ? (
-                <Typography variant="caption" color="text.disabled">
-                  · {event.role}
-                </Typography>
-              ) : null}
-              <Box sx={{ flex: 1 }} />
-              <Typography variant="caption" color="text.secondary">
-                <DateText value={event.created_at} />
-              </Typography>
-            </Stack>
-            {event.comment ? (
-              <Typography variant="body2" sx={{ mt: 0.5, whiteSpace: "pre-wrap" }}>
-                {event.comment}
-              </Typography>
-            ) : null}
-
-            {/* Who the remark was pointed at, and what came with it. Shown on
-                the line itself rather than collected somewhere else, because a
-                file's meaning is the sentence it answers. */}
-            {event.mentions.length > 0 ? (
-              <Stack direction="row" spacing={0.5} sx={{ mt: 0.75, flexWrap: "wrap" }} useFlexGap>
-                <Typography variant="caption" color="text.secondary">
-                  Notified
-                </Typography>
-                {event.mentions.map((person) => (
-                  <Chip
-                    key={person.id}
-                    size="small"
-                    variant="outlined"
-                    label={withCode(person.name, person.employee_code)}
-                  />
-                ))}
-              </Stack>
-            ) : null}
-
-            {event.attachments.length > 0 ? (
-              <Stack spacing={0.25} sx={{ mt: 0.75 }}>
-                {event.attachments.map((attachment) => (
-                  <Stack
-                    key={attachment.id}
-                    direction="row"
-                    spacing={0.75}
-                    sx={{ alignItems: "center" }}
-                  >
-                    <DescriptionIcon sx={{ fontSize: 15 }} color="action" />
-                    <Typography
-                      component="a"
-                      href={attachment.file_url ?? attachment.file}
-                      target="_blank"
-                      rel="noopener"
-                      variant="caption"
-                      sx={{ color: "primary.main" }}
-                    >
-                      {attachment.caption || attachment.file.split("/").pop()}
-                    </Typography>
-                  </Stack>
-                ))}
-              </Stack>
-            ) : null}
-          </Box>
-        ))}
-      </Stack>
-      </Box>
-    </Box>
-  );
-}
-
-/**
- * Say something, name whoever needs to see it, and attach what answers it.
- *
- * **Why a comment carries all three.** A memorandum's chain is chosen for who
- * must *decide*; the people who know the answer are usually not in it. Before
- * this, "can you check the ground conditions" left the product as an email and
- * the record kept no trace of the question or the reply. Naming somebody
- * notifies them and lets them read the memorandum — nothing more; acting on it
- * still means being the holder.
- *
- * **And why files are allowed here when the annexes are frozen.** The annexes
- * are part of the proposal: a chain that has read three of them must not find a
- * fourth appear underneath its signatures. A file on a comment is the opposite
- * — it is the survey somebody was sent back to fetch — and refusing it does not
- * keep the record clean, it moves the survey to email and leaves the record
- * incomplete.
- */
-function CommentComposer({
-  comment,
-  onCommentChange,
-  mentions,
-  onMentionsChange,
-  files,
-  onFilesChange,
-  onPost,
-  busy,
-}: {
-  comment: string;
-  onCommentChange: (value: string) => void;
-  mentions: number[];
-  onMentionsChange: (ids: number[]) => void;
-  files: File[];
-  onFilesChange: (files: File[]) => void;
-  onPost: () => void;
-  busy: boolean;
-}) {
-  return (
-    <Box sx={{ mt: 3, p: 2, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
-      <TextField
-        size="small"
-        label="Comment without moving it"
-        placeholder="Ask a question, attach a document, or point somebody at this."
-        fullWidth
-        multiline
-        minRows={2}
-        value={comment}
-        onChange={(event) => onCommentChange(event.target.value)}
-      />
-
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1}
-        sx={{ mt: 1.5, alignItems: { sm: "center" } }}
-      >
-        <EmployeePicker
-          multiple
-          label="Notify"
-          value={mentions}
-          onChange={onMentionsChange}
-          placeholder="Nobody"
-          size="small"
-          sx={{ flex: 1, minWidth: 220 }}
-        />
-        <Button component="label" size="small" startIcon={<AttachFileIcon />}>
-          Attach
-          <input
-            type="file"
-            hidden
-            multiple
-            onChange={(event) => {
-              // Appended rather than replaced: choosing a second file should
-              // not silently drop the first, which is what a plain assignment
-              // does and what makes a multi-file picker feel broken.
-              const chosen = Array.from(event.target.files ?? []);
-              if (chosen.length > 0) onFilesChange([...files, ...chosen]);
-              event.target.value = "";
-            }}
-          />
-        </Button>
-        <Button
-          variant="contained"
-          size="small"
-          disabled={busy || (!comment.trim() && files.length === 0)}
-          onClick={onPost}
-        >
-          Comment
-        </Button>
-      </Stack>
-
-      {files.length > 0 ? (
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: "wrap" }} useFlexGap>
-          {files.map((chosen, index) => (
-            <Chip
-              key={`${chosen.name}-${index}`}
-              size="small"
-              icon={<DescriptionIcon />}
-              label={chosen.name}
-              onDelete={() => onFilesChange(files.filter((_, i) => i !== index))}
-            />
-          ))}
-        </Stack>
-      ) : null}
-
-      {mentions.length > 0 ? (
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-          They will be told, and will be able to read this memorandum.
-        </Typography>
-      ) : null}
-    </Box>
-  );
-}
 
 /**
  * The annexes, and who may add one.
