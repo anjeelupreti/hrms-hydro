@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from fieldvisits.models import FieldVisit, FieldVisitAttachment, FieldVisitParticipant
+from fieldvisits.models import FieldVisit, FieldVisitAttachment, FieldVisitParticipant, Site
 
 
 def _name(employee):
@@ -56,12 +56,18 @@ class FieldVisitSerializer(serializers.ModelSerializer):
     days = serializers.IntegerField(read_only=True)
     is_locked = serializers.BooleanField(read_only=True)
 
+    site_name = serializers.CharField(source="site.name", read_only=True, default=None)
+
     class Meta:
         model = FieldVisit
         fields = [
             "id", "employee", "employee_name", "employee_code",
             "company", "company_name", "project", "project_name",
             "purpose", "purpose_display", "title", "destination", "district",
+            # Optional, and the reason the approver list is what it is: a site
+            # brings its own supervisors into the choice. See
+            # `services.eligible_approvers`.
+            "site", "site_name",
             "starts_on", "ends_on", "days", "description", "report",
             "transport", "estimated_cost",
             "status", "status_display", "approver", "approver_name",
@@ -93,3 +99,41 @@ class FieldVisitSerializer(serializers.ModelSerializer):
                 "This visit has been decided. Reopen it by raising a new one."
             )
         return attrs
+
+
+class EligibleApproverSerializer(serializers.Serializer):
+    """Read-only: who this person may ask, for the picker on the request form."""
+
+    id = serializers.IntegerField()
+    name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField()
+
+    def get_name(self, obj):
+        return _name(obj)
+
+
+class SiteSerializer(serializers.ModelSerializer):
+    """A place people are sent to, and the people who sign off going there."""
+
+    supervisor_names = serializers.SerializerMethodField()
+    company_name = serializers.CharField(source="company.name", read_only=True, default=None)
+    #: How many trips have been made here. What tells a coordinator which sites
+    #: are live and which are a row somebody created once.
+    visit_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Site
+        fields = [
+            "id", "name", "code", "company", "company_name",
+            "district", "province", "address", "description",
+            "supervisors", "supervisor_names", "is_active", "visit_count",
+        ]
+
+    def get_supervisor_names(self, obj):
+        return [
+            {"id": e.pk, "name": _name(e), "employee_code": e.employee_code}
+            for e in obj.supervisors.all()
+        ]
+
+    def get_visit_count(self, obj):
+        return obj.visits.count()

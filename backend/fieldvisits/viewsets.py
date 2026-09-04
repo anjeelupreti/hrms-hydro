@@ -10,11 +10,13 @@ from accounts.policy import Perm, can
 from attendance.permissions import _requesting_employee
 from core.viewsets import AuditViewSetMixin
 from fieldvisits import services
-from fieldvisits.models import FieldVisit
+from fieldvisits.models import FieldVisit, Site
 from fieldvisits.serializers import (
     FieldVisitAttachmentSerializer,
     FieldVisitParticipantSerializer,
+    EligibleApproverSerializer,
     FieldVisitSerializer,
+    SiteSerializer,
 )
 from fieldvisits.services import FieldVisitError
 
@@ -150,7 +152,34 @@ class FieldVisitViewSet(AuditViewSetMixin, ModelViewSet):
                 {"detail": "Only the traveller requests their own visit."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        # **Checked here, not only on the form.** A travel order with nobody
+        # named on it lands in a queue nobody owns, and the rule about *who*
+        # may be named — the site's supervisors or their own — is the whole
+        # reason sites carry supervisors at all.
+        try:
+            services.validate_approver(visit.employee, visit.site, visit.approver)
+        except services.FieldVisitError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return self._run(services.request_visit, visit, actor=request.user)
+
+    @action(detail=False, methods=["get"], url_path="eligible-approvers")
+    def eligible_approvers(self, request, *args, **kwargs):
+        """Who the signed-in person may ask to approve a trip.
+
+        Takes an optional `?site=` — a site adds its own supervisors to the
+        requester's. Answered by the server rather than assembled in the
+        browser: the same list is what `request_order` validates against, and
+        two copies of that rule is how a form offers somebody the API refuses.
+        """
+        me = self._me()
+        if me is None:
+            return Response([])
+        site = None
+        site_id = request.query_params.get("site")
+        if site_id:
+            site = Site.objects.filter(pk=site_id).first()
+        people = services.eligible_approvers(me, site)
+        return Response(EligibleApproverSerializer(people, many=True).data)
 
     def _may_decide(self, visit):
         me = self._me()
@@ -273,3 +302,57 @@ def models_q(me):
     from django.db.models import Q
 
     return Q(employee=me) | Q(approver=me) | Q(employee__manager=me) | Q(participants__employee=me)
+
+
+class SiteViewSet(AuditViewSetMixin, ModelViewSet):
+    """Sites: everybody reads, `workplace.manage` writes.
+
+    **Read by everybody on purpose.** Anybody raising a travel order has to
+    pick where they are going and which of its supervisors should approve it,
+    so a site list only the coordinator can see would make the form
+    unfillable.
+
+    Retired rather than deleted — see `Site.is_active`. A site with ten years
+    of visits behind it cannot be removed without taking the history with it,
+    and "we do not go there any more" is not "it never existed", so `destroy`
+    deactivates instead.
+    """
+
+    serializer_class = SiteSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [
+        django_filters.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter,
+    ]
+    filterset_fields = ["company", "district", "is_active"]
+    search_fields = ["name", "code", "district", "address"]
+    ordering_fields = ["name", "code"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return Site.objects.select_related("company").prefetch_related("supervisors__user")
+
+    def _may_write(self):
+        return can(self.request.user, Perm.WORKPLACE_MANAGE)
+
+    def create(self, request, *args, **kwargs):
+        if not self._may_write():
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not self._may_write():
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not self._may_write():
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        site = self.get_object()
+        site.is_active = False
+        site.updated_by = request.user
+        site.save(update_fields=["is_active", "updated_by", "updated_at"])
+        return Response(SiteSerializer(site).data)
+
+

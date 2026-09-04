@@ -78,6 +78,28 @@ class Command(BaseCommand):
             # company would dock the pay of the person it sent.
             #
             # Only an *approved* visit counts; see `fieldvisits.services.on_visit`.
+            # **Somebody on approved leave is not absent either.** Same
+            # reasoning as the field visit below it: an absence feeds
+            # `unpaid_days` and scales pay, so a week of approved annual leave
+            # would be docked as five days of not turning up.
+            #
+            # Recorded as PRESENT with a note saying which leave it was,
+            # because there is no ON_LEAVE status on this model — and inventing
+            # one is a migration plus every consumer of `status` learning about
+            # it. The note carries the distinction, exactly as it does for a
+            # visit. Only *approved* leave counts; a pending request is not yet
+            # permission to be away.
+            leave = _approved_leave(employee, on_date)
+            if leave is not None:
+                AttendanceLog.objects.create(
+                    employee=employee,
+                    date=on_date,
+                    source=AttendanceLog.Source.SYSTEM,
+                    status=AttendanceLog.Status.PRESENT,
+                    notes=f"On leave: {leave.leave_type.name}",
+                )
+                continue
+
             visit = on_visit(employee, on_date)
             if visit is not None:
                 AttendanceLog.objects.create(
@@ -96,3 +118,24 @@ class Command(BaseCommand):
             )
             count += 1
         self.stdout.write(self.style.SUCCESS(f"Marked {count} employee(s) absent for {on_date}"))
+
+
+def _approved_leave(employee, on_date):
+    """The approved leave covering this day, or None.
+
+    A module-level helper rather than a method so the roster and any future
+    caller can ask the same question the same way — "was this person allowed to
+    be away?" is asked in more than one place and should not have two answers.
+    """
+    from leave.models import LeaveRequest
+
+    return (
+        LeaveRequest.objects.select_related("leave_type")
+        .filter(
+            employee=employee,
+            status=LeaveRequest.Status.APPROVED,
+            start_date__lte=on_date,
+            end_date__gte=on_date,
+        )
+        .first()
+    )

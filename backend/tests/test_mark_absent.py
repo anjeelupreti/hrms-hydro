@@ -87,3 +87,59 @@ def test_an_unconfigured_working_week_still_sweeps(company, rostered):
     call_command("mark_absent_employees", f"--date={SATURDAY}")
 
     assert _absences(company, SATURDAY) == 1
+
+
+def test_approved_leave_is_not_an_absence(db, rostered):
+    """An absence feeds `unpaid_days` and scales pay, so a week of approved
+    annual leave would otherwise be docked as five days of not turning up."""
+    from decimal import Decimal
+
+    from django.core.management import call_command
+
+    from leave.models import LeaveRequest, LeaveType
+
+    annual = LeaveType.objects.create(
+        name="Annual", code="annual", is_paid=True, annual_quota_days=Decimal("12")
+    )
+    on_date = date(2026, 3, 4)  # A Wednesday.
+    LeaveRequest.objects.create(
+        employee=rostered,
+        leave_type=annual,
+        start_date=on_date,
+        end_date=on_date,
+        days_requested=Decimal("1"),
+        status=LeaveRequest.Status.APPROVED,
+    )
+
+    call_command("mark_absent_employees", f"--date={on_date.isoformat()}")
+
+    log = AttendanceLog.objects.get(employee=rostered, date=on_date)
+    assert log.status == AttendanceLog.Status.PRESENT
+    assert "On leave" in log.notes
+
+
+def test_a_pending_leave_request_is_still_an_absence(db, rostered):
+    """A request is not yet permission to be away."""
+    from decimal import Decimal
+
+    from django.core.management import call_command
+
+    from leave.models import LeaveRequest, LeaveType
+
+    annual = LeaveType.objects.create(
+        name="Annual", code="annual", is_paid=True, annual_quota_days=Decimal("12")
+    )
+    on_date = date(2026, 3, 4)
+    LeaveRequest.objects.create(
+        employee=rostered,
+        leave_type=annual,
+        start_date=on_date,
+        end_date=on_date,
+        days_requested=Decimal("1"),
+        status=LeaveRequest.Status.PENDING,
+    )
+
+    call_command("mark_absent_employees", f"--date={on_date.isoformat()}")
+
+    log = AttendanceLog.objects.get(employee=rostered, date=on_date)
+    assert log.status == AttendanceLog.Status.ABSENT

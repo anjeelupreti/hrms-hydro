@@ -17,6 +17,7 @@ can actually break:
 from datetime import date, timedelta
 
 import pytest
+from django.contrib.auth import get_user_model
 
 from attendance.models import AttendanceLog
 from employees.models import Employee
@@ -333,3 +334,74 @@ def test_somebody_elses_draft_is_not_yours_to_delete(visit, hr_client, admin_cli
     # Either refused outright, or allowed because they manage attendance —
     # what must not happen is a plain colleague removing it.
     assert response.status_code in (204, 403)
+
+
+# ── Sites, and who may approve a trip to one ─────────────────────────────
+
+
+def test_the_approver_list_joins_the_site_s_supervisors_to_your_own(
+    db, traveller, approver, company
+):
+    """Both, because each knows something the other does not: the site
+    supervisor knows whether the visit is necessary, the line supervisor
+    whether this person can be spared."""
+    from employees.models import Employee, EmployeeSupervisor
+    from fieldvisits.models import Site
+    from fieldvisits.services import eligible_approvers
+
+    line = approver
+    EmployeeSupervisor.objects.create(employee=traveller, supervisor=line, order=0)
+
+    site_boss = Employee.objects.create(
+        user=get_user_model().objects.create_user(username="site_boss", password="x"),
+        employee_code="EMP-FV9",
+        date_joined=date(2026, 1, 1),
+        primary_company=company,
+    )
+    site = Site.objects.create(name="Sanjen headworks", code="SJ-HW")
+    site.supervisors.add(site_boss)
+
+    people = eligible_approvers(traveller, site)
+
+    assert [p.pk for p in people] == [line.pk, site_boss.pk]
+
+
+def test_somebody_who_is_both_appears_once(db, traveller, approver):
+    from employees.models import EmployeeSupervisor
+    from fieldvisits.models import Site
+    from fieldvisits.services import eligible_approvers
+
+    EmployeeSupervisor.objects.create(employee=traveller, supervisor=approver, order=0)
+    site = Site.objects.create(name="Sanjen headworks")
+    site.supervisors.add(approver)
+
+    assert [p.pk for p in eligible_approvers(traveller, site)] == [approver.pk]
+
+
+def test_a_trip_nobody_can_approve_is_refused_rather_than_queued(db, traveller):
+    """An empty list is the interesting case: the request would otherwise land
+    in a queue nobody owns."""
+    from fieldvisits.services import FieldVisitError, validate_approver
+
+    with pytest.raises(FieldVisitError) as raised:
+        validate_approver(traveller, None, None)
+
+    assert "nobody who can approve" in str(raised.value)
+
+
+def test_an_approver_who_is_not_on_either_list_is_refused(db, traveller, approver, company):
+    from employees.models import Employee, EmployeeSupervisor
+    from fieldvisits.services import FieldVisitError, validate_approver
+
+    EmployeeSupervisor.objects.create(employee=traveller, supervisor=approver, order=0)
+    stranger = Employee.objects.create(
+        user=get_user_model().objects.create_user(username="stranger", password="x"),
+        employee_code="EMP-FV8",
+        date_joined=date(2026, 1, 1),
+        primary_company=company,
+    )
+
+    with pytest.raises(FieldVisitError):
+        validate_approver(traveller, None, stranger)
+
+    assert validate_approver(traveller, None, approver) == approver

@@ -182,3 +182,56 @@ def _announce(visit, decided=False):
         import logging
 
         logging.getLogger(__name__).exception("Could not announce field visit %s", visit.pk)
+
+
+def eligible_approvers(employee, site=None):
+    """Who may be asked to approve this person's trip to this site.
+
+    **The site's supervisors and their own, together.** Both, because each
+    knows something the other does not: the site supervisor knows whether the
+    visit is necessary and whether the dates make any sense from the ground,
+    and the line supervisor knows whether this person can be spared. An office
+    that only had one of them would be routing trips past whichever question
+    mattered that week.
+
+    De-duplicated and ordered — the requester's own supervisors first, since
+    that is the person they will usually pick — because somebody who is both a
+    line supervisor and a site supervisor is one choice, not two identical ones.
+
+    Returns a list. An **empty list is the interesting case**: it means nobody
+    can approve this trip, and `validate_approver` refuses the request rather
+    than letting it be raised into a queue nobody owns.
+    """
+    seen = {}
+    for link in employee.supervisor_links.select_related("supervisor__user").all():
+        seen[link.supervisor_id] = link.supervisor
+    if site is not None:
+        for supervisor in site.supervisors.select_related("user").all():
+            seen.setdefault(supervisor.pk, supervisor)
+    # Never yourself, however the lists were configured.
+    seen.pop(employee.pk, None)
+    return list(seen.values())
+
+
+def validate_approver(employee, site, approver):
+    """Refuse a travel order whose approver is not one of the eligible people.
+
+    Checked in the service rather than the serializer because the same rule has
+    to hold for a visit created through the API, the seed command and any future
+    import — and a rule stated only in a serializer holds for exactly one of
+    those.
+    """
+    allowed = eligible_approvers(employee, site)
+    if not allowed:
+        raise FieldVisitError(
+            "There is nobody who can approve this trip. Ask HR to give you a "
+            "supervisor, or to add supervisors to the site."
+        )
+    if approver is None:
+        raise FieldVisitError("Choose who should approve this trip.")
+    if approver.pk not in {person.pk for person in allowed}:
+        raise FieldVisitError(
+            f"{approver.user.get_full_name() or approver.employee_code} cannot approve "
+            "this trip. Pick one of your supervisors, or one of the site's."
+        )
+    return approver
