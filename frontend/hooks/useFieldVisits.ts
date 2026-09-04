@@ -74,6 +74,8 @@ export type FieldVisit = {
   purpose: VisitPurpose;
   purpose_display: string;
   title: string;
+  site: number | null;
+  site_name: string | null;
   destination: string;
   district: string;
   starts_on: string;
@@ -104,6 +106,9 @@ export type FieldVisitFormValues = {
   project: number | null;
   purpose: VisitPurpose;
   title: string;
+  /** Optional. Naming a site brings its supervisors into who may approve the
+   *  trip — see `fieldvisits.services.eligible_approvers`. */
+  site: number | null;
   destination: string;
   district: string;
   starts_on: string;

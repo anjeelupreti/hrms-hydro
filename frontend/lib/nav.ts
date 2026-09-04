@@ -1,6 +1,7 @@
 import type { SvgIconComponent } from "@mui/icons-material";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import AssignmentIcon from "@mui/icons-material/Assignment";
+import PlaceIcon from "@mui/icons-material/Place";
 import TravelExploreIcon from "@mui/icons-material/TravelExplore";
 import ApartmentIcon from "@mui/icons-material/Apartment";
 import AssessmentIcon from "@mui/icons-material/Assessment";
@@ -289,6 +290,21 @@ export const NAV_GROUPS: NavGroup[] = [
         keywords: [
           "site visit", "travel", "travel order", "tour", "field", "inspection",
           "supervision", "per diem", "site",
+        ],
+      },
+      {
+        // Beside field visits, because that is the only thing a site is for:
+        // it names the people who can approve a trip there. Readable by
+        // everybody — anybody raising a travel order has to pick one — and
+        // writable by whoever manages the workplace, which the endpoint
+        // enforces rather than this list.
+        href: "/sites",
+        label: "Sites",
+        icon: PlaceIcon,
+        module: "attendance",
+        keywords: [
+          "site", "sites", "location", "project site", "headworks", "powerhouse",
+          "destination", "place",
         ],
       },
     ],

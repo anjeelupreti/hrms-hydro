@@ -45,6 +45,8 @@ import {
   type VisitPurpose,
 } from "@/hooks/useFieldVisits";
 import { useMe } from "@/hooks/useMe";
+import { useEligibleApprovers, useSites } from "@/hooks/useSites";
+import { withCode } from "@/lib/people";
 
 /**
  * Field visits — going to site, and what came of it.
@@ -70,6 +72,7 @@ const EMPTY: FieldVisitFormValues = {
   project: null,
   purpose: "inspection",
   title: "",
+  site: null,
   destination: "",
   district: "",
   starts_on: TODAY(),
@@ -82,6 +85,7 @@ const EMPTY: FieldVisitFormValues = {
 
 export default function FieldVisitsPage() {
   const { data: me } = useMe();
+  const { data: sites } = useSites({ active: true });
 
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -93,6 +97,9 @@ export default function FieldVisitsPage() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [values, setValues] = useState<FieldVisitFormValues>(EMPTY);
+  // Asked for the *chosen* site, because a site brings its own supervisors
+  // into who may approve the trip. Declared after `values` for that reason.
+  const { data: approvers } = useEligibleApprovers(values.site);
   const [error, setError] = useState<string | null>(null);
 
   const { data, isLoading } = useFieldVisits({
@@ -329,13 +336,69 @@ export default function FieldVisitsPage() {
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <EmployeePicker
-                label="Approver"
-                value={values.approver}
-                onChange={(id) => setValues({ ...values, approver: id })}
+              {/* Optional. A visit still goes to "the headrace tunnel, ch.
+                  1400" as often as to a named installation — what naming a
+                  site buys is its supervisors joining the people who may
+                  approve the trip. */}
+              <TextField
+                select
+                label="Site"
+                fullWidth
                 size="small"
-                excludeIds={me?.employee_id ? [me.employee_id] : undefined}
-              />
+                value={values.site ?? ""}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    site: event.target.value === "" ? null : Number(event.target.value),
+                    // The eligible approvers change with the site, so a name
+                    // chosen against the old one may no longer be allowed.
+                    // Cleared rather than left to be refused on submit.
+                    approver: null,
+                  })
+                }
+                helperText="Optional — its supervisors can approve the trip."
+              >
+                <MenuItem value="">Not a listed site</MenuItem>
+                {(sites?.results ?? []).map((site) => (
+                  <MenuItem key={site.id} value={site.id}>
+                    {site.name}
+                    {site.code ? ` (${site.code})` : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6 }}>
+              {/* **Not a free employee picker.** It was one, and the API now
+                  refuses anybody who is neither the traveller's supervisor nor
+                  one of the site's — so the form was offering names that would
+                  be rejected on submit. The list comes from the server, which
+                  is the same function the submit validates against. */}
+              <TextField
+                select
+                required
+                label="Approver"
+                fullWidth
+                size="small"
+                value={values.approver ?? ""}
+                onChange={(event) =>
+                  setValues({
+                    ...values,
+                    approver: event.target.value === "" ? null : Number(event.target.value),
+                  })
+                }
+                error={approvers !== undefined && approvers.length === 0}
+                helperText={
+                  approvers !== undefined && approvers.length === 0
+                    ? "Nobody can approve this trip. Ask HR for a supervisor, or add supervisors to the site."
+                    : "Your supervisors, plus the site's."
+                }
+              >
+                {(approvers ?? []).map((person) => (
+                  <MenuItem key={person.id} value={person.id}>
+                    {withCode(person.name, person.employee_code)}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
