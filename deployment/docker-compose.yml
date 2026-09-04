@@ -80,17 +80,19 @@ services:
       # if the host mapping ever has to move again.
       DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
-      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
-      # defaults to `localhost`, and inside a container that is the container
-      # itself — nothing listens on 1025 there. MailHog is a separate service,
-      # so it has to be addressed by its compose name, exactly like `DB_HOST`
-      # and `REDIS_URL` above.
+      # **Mail is configured in `backend/.env`, not here.**
       #
-      # The failure was silent in the worst way: until this was fixed, an
-      # unreachable mail server raised straight out of `notify()`, so a
-      # broadcast reached every admin in-app and *then* answered 500.
-      EMAIL_HOST: mailhog
-      EMAIL_PORT: 1025
+      # These two lines used to pin `EMAIL_HOST: mailhog` / `EMAIL_PORT: 1025`.
+      # That fixed a real bug — `EMAIL_HOST` defaults to `localhost`, which
+      # inside a container is the container itself and has nothing listening —
+      # but it fixed it in the wrong place: Compose's `environment:` wins over
+      # `env_file:`, so the settings in `.env` were being silently ignored and
+      # every send went to MailHog whatever anybody configured.
+      #
+      # The default now lives in `.env` where it can be changed without editing
+      # deployment config. For MailHog, point it at `mailhog:1025` — the
+      # *service name*, not `localhost`, which is the original lesson and is
+      # easy to lose. For a real server, use its host and port.
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
       # Chat WebSockets (Django Channels) — separate Redis DB from Celery.
@@ -124,17 +126,19 @@ services:
       # if the host mapping ever has to move again.
       DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
-      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
-      # defaults to `localhost`, and inside a container that is the container
-      # itself — nothing listens on 1025 there. MailHog is a separate service,
-      # so it has to be addressed by its compose name, exactly like `DB_HOST`
-      # and `REDIS_URL` above.
+      # **Mail is configured in `backend/.env`, not here.**
       #
-      # The failure was silent in the worst way: until this was fixed, an
-      # unreachable mail server raised straight out of `notify()`, so a
-      # broadcast reached every admin in-app and *then* answered 500.
-      EMAIL_HOST: mailhog
-      EMAIL_PORT: 1025
+      # These two lines used to pin `EMAIL_HOST: mailhog` / `EMAIL_PORT: 1025`.
+      # That fixed a real bug — `EMAIL_HOST` defaults to `localhost`, which
+      # inside a container is the container itself and has nothing listening —
+      # but it fixed it in the wrong place: Compose's `environment:` wins over
+      # `env_file:`, so the settings in `.env` were being silently ignored and
+      # every send went to MailHog whatever anybody configured.
+      #
+      # The default now lives in `.env` where it can be changed without editing
+      # deployment config. For MailHog, point it at `mailhog:1025` — the
+      # *service name*, not `localhost`, which is the original lesson and is
+      # easy to lose. For a real server, use its host and port.
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
@@ -162,17 +166,19 @@ services:
       # if the host mapping ever has to move again.
       DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
-      # 🔴 **Mail has never worked in this environment.** `EMAIL_HOST`
-      # defaults to `localhost`, and inside a container that is the container
-      # itself — nothing listens on 1025 there. MailHog is a separate service,
-      # so it has to be addressed by its compose name, exactly like `DB_HOST`
-      # and `REDIS_URL` above.
+      # **Mail is configured in `backend/.env`, not here.**
       #
-      # The failure was silent in the worst way: until this was fixed, an
-      # unreachable mail server raised straight out of `notify()`, so a
-      # broadcast reached every admin in-app and *then* answered 500.
-      EMAIL_HOST: mailhog
-      EMAIL_PORT: 1025
+      # These two lines used to pin `EMAIL_HOST: mailhog` / `EMAIL_PORT: 1025`.
+      # That fixed a real bug — `EMAIL_HOST` defaults to `localhost`, which
+      # inside a container is the container itself and has nothing listening —
+      # but it fixed it in the wrong place: Compose's `environment:` wins over
+      # `env_file:`, so the settings in `.env` were being silently ignored and
+      # every send went to MailHog whatever anybody configured.
+      #
+      # The default now lives in `.env` where it can be changed without editing
+      # deployment config. For MailHog, point it at `mailhog:1025` — the
+      # *service name*, not `localhost`, which is the original lesson and is
+      # easy to lose. For a real server, use its host and port.
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
     volumes:
