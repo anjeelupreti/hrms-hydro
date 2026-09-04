@@ -434,6 +434,14 @@ export default function MemorandumLetter({
           overflow: "hidden",
           ...(printable
             ? {
+                // **Centred, not left-aligned.** `transform: scale` does not
+                // affect layout, so the sheet still occupies its unscaled
+                // 210mm and sat against the left edge of whatever column it was
+                // in — with the desk running on beside it. Centring the scaled
+                // box puts the paper in the middle of the desk, which is where
+                // paper goes.
+                display: "flex",
+                justifyContent: "center",
                 p: "14px",
                 borderRadius: 1.5,
                 // 🔒 **`theme.palette.mode` is a lie under this theme.** It is
@@ -453,6 +461,19 @@ export default function MemorandumLetter({
               }
             : {}),
         })}
+      >
+      <Box
+        // Sized to the scaled result, because that is what the eye sees. The
+        // sheet inside keeps its true millimetres and is scaled into this.
+        sx={
+          printable
+            ? {
+                width: `${PAGE.width * PX_PER_MM * scale}px`,
+                height: `${PAGE.height * PX_PER_MM * pages * scale}px`,
+                flexShrink: 0,
+              }
+            : undefined
+        }
       >
       <Box
         ref={sheetRef}
@@ -849,6 +870,7 @@ export default function MemorandumLetter({
           </Box>
         ) : null}
         </Box>
+      </Box>
       </Box>
       </Box>
     </Box>
