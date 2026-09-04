@@ -484,8 +484,17 @@ export default function MemorandumDialog({
                       // edit happening somewhere else. Somebody who has filled
                       // in paper forms for thirty years knows how to fill in
                       // the blanks on the form.
+                      // **`canEditBody`, not `canEditChain`.** They look
+                      // interchangeable and are not: the chain stays editable
+                      // off-desk on purpose, so the initiator can route around
+                      // somebody who is away. What the letter *says* — its
+                      // company, date and subject — is only theirs while it is
+                      // on their desk. Gated on the chain flag, the company
+                      // picker appeared when it was somebody else's turn and
+                      // the API then refused the write: a control that exists
+                      // to be rejected.
                       fields={
-                        canEditChain
+                        canEditBody
                           ? {
                               company: (
                                 <CompanyPicker
@@ -496,7 +505,12 @@ export default function MemorandumDialog({
                                   sx={LETTERHEAD_INPUT}
                                 />
                               ),
-                              date: (
+                              // Frozen outright once submitted — the chain has
+                              // been reading them, and changing them beneath
+                              // their comments would make every one a comment
+                              // on a different document. So they are blanks
+                              // only while it is still a draft.
+                              date: isDraft ? (
                                 <DateField
                                   label=""
                                   value={values.memo_date}
@@ -504,7 +518,7 @@ export default function MemorandumDialog({
                                   size="small"
                                   sx={DATE_INPUT}
                                 />
-                              ),
+                              ) : undefined,
                               subject: isDraft ? (
                                 <TextField
                                   placeholder="Subject"

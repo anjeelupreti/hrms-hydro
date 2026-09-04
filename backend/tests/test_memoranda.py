@@ -1076,3 +1076,40 @@ def test_the_company_cannot_be_changed_from_somebody_else_s_desk(memo, cast, com
     assert response.status_code == 403, response.data
     memo.refresh_from_db()
     assert memo.company_id == company.pk
+
+
+def test_a_recommender_holding_it_cannot_change_the_company(memo, cast, company):
+    """The company is the initiator's to set, not the holder's. Holding a
+    memorandum means acting on it — proceeding, returning — not re-filing it
+    under a different company and changing its reference number."""
+    from companies.models import Company
+
+    submit(memo)
+    memo.refresh_from_db()
+    assert memo.current_holder_id == cast["a"].pk
+
+    other = Company.objects.create(name="Seti Nadi Hydropower", code="SNHL")
+    response = _client(cast["a"]).patch(f"{LIST}{memo.pk}/", {"company": other.pk}, format="json")
+
+    assert response.status_code == 403, response.data
+    memo.refresh_from_db()
+    assert memo.company_id == company.pk
+
+
+def test_the_initiator_can_change_the_company_when_it_is_sent_back(memo, cast, company):
+    """Their turn is a draft *or* a return — the same rule the text follows."""
+    from companies.models import Company
+
+    submit(memo)
+    original = Memorandum.objects.get(pk=memo.pk).memo_id
+    send_back(memo, cast["a"], to=cast["initiator"], comment="Wrong company.")
+    other = Company.objects.create(name="Seti Nadi Hydropower", code="SNHL")
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.pk}/", {"company": other.pk}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    memo.refresh_from_db()
+    assert memo.company_id == other.pk
+    assert memo.memo_id != original and "SNHL" in memo.memo_id
