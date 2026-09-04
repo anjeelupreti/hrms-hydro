@@ -7,6 +7,7 @@ import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
 import Dialog from "@mui/material/Dialog";
 import DialogContent from "@mui/material/DialogContent";
 import Divider from "@mui/material/Divider";
@@ -87,10 +88,23 @@ export default function CandidateDetailDialog({ candidate, onClose }: { candidat
               <Button
                 size="small"
                 variant="contained"
-                endIcon={<ArrowForwardIcon />}
+                // **Disabled while it is working, and it says so.** A stage
+                // change is one request and a re-render; with no busy state the
+                // button looked inert and invited a second click, which would
+                // have advanced the candidate twice.
+                disabled={saveCandidate.isPending}
+                endIcon={
+                  saveCandidate.isPending ? (
+                    <CircularProgress size={14} color="inherit" />
+                  ) : (
+                    <ArrowForwardIcon />
+                  )
+                }
                 onClick={() => saveCandidate.mutate({ id: candidate.id, values: { stage: nextStage } })}
               >
-                Advance to {STAGE_META[nextStage].label}
+                {saveCandidate.isPending
+                  ? `Moving to ${STAGE_META[nextStage].label}…`
+                  : `Advance to ${STAGE_META[nextStage].label}`}
               </Button>
             )}
             {candidate.stage !== "rejected" && candidate.stage !== "hired" && (
@@ -98,6 +112,7 @@ export default function CandidateDetailDialog({ candidate, onClose }: { candidat
                 size="small"
                 color="error"
                 variant="outlined"
+                disabled={saveCandidate.isPending}
                 startIcon={<BlockIcon />}
                 onClick={() => saveCandidate.mutate({ id: candidate.id, values: { stage: "rejected" } })}
               >

@@ -65,7 +65,18 @@ function OfferBadge({ candidate }: { candidate: Candidate }) {
 
 export default function CandidatePipeline({ candidates }: { candidates: Candidate[] }) {
   const moveCandidate = useMoveCandidate();
-  const [selected, setSelected] = useState<Candidate | null>(null);
+  /**
+   * The *id* of the open candidate, not the record.
+   *
+   * **A snapshot cannot show the result of its own action.** This held the
+   * candidate object taken at click time, so pressing "Advance to Screening"
+   * updated the server and the board behind the dialog while the dialog itself
+   * went on saying Applied — the button appeared to do nothing at all. Holding
+   * the id and looking the record up on every render means the dialog is
+   * rendered from the same refreshed list the board is.
+   */
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const selected = candidates.find((c) => c.id === selectedId) ?? null;
 
   const columns = STAGE_ORDER.map((stage) => ({
     value: stage,
@@ -98,11 +109,11 @@ export default function CandidatePipeline({ candidates }: { candidates: Candidat
             <Box
               role="button"
               tabIndex={0}
-              onClick={() => setSelected(c)}
+              onClick={() => setSelectedId(c.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  setSelected(c);
+                  setSelectedId(c.id);
                 }
               }}
               sx={{
@@ -153,7 +164,7 @@ export default function CandidatePipeline({ candidates }: { candidates: Candidat
         )}
       />
 
-      {selected && <CandidateDetailDialog candidate={selected} onClose={() => setSelected(null)} />}
+      {selected && <CandidateDetailDialog candidate={selected} onClose={() => setSelectedId(null)} />}
     </>
   );
 }
