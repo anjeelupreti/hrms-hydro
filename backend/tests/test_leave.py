@@ -718,33 +718,53 @@ def test_a_malformed_date_is_refused(company, admin_client):
 # ── The supervisors are the chain ────────────────────────────────────────
 
 
-def test_leave_goes_to_each_supervisor_in_order(company, staff, boss, company_probationer, annual):
-    """**Every supervisor, in the order they were listed.** A site engineer's
-    leave has to be seen by the site in-charge before the department head, and
-    a chain that asks them both at once — or asks only one — is not the rule
-    the office runs on."""
+def test_only_the_last_supervisor_has_to_approve(company, staff, boss, company_probationer, annual):
+    """**Maker and checker.** Supervisor 1 is the site in-charge and supervisor
+    2 the department head; it is the department head whose approval carries.
+    Asking both for a click makes the request sit on a desk whose owner has
+    nothing to decide."""
     EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
     EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=1)
 
     request = submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
     chain = effective_chain(request)
 
-    # Two supervisor steps, then the configured HR step.
+    # One supervisor step — the checker — then the configured HR step.
     assert [row[1] for row in chain] == [
-        ApprovalStep.ApproverRole.SUPERVISOR,
         ApprovalStep.ApproverRole.SUPERVISOR,
         ApprovalStep.ApproverRole.HR_ADMIN,
     ]
-    assert [row[2] for row in chain[:2]] == [boss, company_probationer]
+    assert chain[0][2] == company_probationer
 
-    # And only the first one may act.
-    assert can_act_on_step(boss.user, request, chain[0]) is True
-    assert can_act_on_step(company_probationer.user, request, chain[0]) is False
+    # And it is theirs alone: the maker cannot sign it off.
+    assert can_act_on_step(company_probationer.user, request, chain[0]) is True
+    assert can_act_on_step(boss.user, request, chain[0]) is False
 
 
-def test_the_second_supervisor_cannot_sign_before_the_first(
+def test_every_supervisor_is_told_even_though_one_decides(
     company, staff, boss, company_probationer, annual
 ):
+    """The maker still needs to know. A site in-charge whose engineer is about
+    to be away for a week has to hear about it, whether or not the system wants
+    a click from them."""
+    from notifications.models import Notification
+
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=1)
+
+    submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
+
+    told = Notification.objects.filter(verb="leave_requested")
+    assert told.filter(recipient=boss.user).exists()
+    assert told.filter(recipient=company_probationer.user).exists()
+    # And they are told different things, so nobody waits for a button that
+    # will never be theirs.
+    assert told.get(recipient=boss.user).message.startswith("For your information")
+    assert not told.get(recipient=company_probationer.user).message.startswith("For your information")
+
+
+def test_the_maker_cannot_sign_it_off(company, staff, boss, company_probationer, annual):
+    """Supervisor 1 is informed, not empowered."""
     EmployeeSupervisor.objects.create(employee=staff, supervisor=boss, order=0)
     EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=1)
     request = submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
@@ -756,7 +776,7 @@ def test_the_second_supervisor_cannot_sign_before_the_first(
     from rest_framework.test import APIClient
 
     client = APIClient()
-    client.force_authenticate(user=company_probationer.user)
+    client.force_authenticate(user=boss.user)
     response = client.post(f"/api/v1/leave/requests/{request.pk}/approve/", {}, format="json")
 
     assert response.status_code == 403, response.data

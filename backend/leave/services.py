@@ -164,6 +164,19 @@ def get_default_chain():
     return chain
 
 
+def _supervisors_of(employee):
+    """This person's supervisors, in their configured order.
+
+    Nearest first: supervisor 1 is the site in-charge, supervisor 2 the
+    department head. `effective_chain` takes the last of them as the one whose
+    approval is required; the notifier writes to all of them.
+    """
+    return [
+        link.supervisor
+        for link in employee.supervisor_links.select_related("supervisor__user").all()
+    ]
+
+
 def effective_chain(leave_request):
     """The steps this request actually has to pass, in order.
 
@@ -183,10 +196,7 @@ def effective_chain(leave_request):
     has always resolved the same way. Copying the chain at submission is the
     right fix and belongs with a stored per-request chain, not here.
     """
-    supervisors = [
-        link.supervisor
-        for link in leave_request.employee.supervisor_links.select_related("supervisor__user").all()
-    ]
+    supervisors = _supervisors_of(leave_request.employee)
 
     steps = []
     sequence = 1
@@ -201,9 +211,19 @@ def effective_chain(leave_request):
         # supervisors still goes to their manager, exactly as before.
         if role in (ApprovalStep.ApproverRole.SUPERVISOR, ApprovalStep.ApproverRole.MANAGER):
             if supervisors:
-                for supervisor in supervisors:
-                    steps.append((sequence, ApprovalStep.ApproverRole.SUPERVISOR, supervisor))
-                    sequence += 1
+                # **Maker and checker, not a queue of signatures.** Every
+                # supervisor is *told* — see `_notify_approvers_for_step`, which
+                # writes to all of them — but only the last one decides. The
+                # earlier supervisors are the makers: they see the request, they
+                # can raise an objection in person, and the request does not sit
+                # on their desk waiting for a click.
+                #
+                # The last rather than the first because the list is ordered
+                # from nearest to most senior: supervisor 1 is the site
+                # in-charge, supervisor 2 the department head, and it is the
+                # department head whose approval carries.
+                steps.append((sequence, ApprovalStep.ApproverRole.SUPERVISOR, supervisors[-1]))
+                sequence += 1
                 continue
             # No supervisors. A `SUPERVISOR` step with nobody in it is skipped
             # rather than turned into a manager step it was not configured as.
@@ -306,14 +326,28 @@ def _notify_approvers_for_step(leave_request, step):
     )
     _sequence, role, supervisor = step
     if role == ApprovalStep.ApproverRole.SUPERVISOR:
-        # A named person. `notify` sends both the in-app row and the email, so
-        # a supervisor who is not in the product that day still hears about it.
-        notify(
-            supervisor.user,
-            "leave_requested",
-            message,
-            email_subject="Leave request awaiting your approval",
-        )
+        # **Everybody hears; one person decides.** The whole supervisor list is
+        # notified, because a site in-charge whose engineer is about to be away
+        # for a week needs to know whether or not the system wants a click from
+        # them. Only the checker is told it is waiting on *them*; the rest are
+        # told for information, so nobody sits waiting for a button that will
+        # never be theirs.
+        #
+        # `notify` sends the in-app row and the email together — a supervisor
+        # who is not in the product that day is exactly the person a request
+        # stalls on.
+        for person in _supervisors_of(leave_request.employee):
+            is_checker = person.pk == supervisor.pk
+            notify(
+                person.user,
+                "leave_requested",
+                message if is_checker else f"For your information — {message}",
+                email_subject=(
+                    "Leave request awaiting your approval"
+                    if is_checker
+                    else "Leave request raised by somebody you supervise"
+                ),
+            )
     elif role == ApprovalStep.ApproverRole.MANAGER:
         manager = leave_request.employee.manager
         if manager is None:
