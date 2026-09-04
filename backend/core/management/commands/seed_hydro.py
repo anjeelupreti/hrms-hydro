@@ -60,9 +60,13 @@ from fieldvisits.models import FieldVisit, FieldVisitParticipant
 from fieldvisits.services import decide as decide_visit
 from fieldvisits.services import request_visit
 from helpdesk.models import Ticket
+from employees.models import EmployeeSupervisor
+from fieldvisits.models import Site
 from memoranda.models import Memorandum, MemorandumAction
 from memoranda.workflow import proceed, resubmit, send_back, set_chain, submit
+from memoranda.workflow import archive as archive_memo
 from memoranda.workflow import decide as decide_memo
+from memoranda.workflow import skip as skip_memo
 from payroll.models import StatutoryRate, TaxSlab
 
 # ── The group ────────────────────────────────────────────────────────────
@@ -208,6 +212,8 @@ class Command(BaseCommand):
             self._assets(people)
             self._helpdesk(people)
             actions = self._memo_actions()
+            self._supervisors(people)
+            self._sites(companies, people)
             self._memoranda(companies, people, actions)
             self._verify_statutory()
             self._roles()
@@ -732,6 +738,87 @@ class Command(BaseCommand):
         self.stdout.write(f"  · {len(made)} memorandum actions")
         return made
 
+    def _supervisors(self, people):
+        """Give people an approval chain, two deep where it is interesting.
+
+        **Without this the leave module cannot be seen working.** Leave routes
+        through `Employee.supervisors` and falls back to `manager` when there
+        are none — so a seed that sets only managers demonstrates the fallback
+        and never the thing it was built for. Two supervisors on a few people
+        is what shows maker and checker: the first is told, the last decides.
+        """
+        staff = [p for p in people.values() if p.user.is_active]
+        if len(staff) < 6:
+            return
+
+        seniors = staff[:3]
+        made = 0
+        for index, person in enumerate(staff[3:]):
+            if person.supervisor_links.exists():
+                continue
+            # Everybody gets a near supervisor; every third also gets a second,
+            # so both the one-deep and the two-deep case exist to look at.
+            chain = [seniors[index % len(seniors)]]
+            if index % 3 == 0:
+                second = seniors[(index + 1) % len(seniors)]
+                if second != chain[0]:
+                    chain.append(second)
+            chain = [c for c in chain if c != person]
+            for order, supervisor in enumerate(chain):
+                EmployeeSupervisor.objects.get_or_create(
+                    employee=person, supervisor=supervisor, defaults={"order": order}
+                )
+            made += 1
+        self.stdout.write(f"  · supervisors for {made} people")
+
+    def _sites(self, companies, people):
+        """The places people are actually sent to.
+
+        Each carries supervisors, because that is what a site is *for*: a
+        travel order is validated by somebody who knows the place, and a site
+        with nobody on it leaves the requester falling back on their own line
+        supervisor — which is the fallback, not the design.
+        """
+        staff = [p for p in people.values() if p.user.is_active]
+        if not staff:
+            return
+
+        specs = [
+            ("Sanjen headworks", "SJ-HW", "SJCL", "Rasuwa", "Bagmati", 2350,
+             "6 hrs from Kathmandu, last 20 km rough after Dhunche."),
+            ("Sanjen powerhouse", "SJ-PH", "SJCL", "Rasuwa", "Bagmati", 1780,
+             "40 min below the headworks on the same access road."),
+            ("Seti Nadi powerhouse", "SN-PH", "SNHL", "Kaski", "Gandaki", 900,
+             "1 hr from Pokhara, tarmac to the gate."),
+            ("Seti Nadi intake", "SN-IN", "SNHL", "Kaski", "Gandaki", 1120,
+             "25 min above the powerhouse; jeep only in monsoon."),
+            ("Madhya Chilime desilting basin", "MC-DB", "MCTL", "Rasuwa", "Bagmati", 1960,
+             "Reached from the Sanjen road; ask for the site key at Dhunche."),
+            ("Butwal corporate office", "VL-HO", "VLUCL", "Rupandehi", "Lumbini", 150,
+             "Head office. No travel order needed for staff based here."),
+        ]
+
+        made = 0
+        for name, code, company_code, district, province, elevation, access in specs:
+            if Site.objects.filter(name=name).exists():
+                continue
+            site = Site.objects.create(
+                name=name,
+                code=code,
+                company=companies.get(company_code),
+                district=district,
+                province=province,
+                elevation_m=elevation,
+                access_notes=access,
+                contact_name=staff[made % len(staff)].user.get_full_name(),
+                contact_phone="98%08d" % (41000000 + made * 137),
+                description=f"{name} — {company_code}.",
+            )
+            # Two supervisors each, drawn from the senior end of the list.
+            site.supervisors.set(staff[made % 3 : made % 3 + 2] or staff[:2])
+            made += 1
+        self.stdout.write(f"  · {made} sites, each with supervisors")
+
     def _memoranda(self, companies, people, actions):
         """One memorandum in each state the chain can be in.
 
@@ -793,6 +880,11 @@ class Command(BaseCommand):
             ("returned", "Staff quarters allowance revision", "VLUCL"),
             ("approved", "Purchase of a replacement site vehicle", "SJCL"),
             ("rejected", "Additional office space at Butwal", "VLUCL"),
+            # The two states added after the first pass. Both are awkward in
+            # the way that makes them worth seeding: one has a recommender who
+            # never saw it, the other is closed but not decided.
+            ("skipped", "Emergency repair of the Sanjen intake gate", "SJCL"),
+            ("archived", "Diesel generator overhaul, Seti powerhouse", "SNHL"),
         ]
 
         body = (
@@ -828,6 +920,16 @@ class Command(BaseCommand):
             if state == "waiting_first":
                 continue
 
+            if state == "skipped":
+                # The first recommender is away and the initiator routes past
+                # them. Logged as a skip, never as their recommendation — so
+                # this is the memorandum that proves the log does not lie.
+                skip_memo(memo, initiator, comment="On leave until Sunday — moved on.")
+                memo.refresh_from_db()
+                proceed(memo, chain[1], action=recommend,
+                        comment="Urgent. Recommended without the site note.")
+                continue
+
             proceed(memo, chain[0], action=recommend,
                     comment="Alignment checked against the approved drawings. Recommended.")
             memo.refresh_from_db()
@@ -853,11 +955,16 @@ class Command(BaseCommand):
 
             decide_memo(
                 memo, approver,
-                approve=(state == "approved"),
+                approve=(state in ("approved", "archived")),
                 comment=(
                     "Approved. Proceed as proposed."
-                    if state == "approved"
+                    if state in ("approved", "archived")
                     else "Not this fiscal year. Resubmit with the FY83 budget."
                 ),
             )
+            if state == "archived":
+                # Decided, done, and filed by the initiator — the one who knows
+                # whether the thing it asked for actually happened.
+                memo.refresh_from_db()
+                archive_memo(memo, initiator)
         self.stdout.write("  · memoranda in every state the chain can be in")

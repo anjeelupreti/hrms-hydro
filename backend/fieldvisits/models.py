@@ -76,6 +76,30 @@ class Site(AuditModel):
     address = models.CharField(max_length=300, blank=True)
     description = models.TextField(blank=True)
 
+    #: A photograph of the place. Not decoration: a travel order to "the
+    #: headworks" means something different to somebody who has been there and
+    #: somebody who has not, and the approver is frequently the latter.
+    photo = models.ImageField(upload_to="sites/%Y/%m/", null=True, blank=True)
+
+    #: Where it is, precisely. Kept as free decimals rather than a geo field so
+    #: this needs no PostGIS — the only thing anybody does with them here is
+    #: hand them to a map link.
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    #: Metres. Matters in this industry: a site at 3,200m is a different trip
+    #: from one at 300m, in season, kit and how long it takes to get there.
+    elevation_m = models.PositiveIntegerField(null=True, blank=True)
+
+    #: Whoever is actually there. A travel order is arranged with a person, not
+    #: with a place, and the requester needs somebody to telephone.
+    contact_name = models.CharField(max_length=120, blank=True)
+    contact_phone = models.CharField(max_length=40, blank=True)
+
+    #: How long it takes to reach, in words — "6 hrs from Butwal, last 20 km
+    #: rough". Free text because the honest answer is a sentence, and a number
+    #: of hours pretends to a precision the road does not have.
+    access_notes = models.CharField(max_length=300, blank=True)
+
     #: **Who can validate a trip here.** A requester picks their approver from
     #: these *or* from their own supervisors — see
     #: `fieldvisits.services.eligible_approvers`. Site supervisors are the

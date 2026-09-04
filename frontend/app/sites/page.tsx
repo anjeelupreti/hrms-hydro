@@ -40,8 +40,15 @@ const EMPTY: SiteFormValues = {
   province: "",
   address: "",
   description: "",
+  latitude: "",
+  longitude: "",
+  elevation_m: "",
+  contact_name: "",
+  contact_phone: "",
+  access_notes: "",
   supervisors: [],
   is_active: true,
+  photo: null,
 };
 
 /**
@@ -218,8 +225,17 @@ function SiteDialog({
             province: site.province,
             address: site.address,
             description: site.description,
+            latitude: site.latitude ?? "",
+            longitude: site.longitude ?? "",
+            elevation_m: site.elevation_m == null ? "" : String(site.elevation_m),
+            contact_name: site.contact_name,
+            contact_phone: site.contact_phone,
+            access_notes: site.access_notes,
             supervisors: site.supervisors,
             is_active: site.is_active,
+            // Never seeded from the existing photo: a File cannot be
+            // reconstructed from a URL, and null means "leave it alone".
+            photo: null,
           }
         : EMPTY
     );
@@ -294,6 +310,84 @@ function SiteDialog({
             size="small"
             helperText="They can approve trips here, alongside each traveller's own supervisors."
           />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              label="Contact on site"
+              fullWidth
+              size="small"
+              value={values.contact_name}
+              onChange={(e) => set("contact_name", e.target.value)}
+              helperText="A trip is arranged with a person, not a place."
+            />
+            <TextField
+              label="Contact phone"
+              fullWidth
+              size="small"
+              value={values.contact_phone}
+              onChange={(e) => set("contact_phone", e.target.value)}
+            />
+          </Stack>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              label="Latitude"
+              fullWidth
+              size="small"
+              value={values.latitude}
+              onChange={(e) => set("latitude", e.target.value)}
+            />
+            <TextField
+              label="Longitude"
+              fullWidth
+              size="small"
+              value={values.longitude}
+              onChange={(e) => set("longitude", e.target.value)}
+            />
+            <TextField
+              label="Elevation (m)"
+              fullWidth
+              size="small"
+              value={values.elevation_m}
+              onChange={(e) => set("elevation_m", e.target.value)}
+            />
+          </Stack>
+
+          <TextField
+            label="Getting there"
+            fullWidth
+            size="small"
+            value={values.access_notes}
+            onChange={(e) => set("access_notes", e.target.value)}
+            placeholder="6 hrs from Butwal, last 20 km rough"
+            helperText="In words — the honest answer is a sentence, not a number of hours."
+          />
+
+          {/* A travel order to "the headworks" means something different to
+              somebody who has been there and somebody who has not, and the
+              approver is frequently the latter. */}
+          <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+            {site?.photo_url && !values.photo ? (
+              <Box
+                component="img"
+                src={site.photo_url}
+                alt=""
+                sx={{ width: 96, height: 64, objectFit: "cover", borderRadius: 1 }}
+              />
+            ) : null}
+            <Button component="label" size="small" variant="outlined">
+              {values.photo ? values.photo.name : site?.photo_url ? "Replace photo" : "Add a photo"}
+              <Box
+                component="input"
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  set("photo", e.target.files?.[0] ?? null)
+                }
+              />
+            </Button>
+          </Stack>
+
           <TextField
             label="Notes"
             fullWidth

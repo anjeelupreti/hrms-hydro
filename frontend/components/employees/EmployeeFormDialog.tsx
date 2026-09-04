@@ -56,6 +56,7 @@ const FIELD_LABELS: Record<string, string> = {
   department: "Department",
   designation: "Designation",
   manager: "Manager",
+  supervisor_ids: "Supervisors",
 };
 
 /**
@@ -116,6 +117,7 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
       department: null,
       designation: null,
       manager: null,
+      supervisor_ids: [],
       primary_company: null,
       secondary_companies: [],
       corporate_post: null,
@@ -158,6 +160,8 @@ function buildInitialValues(employee: EmployeeDetail | null): EmployeeFormValues
     department: employee.department,
     designation: employee.designation,
     manager: employee.manager,
+    // Ordered, so the seed has to preserve the order the server sent.
+    supervisor_ids: (employee.supervisors ?? []).map((s) => s.id),
     primary_company: employee.primary_company ?? null,
     secondary_companies: employee.secondary_companies ?? [],
     corporate_post: employee.corporate_post ?? null,
@@ -492,6 +496,30 @@ function EmployeeForm({
               // Somebody cannot be their own manager, and the server would
               // refuse the cycle anyway; keeping them out of the list means
               // the refusal never has to happen.
+              excludeIds={employee ? [employee.id] : undefined}
+            />
+          </Grid>
+
+          {/* ── Who approves for them ──────────────────────────────────
+              **Distinct from "Reports to", and both are needed.** The manager
+              draws the org chart; these are the people a leave request goes
+              to, and in most offices they are not the same person — a site
+              engineer reports to the project manager while their leave is seen
+              by the site in-charge.
+
+              **The order is the rule, not a preference.** Leave stops at the
+              *last* of them: supervisor 1 is the maker and is notified,
+              supervisor 2 is the checker and decides. See
+              `leave.services.effective_chain`. */}
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <EmployeePicker
+              label="Supervisors"
+              multiple
+              value={values.supervisor_ids ?? []}
+              onChange={(ids) => set("supervisor_ids", (ids as number[]) ?? [])}
+              size="small"
+              placeholder="Nobody — leave falls back to their manager"
+              helperText="In order. The last one approves; the rest are told."
               excludeIds={employee ? [employee.id] : undefined}
             />
           </Grid>

@@ -57,6 +57,7 @@ import type { LeaveRequest, LeaveStatus } from "@/types/leave";
 function LeaveGrid({
   rows,
   columns,
+  onRowClick,
   loading,
   filtered,
   emptyTitle,
@@ -67,6 +68,7 @@ function LeaveGrid({
 }: {
   rows: LeaveRequest[];
   columns: GridColDef<LeaveRequest>[];
+  onRowClick?: (row: LeaveRequest) => void;
   loading: boolean;
   filtered?: boolean;
   emptyTitle: string;
@@ -95,6 +97,12 @@ function LeaveGrid({
       loading={loading}
       autoHeight
       disableRowSelectionOnClick
+      // **The row opens it, not only the small icon in the last column.**
+      // Somebody wanting to know what happened to a leave request clicks the
+      // request; hunting for a view button is a thing you learn, not a thing
+      // you guess.
+      onRowClick={onRowClick ? (params) => onRowClick(params.row as LeaveRequest) : undefined}
+      sx={onRowClick ? { "& .MuiDataGrid-row": { cursor: "pointer" } } : undefined}
       pageSizeOptions={pageSizeOptions}
       initialState={initialState}
     />
@@ -350,6 +358,7 @@ export default function LeavePage() {
             {tab === 0 ? (
               <LeaveGrid
                 rows={allRequests?.results ?? []}
+                onRowClick={setDetail}
                 columns={buildColumns(true)}
                 loading={allLoading}
                 filtered={Boolean(status)}
@@ -362,6 +371,7 @@ export default function LeavePage() {
             ) : (
               <LeaveGrid
                 rows={myRequests?.results ?? []}
+                onRowClick={setDetail}
                 columns={buildColumns(false)}
                 loading={myLoading}
                 emptyTitle="You have not requested any leave"
@@ -376,6 +386,7 @@ export default function LeavePage() {
             </Typography>
             <LeaveGrid
               rows={myRequests?.results ?? []}
+              onRowClick={setDetail}
               columns={buildColumns(false)}
               loading={myLoading}
               emptyTitle="You have not requested any leave"

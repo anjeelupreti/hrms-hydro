@@ -70,6 +70,19 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
     employee_name = serializers.SerializerMethodField()
     leave_type_name = serializers.CharField(source="leave_type.name", read_only=True)
+    #: **Every decision, with who and why.** `ApprovalActionSerializer` existed
+    #: and was attached to nothing, so the log the workflow has written all
+    #: along could not be read: a request showed a status and no account of how
+    #: it got there. It is append-only — see `ApprovalAction` — which is what
+    #: makes it worth reading.
+    actions = ApprovalActionSerializer(many=True, read_only=True)
+    #: Who it is waiting on, resolved the same way the decision endpoint
+    #: resolves it, so the answer on screen is the answer the API will enforce.
+    awaiting = serializers.SerializerMethodField()
+    #: Everybody who was told, whether or not they have to act — the makers as
+    #: well as the checker. See `leave.services.effective_chain`.
+    supervisors = serializers.SerializerMethodField()
+    requested_at = serializers.DateTimeField(source="created_at", read_only=True)
 
     class Meta:
         model = LeaveRequest
@@ -89,6 +102,10 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
             "is_paid",
             "exceeds_balance",
             "current_step",
+            "actions",
+            "awaiting",
+            "supervisors",
+            "requested_at",
         ]
         read_only_fields = [
             "id",
@@ -102,6 +119,45 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
 
     def get_employee_name(self, obj):
         return obj.employee.user.get_full_name() or obj.employee.user.get_username()
+
+    @staticmethod
+    def _label(employee):
+        user = employee.user
+        name = user.get_full_name() or user.get_username()
+        code = employee.employee_code or ""
+        return f"{name} ({code})" if code else name
+
+    def get_awaiting(self, obj):
+        from leave.services import _current_step
+
+        if obj.status != LeaveRequest.Status.PENDING:
+            return None
+        step = _current_step(obj)
+        if step is None:
+            return None
+        _sequence, role, person = step
+        if person is not None:
+            return {"role": role, "name": self._label(person)}
+        # `HR_ADMIN` is a capability rather than a named person, and `MANAGER`
+        # resolves against the requester — neither has one to give.
+        if role == "manager" and obj.employee.manager is not None:
+            return {"role": role, "name": self._label(obj.employee.manager)}
+        return {"role": role, "name": None}
+
+    def get_supervisors(self, obj):
+        from leave.services import _supervisors_of
+
+        people = _supervisors_of(obj.employee)
+        return [
+            {
+                "id": person.pk,
+                "name": self._label(person),
+                # The last one is the checker whose approval is required; the
+                # rest are told for information.
+                "decides": index == len(people) - 1,
+            }
+            for index, person in enumerate(people)
+        ]
 
 
 class LeaveRequestCreateSerializer(serializers.Serializer):

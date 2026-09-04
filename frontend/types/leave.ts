@@ -41,6 +41,22 @@ export type LeaveRequest = {
   is_paid: boolean;
   exceeds_balance: boolean;
   current_step: number;
+  /** Every decision, append-only — who, when, and why. */
+  actions?: {
+    id: number;
+    step_sequence: number;
+    decision: "approved" | "rejected";
+    comment: string;
+    /** Null where the system decided it — a step skipped for want of an
+     *  assigned approver. */
+    actor_name: string | null;
+    created_at: string;
+  }[];
+  /** Who it is sitting with, or null once it is decided. */
+  awaiting?: { role: string; name: string | null } | null;
+  /** Everybody told. `decides` marks the checker whose approval is required. */
+  supervisors?: { id: number; name: string; decides: boolean }[];
+  requested_at?: string;
 };
 
 export type ApprovalActionEntry = {

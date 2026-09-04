@@ -113,6 +113,11 @@ class EmployeeLogSerializer(serializers.ModelSerializer):
 
 
 class EmployeeDetailSerializer(serializers.ModelSerializer):
+    #: The approval chain, in order — read as objects so a form can show who
+    #: they are without a second request, and so the last one (the checker) is
+    #: identifiable on sight.
+    supervisors = serializers.SerializerMethodField()
+
     full_name = serializers.SerializerMethodField()
     first_name = serializers.CharField(source="user.first_name", read_only=True)
     last_name = serializers.CharField(source="user.last_name", read_only=True)
@@ -154,6 +159,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             "department",
             "designation",
             "manager",
+            "supervisors",
             "primary_company",
             "primary_company_name",
             "secondary_companies",
@@ -226,6 +232,18 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
         "permanent_address", "temporary_address",
     )
 
+    def get_supervisors(self, obj):
+        return [
+            {
+                "id": link.supervisor_id,
+                "name": link.supervisor.user.get_full_name()
+                or link.supervisor.user.get_username(),
+                "employee_code": link.supervisor.employee_code,
+                "order": link.order,
+            }
+            for link in obj.supervisor_links.select_related("supervisor__user").all()
+        ]
+
     def get_full_name(self, obj):
         return obj.user.get_full_name() or obj.user.get_username()
 
@@ -291,6 +309,15 @@ def _next_employee_code():
 
 
 class EmployeeWriteSerializer(serializers.ModelSerializer):
+    #: **Ordered, and written through the join table.** A plain
+    #: `ManyToManyField` would take the ids and lose the order, and the order
+    #: is the rule: the last supervisor is the one whose approval a leave
+    #: request needs (see `leave.services.effective_chain`). Write-only because
+    #: the read serializers return the richer `supervisors` block below.
+    supervisor_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, write_only=True
+    )
+
     """Create/update. Creation also provisions the linked `User` and mails the
     temporary credentials, via `accounts.provisioning` — the same path the
     hiring route uses, so the two cannot disagree about whether a new employee
@@ -326,6 +353,7 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
             "department",
             "designation",
             "manager",
+            "supervisor_ids",
             "primary_company",
             "secondary_companies",
             "corporate_post",
@@ -429,6 +457,8 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
         # anybody seconded — failed outright. Popped here and set below, once
         # there is a row for the relation to point at.
         secondary_companies = validated_data.pop("secondary_companies", [])
+        # Same reason as the line above: the join table needs a row to point at.
+        supervisor_ids = validated_data.pop("supervisor_ids", None)
 
         # One provisioning path, shared with the hiring route — see
         # accounts/provisioning.py for why these stopped being two.
@@ -449,6 +479,8 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
 
         # Set M2M relations after the Employee exists
         employee.secondary_companies.set(secondary_companies)
+        if supervisor_ids:
+            self._set_supervisors(employee, supervisor_ids)
 
         return employee
 
@@ -466,10 +498,39 @@ class EmployeeWriteSerializer(serializers.ModelSerializer):
                 instance.user.last_name = last_name
             instance.user.save(update_fields=["first_name", "last_name"])
 
+        supervisor_ids = validated_data.pop("supervisor_ids", None)
+
         before = {field: getattr(instance, field) for field in self.TRACKED_FIELDS}
         instance = super().update(instance, validated_data)
+        if supervisor_ids is not None:
+            self._set_supervisors(instance, supervisor_ids)
         self._log_changes(instance, before)
         return instance
+
+    @staticmethod
+    def _set_supervisors(employee, ids):
+        """Replace the approval chain, densely renumbered from zero.
+
+        Renumbered every time so `order` stays a plain index rather than
+        something that has to be searched — the same reason the memorandum
+        chain does it. Rows are deleted and rewritten rather than diffed:
+        there are two or three of them, and a diff would be more code than the
+        thing it replaces.
+        """
+        from employees.models import EmployeeSupervisor
+
+        wanted = [int(i) for i in dict.fromkeys(ids)]  # de-duplicate, keep order
+        # Nobody supervises themselves. The database refuses it too; keeping it
+        # out here means the refusal never has to reach anybody.
+        wanted = [i for i in wanted if i != employee.pk]
+
+        employee.supervisor_links.exclude(supervisor_id__in=wanted).delete()
+        for position, supervisor_id in enumerate(wanted):
+            EmployeeSupervisor.objects.update_or_create(
+                employee=employee,
+                supervisor_id=supervisor_id,
+                defaults={"order": position},
+            )
 
     def _log_changes(self, instance, before):
         request = self.context.get("request")

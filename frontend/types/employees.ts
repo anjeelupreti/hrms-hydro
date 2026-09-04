@@ -38,6 +38,10 @@ export type EmployeeListItem = {
   employment_status: EmploymentStatus;
   date_joined: string | null;
   manager: number | null;
+  supervisor_ids?: number[];
+  /** The approval chain, in order. The last one is the checker whose approval
+   *  a leave request needs — see `leave.services.effective_chain`. */
+  supervisors?: { id: number; name: string; employee_code: string; order: number }[];
   manager_name: string | null;
   /** Whose payroll they are on — the roster can be read and filtered by it. */
   primary_company: number | null;
@@ -50,6 +54,15 @@ export type EmployeeListItem = {
 
 export type EmployeeDetail = {
   id: number;
+  /**
+   * The approval chain, in order.
+   *
+   * Distinct from `manager`: the manager draws the org chart, these are the
+   * people a leave request goes to. The **last** one is the checker whose
+   * approval is required; the rest are notified — see
+   * `leave.services.effective_chain`.
+   */
+  supervisors: { id: number; name: string; employee_code: string; order: number }[];
   employee_code: string;
   full_name: string;
   /** Served by `EmployeeDetailSerializer` all along and simply absent here, so
@@ -157,6 +170,8 @@ export type EmployeeDetail = {
 
 export type EmployeeFormValues = {
   first_name: string;
+  /** Ordered ids for the chain above. */
+  supervisor_ids: number[];
   last_name: string;
   email: string;
   phone: string;

@@ -112,6 +112,45 @@ export default function LeaveRequestDetailDialog({
           <Field label="Paid" value={request.is_paid ? "Paid" : "Unpaid"} />
         </Stack>
         {request.reason && <Field label="Reason" value={request.reason} />}
+        {request.requested_at ? (
+          <Field label="Asked on" value={new Date(request.requested_at).toLocaleString()} />
+        ) : null}
+
+        {/* **Who has it.** "Pending" is a state, not an answer: the person who
+            asked wants to know whose desk it is on, and the status chip cannot
+            tell them. Resolved by the server the same way the decision
+            endpoint resolves it, so what is shown is what will be enforced. */}
+        {request.awaiting ? (
+          <Alert severity="info" icon={false} sx={{ mt: 2 }}>
+            Waiting on{" "}
+            <strong>
+              {request.awaiting.name ??
+                (request.awaiting.role === "hr_admin" ? "HR" : "their manager")}
+            </strong>
+          </Alert>
+        ) : null}
+
+        {/* Maker and checker, said out loud. Everybody here was notified; only
+            the one marked "approves" has to act, and somebody looking at this
+            should not have to infer that from the order of a list. */}
+        {(request.supervisors ?? []).length > 0 ? (
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="overline" color="text.secondary">
+              Supervisors
+            </Typography>
+            <Stack direction="row" spacing={0.75} sx={{ mt: 0.5, flexWrap: "wrap" }} useFlexGap>
+              {(request.supervisors ?? []).map((person) => (
+                <Chip
+                  key={person.id}
+                  size="small"
+                  variant={person.decides ? "filled" : "outlined"}
+                  color={person.decides ? "primary" : "default"}
+                  label={`${person.name} — ${person.decides ? "approves" : "informed"}`}
+                />
+              ))}
+            </Stack>
+          </Box>
+        ) : null}
 
         <Divider sx={{ my: 2 }} />
         <Typography variant="overline" color="text.secondary">

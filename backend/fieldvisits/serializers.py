@@ -120,14 +120,21 @@ class SiteSerializer(serializers.ModelSerializer):
     #: How many trips have been made here. What tells a coordinator which sites
     #: are live and which are a row somebody created once.
     visit_count = serializers.SerializerMethodField()
+    #: Absolute where there is a request to build one from — the same shape
+    #: every other uploaded file uses, so one media handler serves them all.
+    photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Site
         fields = [
             "id", "name", "code", "company", "company_name",
             "district", "province", "address", "description",
+            "photo", "photo_url",
+            "latitude", "longitude", "elevation_m",
+            "contact_name", "contact_phone", "access_notes",
             "supervisors", "supervisor_names", "is_active", "visit_count",
         ]
+        extra_kwargs = {"photo": {"write_only": True, "required": False}}
 
     def get_supervisor_names(self, obj):
         return [
@@ -137,3 +144,9 @@ class SiteSerializer(serializers.ModelSerializer):
 
     def get_visit_count(self, obj):
         return obj.visits.count()
+
+    def get_photo_url(self, obj):
+        if not obj.photo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.photo.url) if request else obj.photo.url

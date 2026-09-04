@@ -15,6 +15,14 @@ export type Site = {
   province: string;
   address: string;
   description: string;
+  /** Absolute, rewritten by the proxy to a path the browser can reach. */
+  photo_url: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  elevation_m: number | null;
+  contact_name: string;
+  contact_phone: string;
+  access_notes: string;
   supervisors: number[];
   supervisor_names: { id: number; name: string; employee_code: string }[];
   is_active: boolean;
@@ -31,8 +39,16 @@ export type SiteFormValues = {
   province: string;
   address: string;
   description: string;
+  latitude: string;
+  longitude: string;
+  elevation_m: string;
+  contact_name: string;
+  contact_phone: string;
+  access_notes: string;
   supervisors: number[];
   is_active: boolean;
+  /** A new file to upload, or null to leave the existing photo alone. */
+  photo: File | null;
 };
 
 /** Somebody who may be asked to approve a trip — the site's people or yours. */
@@ -66,11 +82,48 @@ export function useSites(params: { search?: string; active?: boolean } = {}) {
 export function useSaveSite() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ id, values }: { id: number | null; values: SiteFormValues }) =>
-      fetchJson<Site>(id ? `${BASE}/${id}` : BASE, {
+    mutationFn: ({ id, values }: { id: number | null; values: SiteFormValues }) => {
+      const { photo, ...raw } = values;
+
+      // **Empty means absent, not zero.** `latitude`, `longitude` and
+      // `elevation_m` are nullable numbers on the server, and an untouched
+      // text field hands back `""` — which DRF rejects outright as "a valid
+      // number is required". Blanked here rather than made a special case in
+      // the serializer, because the empty string is a browser artefact and
+      // the API should not have to know about it.
+      const rest = {
+        ...raw,
+        latitude: raw.latitude.trim() || null,
+        longitude: raw.longitude.trim() || null,
+        elevation_m: raw.elevation_m.trim() || null,
+      };
+
+      // **Multipart only when there is a file.** An ordinary edit stays an
+      // ordinary JSON request; sending everything as `FormData` would mean
+      // every number and null arriving as the string "null", which the
+      // serializer then has to unpick.
+      if (!photo) {
+        return fetchJson<Site>(id ? `${BASE}/${id}` : BASE, {
+          method: id ? "PATCH" : "POST",
+          body: JSON.stringify(rest),
+        });
+      }
+
+      const form = new FormData();
+      for (const [key, value] of Object.entries(rest)) {
+        if (value === null || value === "") continue;
+        if (Array.isArray(value)) {
+          for (const item of value) form.append(key, String(item));
+        } else {
+          form.append(key, String(value));
+        }
+      }
+      form.append("photo", photo);
+      return fetchJson<Site>(id ? `${BASE}/${id}` : BASE, {
         method: id ? "PATCH" : "POST",
-        body: JSON.stringify(values),
-      }),
+        body: form,
+      });
+    },
     onSuccess: invalidate,
   });
 }
