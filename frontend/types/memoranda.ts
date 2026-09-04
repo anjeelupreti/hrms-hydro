@@ -32,6 +32,8 @@ export type MemorandumRecommender = {
   employee: number;
   employee_name: string;
   employee_code: string;
+  /** Their signature, and only once they have actually acted. */
+  signature: string | null;
   designation: string | null;
   order: number;
   /** Has handled it at some point — read from the log, and the reason the chip
@@ -124,12 +126,18 @@ export type MemorandumListItem = {
   initiator_name: string;
   /** The employee ID, shown beside the name — see `withCode`. */
   initiator_code: string;
+  /** The approved signature image, once the memorandum has been sent. Null
+   *  while it is a draft, or where the person has no approved signature. */
+  initiator_signature: string | null;
   /** The office they hold, for the From line. A memorandum addresses a chair
    *  as much as a person. */
   initiator_post: string;
   approver: number | null;
   approver_name: string | null;
   approver_code: string;
+  /** Only once they have decided — the approver's signature *is* the
+   *  decision, so it must not appear while the memorandum is still climbing. */
+  approver_signature: string | null;
   /** The office the approver holds, for the To line. */
   approver_post: string;
   current_holder: number | null;

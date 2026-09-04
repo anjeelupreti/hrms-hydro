@@ -20,6 +20,7 @@ import AnnouncementsRail from "@/components/dashboard/AnnouncementsRail";
 import AssignedToMe from "@/components/portal/AssignedToMe";
 import NeedsYourTurn from "@/components/portal/NeedsYourTurn";
 import StaffIdCard from "@/components/portal/StaffIdCard";
+import SignatureCard from "@/components/employees/SignatureCard";
 import NotesCard from "@/components/portal/NotesCard";
 import TodoList from "@/components/portal/TodoList";
 import DayFulfilment from "@/components/attendance/DayFulfilment";
@@ -269,6 +270,16 @@ export default function PortalPage() {
         <TodoList />
         <NotesCard />
       </Box>
+
+      {/* **The signature lives on the page that is about you.** It is
+          somebody's own mark, uploaded by them, and the only place they would
+          think to look for it is their own workspace — not the HR view of
+          their employee record. */}
+      <Card variant="outlined" sx={{ mt: 2 }}>
+        <CardContent>
+          <SignatureCard />
+        </CardContent>
+      </Card>
 
       <Typography variant="overline" color="text.secondary" sx={{ mt: 3, display: "block" }}>
         Attendance

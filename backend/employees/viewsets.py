@@ -1,9 +1,10 @@
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 from django_filters import rest_framework as django_filters
 from rest_framework import filters, status
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.response import Response
@@ -18,6 +19,7 @@ from core.exports import XlsxExportMixin, xlsx_response
 from core.filters import IdsLookupMixin
 from core.viewsets import AuditViewSetMixin
 from employees import services
+from notifications.services import notify
 from employees.suspensions import SuspensionError
 from employees.suspensions import lift as lift_suspension
 from employees.suspensions import suspend
@@ -47,6 +49,7 @@ from employees.models import (
     LifecycleApprovalAction,
     LifecycleEvent,
     Nominee,
+    Signature,
 )
 from employees.offboarding import outstanding_items
 from employees.scoping import scope_to_visible
@@ -72,6 +75,7 @@ from employees.serializers import (
     LifecycleEventCreateSerializer,
     LifecycleEventSerializer,
     NomineeSerializer,
+    SignatureSerializer,
 )
 
 
@@ -1099,3 +1103,120 @@ class DisciplinaryActionViewSet(_EmployeeHRRecordViewSet):
 
     def get_queryset(self):
         return super().get_queryset().select_related("suspension")
+
+
+class SignatureViewSet(AuditViewSetMixin, ModelViewSet):
+    """Uploading a signature, and somebody else saying it may be used.
+
+    **Two different people, deliberately.** The employee provides the image —
+    it is theirs and nobody else should be drawing it — and somebody holding
+    `people.manage` approves it. A memorandum printed with the signatures of
+    the people who recommended it is only a record if those signatures were
+    checked by a second pair of eyes; self-approval would make the whole
+    apparatus decorative.
+
+    Everybody sees their own. Only somebody who may manage people sees
+    everybody's, which is what the approval queue needs.
+    """
+
+    serializer_class = SignatureSerializer
+    permission_classes = [IsAuthenticated]
+    # **`?status=pending` has to actually filter.** The approval queue asks for
+    # pending rows; without this the parameter was ignored and the queue listed
+    # every signature there had ever been — so approving one left it sitting in
+    # the list of things to approve, now marked approved.
+    filter_backends = [django_filters.DjangoFilterBackend]
+    filterset_fields = ["status", "employee"]
+
+    def get_queryset(self):
+        qs = Signature.objects.select_related("employee__user", "decided_by")
+        if can(self.request.user, Perm.PEOPLE_MANAGE):
+            return qs
+        me = getattr(self.request.user, "employee", None)
+        return qs.filter(employee=me) if me else qs.none()
+
+    def perform_create(self, serializer):
+        """Always your own, whatever the payload says.
+
+        `employee` is on the serializer because the field has to exist for the
+        response; taking it from the request would let anybody upload a
+        signature in somebody else's name, which is the one thing this model
+        exists to make hard.
+        """
+        me = getattr(self.request.user, "employee", None)
+        if me is None:
+            raise ValidationError("Your account has no employee record to sign for.")
+        serializer.save(
+            employee=me,
+            status=Signature.Status.PENDING,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, *args, **kwargs):
+        """Let it be used, and retire whichever one it replaces."""
+        if not can(request.user, Perm.PEOPLE_MANAGE):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        signature = self.get_object()
+        me = getattr(request.user, "employee", None)
+        if me is not None and me.pk == signature.employee_id:
+            return Response(
+                {"detail": "A signature has to be approved by somebody other than its owner."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        with transaction.atomic():
+            # Superseded rather than deleted: a memorandum signed last year was
+            # signed with last year's image, and removing it would silently
+            # restate history. The partial unique index allows exactly one
+            # approved row, so the old one has to move first.
+            Signature.objects.filter(
+                employee=signature.employee, status=Signature.Status.APPROVED
+            ).exclude(pk=signature.pk).update(status=Signature.Status.SUPERSEDED)
+
+            signature.status = Signature.Status.APPROVED
+            signature.decided_by = request.user
+            signature.decided_at = timezone.now()
+            signature.note = request.data.get("note", "")
+            signature.updated_by = request.user
+            signature.save()
+
+        notify(
+            signature.employee.user,
+            "signature_approved",
+            "Your signature has been approved and will be applied to memoranda you sign.",
+            email_subject="Signature approved",
+        )
+        return Response(SignatureSerializer(signature, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, *args, **kwargs):
+        if not can(request.user, Perm.PEOPLE_MANAGE):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        signature = self.get_object()
+        signature.status = Signature.Status.REJECTED
+        signature.decided_by = request.user
+        signature.decided_at = timezone.now()
+        # Said plainly, because otherwise the employee has to guess what was
+        # wrong with it and uploads the same image again.
+        signature.note = request.data.get("note", "")
+        signature.updated_by = request.user
+        signature.save()
+
+        notify(
+            signature.employee.user,
+            "signature_rejected",
+            f"Your signature was not approved. {signature.note}".strip(),
+            email_subject="Signature not approved",
+        )
+        return Response(SignatureSerializer(signature, context={"request": request}).data)
+
+    @action(detail=False, methods=["get"], url_path="mine")
+    def mine(self, request, *args, **kwargs):
+        """This person's signatures, newest first — the profile view."""
+        me = getattr(request.user, "employee", None)
+        rows = self.get_queryset().filter(employee=me) if me else Signature.objects.none()
+        return Response(
+            SignatureSerializer(rows, many=True, context={"request": request}).data
+        )

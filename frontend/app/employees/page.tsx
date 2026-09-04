@@ -30,6 +30,7 @@ import { useState, Suspense } from "react";
 
 import CountFilterBar from "@/components/common/CountFilterBar";
 import DateText from "@/components/common/DateText";
+import SignatureQueue from "@/components/employees/SignatureQueue";
 import ListControls from "@/components/common/ListControls";
 import ListPagination from "@/components/common/ListPagination";
 import EmptyState from "@/components/common/EmptyState";
@@ -282,6 +283,12 @@ function EmployeesContent() {
           </>
         }
       />
+
+      {/* **What is waiting on HR, above what HR is browsing.** Silent when the
+          queue is empty, so it costs nothing on the ordinary day. */}
+      <Box sx={{ mb: 2 }}>
+        <SignatureQueue />
+      </Box>
 
       {/* The arrangement every other list now copies — search, then the
           pickers, then the status chips, all in one band under the header.

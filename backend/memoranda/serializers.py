@@ -28,6 +28,21 @@ def _code(employee):
     return getattr(employee, "employee_code", "") or ""
 
 
+def _signature(employee, request=None):
+    """The employee's approved signature image, or None.
+
+    **Approved only.** A pending upload is a picture somebody sent in; printing
+    it under a recommendation would put an unchecked signature on a document
+    that is meant to be the record of who signed it. There is at most one
+    approved row per person — a partial unique index guarantees it — so this
+    cannot silently pick between two.
+    """
+    row = employee.signatures.filter(status="approved").first() if employee else None
+    if row is None or not row.image:
+        return None
+    return request.build_absolute_uri(row.image.url) if request else row.image.url
+
+
 def _post(employee):
     """The office somebody holds, for a To or From line.
 
@@ -69,13 +84,24 @@ class MemorandumRecommenderSerializer(serializers.ModelSerializer):
     #: the editor rather than merely refused on save.
     has_acted = serializers.SerializerMethodField()
     is_current = serializers.SerializerMethodField()
+    #: Their approved signature, and **only once they have actually acted.**
+    #: Printing it beside a name that has not recommended anything yet would
+    #: put a signature on a document nobody has signed.
+    signature = serializers.SerializerMethodField()
 
     class Meta:
         model = MemorandumRecommender
         fields = [
             "id", "employee", "employee_name", "employee_code",
-            "designation", "order", "has_acted", "is_current",
+            "designation", "order", "has_acted", "is_current", "signature",
         ]
+
+    def get_signature(self, obj):
+        from memoranda.workflow import has_ever_acted
+
+        if not has_ever_acted(obj.memorandum, obj.employee):
+            return None
+        return _signature(obj.employee, self.context.get("request"))
 
     def get_employee_name(self, obj):
         return _name(obj.employee)
@@ -178,6 +204,8 @@ class MemorandumListSerializer(serializers.ModelSerializer):
     initiator_code = serializers.SerializerMethodField()
     approver_code = serializers.SerializerMethodField()
     current_holder_code = serializers.SerializerMethodField()
+    initiator_signature = serializers.SerializerMethodField()
+    approver_signature = serializers.SerializerMethodField()
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     stage_display = serializers.CharField(source="get_stage_display", read_only=True)
     attachment_count = serializers.IntegerField(read_only=True)
@@ -193,7 +221,9 @@ class MemorandumListSerializer(serializers.ModelSerializer):
             "company_phone", "company_email",
             "status", "status_display", "stage", "stage_display",
             "initiator", "initiator_name", "initiator_post", "initiator_code",
+            "initiator_signature",
             "approver", "approver_name", "approver_post", "approver_code",
+            "approver_signature",
             "current_holder", "current_holder_name", "current_holder_code", "current_index",
             "attachment_count", "recommender_count", "is_locked",
             "submitted_at", "decided_at", "created_at",
@@ -247,6 +277,22 @@ class MemorandumListSerializer(serializers.ModelSerializer):
 
     def get_current_holder_code(self, obj):
         return _code(obj.current_holder)
+
+    def get_initiator_signature(self, obj):
+        """**Once it has been sent, not before.** A draft is a piece of writing;
+        signing it while it is still being edited would mean the signature sat
+        on a document that then changed underneath it."""
+        if obj.status == Memorandum.Status.DRAFT:
+            return None
+        return _signature(obj.initiator, self.context.get("request"))
+
+    def get_approver_signature(self, obj):
+        """Only once they have decided. The approver's signature is the
+        decision — printing it while the memorandum is still climbing the chain
+        would say it had been approved when it has not."""
+        if obj.status != Memorandum.Status.APPROVED:
+            return None
+        return _signature(obj.approver, self.context.get("request"))
 
 
 class MemorandumSerializer(MemorandumListSerializer):

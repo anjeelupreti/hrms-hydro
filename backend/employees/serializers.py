@@ -24,6 +24,7 @@ from employees.models import (
     LifecycleApprovalAction,
     LifecycleEvent,
     Nominee,
+    Signature,
 )
 
 User = get_user_model()
@@ -888,3 +889,53 @@ class DisciplinaryActionSerializer(serializers.ModelSerializer):
         ):
             return False
         return obj.expires_on is None or obj.expires_on >= date.today()
+
+
+class SignatureSerializer(serializers.ModelSerializer):
+    """An employee's signature, as it travels to the browser.
+
+    `image` is write-only and `image_url` is what comes back, absolute where
+    there is a request to build one from — the same shape every other uploaded
+    file in this product uses, so one media handler serves them all.
+
+    `status` is read-only here on purpose. Approving is a decision somebody
+    else makes through its own endpoint; a serializer that accepted it would
+    let the person who uploaded the signature approve it in the same request.
+    """
+
+    employee_name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    decided_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Signature
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "image", "image_url", "status", "note",
+            "decided_by", "decided_by_name", "decided_at", "created_at",
+        ]
+        read_only_fields = [
+            # **`employee` included.** It is taken from the request user in
+            # `perform_create` — a signature is always your own — so leaving it
+            # writable did two wrong things at once: DRF demanded it in the
+            # payload, and a client that supplied one could name somebody else.
+            "id", "employee", "employee_name", "employee_code", "image_url",
+            "status", "decided_by", "decided_by_name", "decided_at", "created_at",
+        ]
+        extra_kwargs = {"image": {"write_only": True}}
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
+
+    def get_image_url(self, obj):
+        if not obj.image:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.image.url) if request else obj.image.url
+
+    def get_decided_by_name(self, obj):
+        if obj.decided_by is None:
+            return None
+        return obj.decided_by.get_full_name() or obj.decided_by.get_username()

@@ -169,6 +169,34 @@ export default function MemorandumLetter({
 
   const contact = [memo?.company_phone, memo?.company_email].filter(Boolean).join(" · ");
 
+  /**
+   * Everybody whose mark belongs on this page, in the order it was collected.
+   *
+   * Recommenders who have acted, then the approver once they have decided. The
+   * initiator is not here: their name is already at the foot as the author, and
+   * repeating it as a signatory would suggest they approved their own request.
+   */
+  const signed = [
+    ...(memo?.recommenders ?? [])
+      .filter((row) => row.has_acted)
+      .map((row) => ({
+        key: `r-${row.id}`,
+        name: withCode(row.employee_name, row.employee_code),
+        role: row.designation || "Recommended",
+        signature: row.signature,
+      })),
+    ...(memo?.status === "approved" && memo.approver_name
+      ? [
+          {
+            key: "approver",
+            name: withCode(memo.approver_name, memo.approver_code),
+            role: memo.approver_post || "Approved",
+            signature: memo.approver_signature,
+          },
+        ]
+      : []),
+  ];
+
   const [sizeKey, setSizeKey] = useState<PageSizeKey>("a4");
   const PAGE = PAGE_SIZES[sizeKey];
   const contentHeightPx = (PAGE.height - PAGE.margin * 2) * PX_PER_MM;
@@ -746,6 +774,50 @@ export default function MemorandumLetter({
                 ))}
               </Box>
             </Box>
+          </Box>
+        ) : null}
+
+        {/* ── Who signed it ──────────────────────────────────────────
+            The recommenders, in the order they saw it, with their signatures
+            where they have acted. **This is the block the whole signature
+            apparatus exists for**: a printed memorandum is only a record of who
+            recommended it if their marks are on the paper, and a name in a list
+            is not a mark. Somebody who has acted without an approved signature
+            still appears — the fact that they recommended it is true whether or
+            not they ever uploaded an image. */}
+        {signed.length > 0 ? (
+          <Box sx={{ pt: 4 }}>
+            <Stack direction="row" sx={{ flexWrap: "wrap", gap: 3 }} useFlexGap>
+              {signed.map((person) => (
+                <Box key={person.key} sx={{ minWidth: 170 }}>
+                  <Box
+                    sx={{
+                      height: 44,
+                      display: "flex",
+                      alignItems: "flex-end",
+                      mb: 0.25,
+                    }}
+                  >
+                    {person.signature ? (
+                      <Box
+                        component="img"
+                        src={person.signature}
+                        alt=""
+                        sx={{ maxHeight: 44, maxWidth: 170, objectFit: "contain" }}
+                      />
+                    ) : null}
+                  </Box>
+                  <Box sx={{ borderTop: "1px solid", borderColor: alpha("#16181d", 0.4), pt: 0.5 }}>
+                    <Typography sx={{ fontFamily: "inherit", fontSize: ".8rem", fontWeight: 600 }}>
+                      {person.name}
+                    </Typography>
+                    <Typography sx={{ fontFamily: "inherit", fontSize: ".7rem", color: "#5a6070" }}>
+                      {person.role}
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+            </Stack>
           </Box>
         ) : null}
 

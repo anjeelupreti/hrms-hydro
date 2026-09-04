@@ -1113,3 +1113,76 @@ def test_the_initiator_can_change_the_company_when_it_is_sent_back(memo, cast, c
     memo.refresh_from_db()
     assert memo.company_id == other.pk
     assert memo.memo_id != original and "SNHL" in memo.memo_id
+
+
+# ── Signatures on the page ───────────────────────────────────────────────
+
+
+def _signed(employee, status="approved"):
+    """An approved signature for somebody, as a one-pixel PNG."""
+    import base64
+
+    from django.core.files.base import ContentFile
+
+    from employees.models import Signature
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    row = Signature.objects.create(employee=employee, status=status)
+    row.image.save("sig.png", ContentFile(png), save=True)
+    return row
+
+
+def test_a_recommender_s_signature_appears_only_once_they_have_acted(memo, cast, recommend):
+    """A signature beside a name that has recommended nothing yet would put a
+    signature on a document nobody has signed."""
+    _signed(cast["a"])
+    submit(memo)
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+    before = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
+    assert before[cast["a"].pk] is None
+
+    proceed(memo, cast["a"], action=recommend, comment="")
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+    after = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
+    assert after[cast["a"].pk] is not None
+
+
+def test_only_an_approved_signature_is_ever_applied(memo, cast, recommend):
+    """A pending upload is a picture somebody sent in. Printing it under a
+    recommendation would put an unchecked signature on the record."""
+    _signed(cast["a"], status="pending")
+    submit(memo)
+    proceed(memo, cast["a"], action=recommend, comment="")
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+    rows = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
+    assert rows[cast["a"].pk] is None
+
+
+def test_the_approver_s_signature_waits_for_the_decision(memo, cast, recommend):
+    _signed(cast["approver"])
+    submit(memo)
+    for person in (cast["a"], cast["b"], cast["c"]):
+        proceed(memo, person, action=recommend, comment="")
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+    assert response.data["approver_signature"] is None
+
+    decide(memo, cast["approver"], approve=True)
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+    assert response.data["approver_signature"] is not None
+
+
+def test_a_draft_carries_no_signature_at_all(memo, cast):
+    """Signing a draft would leave the signature on a document that then
+    changes underneath it."""
+    _signed(cast["initiator"])
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+
+    assert response.data["initiator_signature"] is None
