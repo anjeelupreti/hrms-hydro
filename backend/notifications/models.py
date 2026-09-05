@@ -179,6 +179,22 @@ class Announcement(ArchivableModel, AuditModel):
         related_name="+",
         help_text="Blank = company-wide.",
     )
+    #: **Named people, when a department is the wrong shape.** `department`
+    #: covers "everybody in accounts"; this covers the four people running a
+    #: shutdown, who are in four different departments. Both may be set — the
+    #: audience is the union — and neither being set means the whole company,
+    #: which is what a broadcast usually is.
+    recipients = models.ManyToManyField(
+        Employee, blank=True, related_name="targeted_announcements"
+    )
+
+    #: **Whether the author needs to know it was read.** Off by default,
+    #: because most notices genuinely are for information and asking a hundred
+    #: people to click a button on each one is how the button stops meaning
+    #: anything. On for the ones that matter — a safety instruction, a change
+    #: to the leave policy — where "did everybody see it" is a real question.
+    require_acknowledgement = models.BooleanField(default=False)
+
     pinned = models.BooleanField(default=False)
     expires_at = models.DateTimeField(null=True, blank=True)
 
@@ -187,6 +203,55 @@ class Announcement(ArchivableModel, AuditModel):
 
     def __str__(self):
         return self.title
+
+    def audience(self):
+        """Everybody this was addressed to.
+
+        Department plus named people, de-duplicated; everybody active when
+        neither is set. Computed rather than stored so somebody joining the
+        department next week is included — which is what "everybody in
+        accounts" means.
+        """
+        if self.department_id is None and not self.recipients.exists():
+            return Employee.objects.filter(user__is_active=True)
+        return Employee.objects.filter(
+            models.Q(department_id=self.department_id) if self.department_id else models.Q(pk__in=[])
+        ) | self.recipients.all()
+
+
+class AnnouncementReceipt(models.Model):
+    """One person having seen a notice.
+
+    **Two facts, not one.** Opening it and acknowledging it are different
+    things: the first is what the product observes, the second is what somebody
+    asserts. A notice that only tracked opens would let an author believe a
+    safety instruction had been taken in because a page rendered; one that only
+    tracked acknowledgements could not tell "has not read it" from "read it and
+    did not click".
+
+    Not an `AuditModel`: this is an observation about a person, and
+    `created_by` on a row that records what *they* did would be noise.
+    """
+
+    announcement = models.ForeignKey(
+        Announcement, on_delete=models.CASCADE, related_name="receipts"
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.CASCADE, related_name="announcement_receipts"
+    )
+    seen_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-acknowledged_at", "-seen_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["announcement", "employee"], name="one_receipt_per_person_per_announcement"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.employee} on announcement {self.announcement_id}"
 
 
 class ReminderRule(AuditModel):

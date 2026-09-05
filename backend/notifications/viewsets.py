@@ -16,6 +16,7 @@ from core.viewsets import AuditViewSetMixin
 from employees.models import Employee
 from notifications import services
 from notifications.models import (
+    AnnouncementReceipt,
     DecisionPosition,
     MeetingDecision,
     MeetingMinutes,
@@ -608,22 +609,142 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
 
 
 class AnnouncementViewSet(ArchiveMixin, AuditViewSetMixin, ModelViewSet):
-    """Read-open (every employee should see active announcements),
-    write-restricted to HR/managers — a broadcast, not a personal note."""
+    """A broadcast, and who has read it.
+
+    **Anybody may post one.** It was `IsHRAdminOrReadOnly`, which made the
+    only way to tell a hundred people something a request to HR — and the
+    things people most need to broadcast (the lift is out, the road is closed,
+    the server is down at four) are not HR's to know about. What is restricted
+    is the *audience*: a notice to the whole company is a different act from a
+    notice to your own department, so see `perform_create`.
+    """
 
     serializer_class = AnnouncementSerializer
-    permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        qs = Announcement.objects.select_related("department")
+        qs = Announcement.objects.select_related("department", "created_by").prefetch_related(
+            "recipients__user", "receipts"
+        )
         if self.request.query_params.get("active") == "true":
             now = timezone.now()
             qs = qs.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now))
         return qs
 
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "request": self.request}
+
     def perform_create(self, serializer):
-        announcement = serializer.save(created_by=self.request.user, updated_by=self.request.user)
-        services.publish_announcement(announcement)
+        """**Company-wide is not everybody's to send.**
+
+        Anybody may address their own department or a named list — that is the
+        lift being out, or four people running a shutdown. Addressing the whole
+        company is a different act, and one that cannot be taken back once a
+        hundred notifications have gone out, so it stays with whoever manages
+        the workplace.
+        """
+        department = serializer.validated_data.get("department")
+        recipients = serializer.validated_data.get("recipients") or []
+        company_wide = department is None and not recipients
+        if company_wide and not can(self.request.user, Perm.WORKPLACE_MANAGE):
+            raise ValidationError(
+                "Choose a department or the people this is for. Only somebody who "
+                "manages the workplace can address the whole company."
+            )
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def _is_author(self, announcement):
+        return announcement.created_by_id == self.request.user.id
+
+    def update(self, request, *args, **kwargs):
+        announcement = self.get_object()
+        if not (self._is_author(announcement) or can(request.user, Perm.WORKPLACE_MANAGE)):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        announcement = self.get_object()
+        if not (self._is_author(announcement) or can(request.user, Perm.WORKPLACE_MANAGE)):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="seen")
+    def seen(self, request, *args, **kwargs):
+        """Record that this person opened it.
+
+        Observed rather than asserted — the page calls this on render. Kept
+        distinct from acknowledging, because a rendered page is not somebody
+        having taken a safety instruction in.
+        """
+        return self._receipt(request, field="seen_at")
+
+    @action(detail=True, methods=["post"], url_path="acknowledge")
+    def acknowledge(self, request, *args, **kwargs):
+        """Record that this person says they have read it.
+
+        Sets `seen_at` too where it is missing: acknowledging without having
+        opened it is not a state worth representing.
+        """
+        return self._receipt(request, field="acknowledged_at", also_seen=True)
+
+    def _receipt(self, request, *, field, also_seen=False):
+        announcement = self.get_object()
+        me = _requesting_employee(request.user)
+        if me is None:
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        row, _ = AnnouncementReceipt.objects.get_or_create(
+            announcement=announcement, employee=me
+        )
+        now = timezone.now()
+        updates = []
+        # **Never overwritten.** The first time somebody read it is the fact
+        # worth keeping; re-recording it on every page load would turn the
+        # timestamp into "when they last looked", which answers nothing.
+        if getattr(row, field) is None:
+            setattr(row, field, now)
+            updates.append(field)
+        if also_seen and row.seen_at is None:
+            row.seen_at = now
+            updates.append("seen_at")
+        if updates:
+            row.save(update_fields=updates)
+
+        announcement = self.get_queryset().get(pk=announcement.pk)
+        return Response(
+            AnnouncementSerializer(announcement, context={"request": request}).data
+        )
+
+    @action(detail=True, methods=["get"], url_path="receipts")
+    def receipts(self, request, *args, **kwargs):
+        """Who has read it and who has not — **for the author only.**
+
+        The counts are public; the names are not. "Twelve of forty have read
+        it" is a fact about the notice, and a list of who has not is a fact
+        about people, which only the person who asked the question has any
+        business with.
+        """
+        announcement = self.get_object()
+        if not (self._is_author(announcement) or can(request.user, Perm.WORKPLACE_MANAGE)):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        seen = {r.employee_id: r for r in announcement.receipts.select_related("employee__user")}
+        rows = []
+        for person in announcement.audience().select_related("user"):
+            row = seen.get(person.pk)
+            rows.append(
+                {
+                    "employee": person.pk,
+                    "employee_name": person.user.get_full_name() or person.user.get_username(),
+                    "employee_code": person.employee_code,
+                    "seen_at": row.seen_at if row else None,
+                    "acknowledged_at": row.acknowledged_at if row else None,
+                }
+            )
+        # Unread first: the list exists to be acted on, and the people who have
+        # already read it are the ones nobody needs to do anything about.
+        rows.sort(key=lambda r: (r["seen_at"] is not None, r["employee_name"]))
+        return Response(rows)
 
 
 class ReminderRuleViewSet(

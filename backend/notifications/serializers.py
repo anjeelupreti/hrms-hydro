@@ -3,6 +3,7 @@ from rest_framework import serializers
 from notifications.models import (
     AgendaItem,
     Announcement,
+    AnnouncementReceipt,
     CompanyEvent,
     Holiday,
     MeetingAttendee,
@@ -146,27 +147,83 @@ class MeetingCreateSerializer(serializers.Serializer):
 
 class AnnouncementSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source="department.name", read_only=True, default=None)
-    posted_by = serializers.SerializerMethodField()
+    author_name = serializers.SerializerMethodField()
+    recipient_names = serializers.SerializerMethodField()
+    #: How many people it went to, and how many have seen or acknowledged it.
+    #: Served to everybody — but see `AnnouncementViewSet.get_serializer` for
+    #: why the detail behind it is not.
+    metrics = serializers.SerializerMethodField()
+    #: The reader's own receipt, so the page knows whether to show the button.
+    my_receipt = serializers.SerializerMethodField()
 
     class Meta:
         model = Announcement
         fields = [
-            "id",
-            "title",
-            "body",
-            "department",
-            "department_name",
-            "pinned",
-            "expires_at",
-            "posted_by",
-            "created_at",
+            "id", "title", "body",
+            "department", "department_name",
+            "recipients", "recipient_names",
+            "require_acknowledgement",
+            "pinned", "expires_at",
+            "author_name", "metrics", "my_receipt",
+            "created_at", "is_archived",
         ]
-        read_only_fields = ["id", "posted_by", "created_at"]
+        read_only_fields = ["id", "created_at", "author_name", "metrics", "my_receipt"]
 
-    def get_posted_by(self, obj):
+    def _me(self):
+        request = self.context.get("request")
+        return getattr(getattr(request, "user", None), "employee", None)
+
+    def get_author_name(self, obj):
         if obj.created_by is None:
             return None
         return obj.created_by.get_full_name() or obj.created_by.get_username()
+
+    def get_recipient_names(self, obj):
+        return [
+            {
+                "id": e.pk,
+                "name": e.user.get_full_name() or e.user.get_username(),
+                "employee_code": e.employee_code,
+            }
+            for e in obj.recipients.all()
+        ]
+
+    def get_metrics(self, obj):
+        """**Reach, not a vanity number.** `audience` is who it was addressed
+        to, which is what "12 of 40 have read it" needs as its denominator —
+        counting only the people who happened to open it would make every
+        announcement look fully read."""
+        receipts = list(obj.receipts.all())
+        return {
+            "audience": obj.audience().count(),
+            "seen": sum(1 for r in receipts if r.seen_at is not None),
+            "acknowledged": sum(1 for r in receipts if r.acknowledged_at is not None),
+        }
+
+    def get_my_receipt(self, obj):
+        me = self._me()
+        if me is None:
+            return None
+        row = next((r for r in obj.receipts.all() if r.employee_id == me.pk), None)
+        if row is None:
+            return {"seen_at": None, "acknowledged_at": None}
+        return {"seen_at": row.seen_at, "acknowledged_at": row.acknowledged_at}
+
+
+class AnnouncementReceiptSerializer(serializers.ModelSerializer):
+    """Who has and has not read it — for the author, and only the author."""
+
+    employee_name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
+
+    class Meta:
+        model = AnnouncementReceipt
+        fields = ["id", "employee", "employee_name", "employee_code", "seen_at", "acknowledged_at"]
+        read_only_fields = fields
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
 
 
 class ReminderRuleSerializer(serializers.ModelSerializer):
