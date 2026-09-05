@@ -263,3 +263,51 @@ export function useFinaliseMinutes() {
     onSuccess: (_m, meetingId) => invalidate(meetingId),
   });
 }
+
+
+// ── What the meetings add up to ────────────────────────────────────────
+
+export type MeetingReport = {
+  meetings: number;
+  decisions: number;
+  positions: { consent: number; dissent: number; abstain: number; pending: number };
+  attendance: {
+    employee: number;
+    name: string;
+    employee_code: string;
+    invited: number;
+    present: number;
+    absent: number;
+    unmarked: number;
+    /** Null where nothing was ever marked — a register nobody took is not
+     *  evidence of absence, so it is kept out of the rate entirely. */
+    rate: number | null;
+  }[];
+  dissents: {
+    meeting: number;
+    meeting_title: string;
+    decision: string;
+    employee: number;
+    name: string;
+    employee_code: string;
+    reason: string;
+    answered_at: string | null;
+  }[];
+};
+
+/**
+ * Attendance, whether decisions get answered, and what people disagreed with.
+ *
+ * Scoped by the server to the meetings the reader may already see, so this is
+ * a rearrangement of their own data rather than a wider view.
+ */
+export function useMeetingReport(range?: { from?: string; to?: string }) {
+  const query = new URLSearchParams();
+  if (range?.from) query.set("from", range.from);
+  if (range?.to) query.set("to", range.to);
+  const suffix = query.toString();
+  return useQuery({
+    queryKey: ["meetings", "report", suffix],
+    queryFn: () => fetchJson<MeetingReport>(`${BASE}/report/${suffix ? `?${suffix}` : ""}`),
+  });
+}

@@ -16,6 +16,8 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import Stack from "@mui/material/Stack";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useState } from "react";
@@ -23,6 +25,7 @@ import { useState } from "react";
 import DateTimeField from "@/components/common/DateTimeField";
 import EmptyState from "@/components/common/EmptyState";
 import MeetingRecordDialog from "@/components/meetings/MeetingRecordDialog";
+import MeetingReport from "@/components/meetings/MeetingReport";
 import ResponseState from "@/components/meetings/ResponseState";
 import PageContainer from "@/components/shell/PageContainer";
 import ListControls from "@/components/common/ListControls";
@@ -40,6 +43,8 @@ const RSVP_COLOR: Record<RsvpStatus, "default" | "success" | "error"> = {
 };
 
 export default function MeetingsPage() {
+  /** 0 = the list, 1 = the report. */
+  const [view, setView] = useState(0);
   /** The meeting whose record is open — its agenda, register, decisions and
    *  minute. Held as an id rather than the object so the dialog reads the
    *  live record instead of a snapshot taken at click time. */
@@ -114,8 +119,19 @@ export default function MeetingsPage() {
           search term happens to match its title. */}
       <ResponseState meetings={meetings?.results ?? []} />
 
+      {/* **The report is a tab, not a page of its own.** It answers questions
+          about the same meetings listed below it — who turns up, whether
+          decisions get answered — and putting it elsewhere would mean
+          navigating away from the thing it is about. */}
+      <Tabs value={view} onChange={(_e, v) => setView(v)} sx={{ mb: 2 }}>
+        <Tab label="Meetings" />
+        <Tab label="Report" />
+      </Tabs>
+
+      {view === 1 ? <MeetingReport /> : null}
+
       <Stack spacing={2}>
-        {filtered.map((meeting) => {
+        {view === 1 ? null : filtered.map((meeting) => {
           const myAttendee = meeting.attendees.find((a) => a.employee === me?.employee_id);
           return (
             <Card key={meeting.id} variant="outlined">

@@ -589,3 +589,78 @@ def test_the_minute_is_numbered_in_the_company_the_meeting_chose(
     )
 
     assert minute.data["minute_id"] == f"MIN-{second_company.code}-0001"
+
+
+# ── What the meetings add up to ──────────────────────────────────────────
+
+
+def test_the_report_counts_attendance_per_person(meeting, organiser, cast):
+    """Counted per person rather than per meeting: "attendance was 80%" is a
+    number nobody can act on; "this person has missed six of eight" is."""
+    _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/attendance/",
+        {"present": [cast["came"].pk], "absent": [cast["missed"].pk]},
+        format="json",
+    )
+
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    rows = {row["employee"]: row for row in report["attendance"]}
+    assert rows[cast["came"].pk]["present"] == 1
+    assert rows[cast["came"].pk]["rate"] == 1.0
+    assert rows[cast["missed"].pk]["absent"] == 1
+    assert rows[cast["missed"].pk]["rate"] == 0.0
+
+
+def test_an_unmarked_register_is_left_out_of_the_rate(meeting, organiser, cast):
+    """A register nobody took is not evidence of absence. Folding it in would
+    quietly punish people for somebody else's paperwork."""
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    row = next(r for r in report["attendance"] if r["employee"] == cast["came"].pk)
+    assert row["unmarked"] == 1
+    assert row["rate"] is None
+
+
+def test_the_report_lists_what_people_disagreed_with_and_why(meeting, organiser, cast):
+    """A count of dissents says somebody objected. The register of what they
+    objected *to* is the thing worth reading."""
+    decision_id = _decision(meeting, organiser).data["id"]
+    _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/decisions/{decision_id}/circulate/", {}, format="json"
+    )
+    _client(cast["came"].user).post(
+        f"{LIST}{meeting.pk}/decisions/{decision_id}/respond/",
+        {"position": "dissent", "reason": "The estimate excludes the culvert."},
+        format="json",
+    )
+
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    assert report["positions"]["dissent"] == 1
+    assert report["positions"]["pending"] == 1
+    assert len(report["dissents"]) == 1
+    entry = report["dissents"][0]
+    assert entry["reason"] == "The estimate excludes the culvert."
+    assert entry["meeting_title"] == "Monthly site review"
+    assert entry["employee_code"] == cast["came"].employee_code
+
+
+def test_the_report_only_covers_meetings_you_can_already_see(meeting, cast, company):
+    """A different arrangement of your own data, not a way round the queryset."""
+    outsider = _person("m_report_outsider", "MTG-R1", company)
+
+    report = _client(outsider.user).get(f"{LIST}report/").data
+
+    assert report["meetings"] == 0
+    assert report["attendance"] == []
+
+
+def test_the_report_can_be_narrowed_by_date(meeting, organiser):
+    """The commonest question is "this year", so both bounds are optional."""
+    on = meeting.start_datetime.date().isoformat()
+    client = _client(organiser.user)
+
+    assert client.get(f"{LIST}report/?from={on}&to={on}").data["meetings"] == 1
+    later = (meeting.start_datetime + timedelta(days=30)).date().isoformat()
+    assert client.get(f"{LIST}report/?from={later}").data["meetings"] == 0

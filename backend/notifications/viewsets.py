@@ -17,6 +17,7 @@ from employees.models import Employee
 from notifications import services
 from notifications.models import (
     DecisionPosition,
+    MeetingDecision,
     MeetingMinutes,
     Announcement,
     CompanyEvent,
@@ -129,6 +130,12 @@ class CompanyEventViewSet(AuditViewSetMixin, ModelViewSet):
         return qs
 
 
+def _name_of(employee):
+    """A person, as a report should print them."""
+    user = employee.user
+    return user.get_full_name() or user.get_username()
+
+
 class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
     """Meetings are CompanyEvent rows (event_type=MEETING) plus attendees
     — a distinct viewset (not just CompanyEventViewSet with a filter)
@@ -205,6 +212,97 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
         serializer.save(updated_by=request.user)
         meeting = self.get_queryset().get(pk=meeting.pk)
         return Response(CompanyEventSerializer(meeting, context={"request": request}).data)
+
+    @action(detail=False, methods=["get"], url_path="report")
+    def report(self, request, *args, **kwargs):
+        """What the meetings add up to.
+
+        **Three questions, none answerable from a single meeting.** Who turns
+        up, whether decisions actually get answered, and what people have
+        disagreed with — the last being the one a board asks for and the one
+        nothing in the product could produce.
+
+        Scoped to the meetings the reader may already see, so this is a
+        different arrangement of their own data rather than a way round the
+        queryset.
+
+        `?from=` and `?to=` narrow it by meeting date; both optional, because
+        the commonest question is simply "this year".
+        """
+        meetings = self.get_queryset()
+        start = request.query_params.get("from")
+        end = request.query_params.get("to")
+        if start:
+            meetings = meetings.filter(start_datetime__date__gte=start)
+        if end:
+            meetings = meetings.filter(start_datetime__date__lte=end)
+
+        # ── Who turns up ─────────────────────────────────────────────────
+        #
+        # Counted per person rather than per meeting: "attendance was 80%" is a
+        # number nobody can act on, and "this person has missed six of eight"
+        # is. `unmarked` is kept out of the rate entirely — a register nobody
+        # took is not evidence of absence, and folding it in would quietly
+        # punish people for somebody else's paperwork.
+        attendance = {}
+        for meeting in meetings:
+            for row in meeting.attendees.all():
+                who = row.employee
+                entry = attendance.setdefault(
+                    who.pk,
+                    {
+                        "employee": who.pk,
+                        "name": _name_of(who),
+                        "employee_code": who.employee_code,
+                        "invited": 0,
+                        "present": 0,
+                        "absent": 0,
+                        "unmarked": 0,
+                    },
+                )
+                entry["invited"] += 1
+                entry[row.attendance] += 1
+
+        for entry in attendance.values():
+            counted = entry["present"] + entry["absent"]
+            entry["rate"] = round(entry["present"] / counted, 3) if counted else None
+
+        # ── Whether decisions get answered ───────────────────────────────
+        decisions = MeetingDecision.objects.filter(meeting__in=meetings)
+        totals = {"consent": 0, "dissent": 0, "abstain": 0, "pending": 0}
+        for position in DecisionPosition.objects.filter(decision__in=decisions):
+            totals[position.position] = totals.get(position.position, 0) + 1
+
+        # ── What people have disagreed with ──────────────────────────────
+        #
+        # The reason is the point. A count of dissents tells a board that
+        # somebody objected; the register of what they objected *to*, and why,
+        # is the thing worth reading.
+        dissents = [
+            {
+                "meeting": position.decision.meeting_id,
+                "meeting_title": position.decision.meeting.title,
+                "decision": position.decision.text,
+                "employee": position.employee_id,
+                "name": _name_of(position.employee),
+                "employee_code": position.employee.employee_code,
+                "reason": position.reason,
+                "answered_at": position.answered_at,
+            }
+            for position in DecisionPosition.objects.filter(
+                decision__in=decisions, position=DecisionPosition.Position.DISSENT
+            ).select_related("employee__user", "decision__meeting").order_by("-answered_at")
+        ]
+
+        return Response(
+            {
+                "meetings": meetings.count(),
+                "decisions": decisions.count(),
+                "positions": totals,
+                "attendance": sorted(attendance.values(), key=lambda e: e["name"]),
+                "dissents": dissents,
+            }
+        )
 
     def _may_run(self, meeting):
         """Whoever called the meeting, or anybody who manages the workplace.
