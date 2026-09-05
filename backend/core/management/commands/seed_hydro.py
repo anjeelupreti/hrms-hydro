@@ -62,6 +62,8 @@ from fieldvisits.services import request_visit
 from helpdesk.models import Ticket
 from employees.models import EmployeeSupervisor
 from fieldvisits.models import Site
+from notifications.models import AgendaItem, CompanyEvent, MeetingAttendee, MeetingDecision
+from notifications.services import circulate_decision
 from memoranda.models import Memorandum, MemorandumAction
 from memoranda.workflow import proceed, resubmit, send_back, set_chain, submit
 from memoranda.workflow import archive as archive_memo
@@ -214,6 +216,7 @@ class Command(BaseCommand):
             actions = self._memo_actions()
             self._supervisors(people)
             self._sites(companies, people)
+            self._meetings(companies, people)
             self._memoranda(companies, people, actions)
             self._verify_statutory()
             self._roles()
@@ -818,6 +821,71 @@ class Command(BaseCommand):
             site.supervisors.set(staff[made % 3 : made % 3 + 2] or staff[:2])
             made += 1
         self.stdout.write(f"  · {made} sites, each with supervisors")
+
+    def _meetings(self, companies, people):
+        """Meetings with something behind them.
+
+        **A meeting with no agenda, no register and no decisions demonstrates
+        nothing.** The module's whole point is what a meeting produces, so the
+        seed produces some: one already held with the register taken and a
+        decision circulated, and one still to come with an agenda and nothing
+        else — which is what most meetings look like most of the time.
+        """
+        staff = [p for p in people.values() if p.user.is_active]
+        if len(staff) < 5:
+            return
+
+        organiser = staff[0]
+        now = timezone.now()
+        specs = [
+            ("Monthly site review", -3, 1, "Site office, Sanjen", True),
+            ("Board meeting, Bhadra", 5 * 24, 2, "Head office, Butwal", False),
+        ]
+
+        made = 0
+        for title, hours_from_now, length, where, held in specs:
+            if CompanyEvent.objects.filter(title=title, event_type="meeting").exists():
+                continue
+            starts = now + timedelta(hours=hours_from_now)
+            meeting = CompanyEvent.objects.create(
+                title=title,
+                description=f"{title} — standing item.",
+                event_type=CompanyEvent.EventType.MEETING,
+                start_datetime=starts,
+                end_datetime=starts + timedelta(hours=length),
+                location=where,
+                company=organiser.primary_company or list(companies.values())[0],
+                created_by=organiser.user,
+                updated_by=organiser.user,
+            )
+            invited = staff[:5]
+            for person in invited:
+                MeetingAttendee.objects.create(event=meeting, employee=person)
+
+            for order, item in enumerate(
+                ["Minutes of the last meeting", "Progress against the programme", "Any other business"]
+            ):
+                AgendaItem.objects.create(meeting=meeting, order=order, title=item)
+
+            if held:
+                # The register, and one decision put to everybody.
+                for index, attendee in enumerate(meeting.attendees.all()):
+                    attendee.attendance = (
+                        MeetingAttendee.Attendance.PRESENT
+                        if index < 4
+                        else MeetingAttendee.Attendance.ABSENT
+                    )
+                    attendee.attendance_marked_at = timezone.now()
+                    attendee.save(update_fields=["attendance", "attendance_marked_at"])
+
+                decision = MeetingDecision.objects.create(
+                    meeting=meeting,
+                    order=0,
+                    text="That the access road culvert be rebuilt before the monsoon.",
+                )
+                circulate_decision(decision, actor=organiser.user)
+            made += 1
+        self.stdout.write(f"  · {made} meetings, one with a register and a decision")
 
     def _memoranda(self, companies, people, actions):
         """One memorandum in each state the chain can be in.

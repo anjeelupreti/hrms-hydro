@@ -22,6 +22,7 @@ import { useState } from "react";
 
 import DateTimeField from "@/components/common/DateTimeField";
 import EmptyState from "@/components/common/EmptyState";
+import MeetingRecordDialog from "@/components/meetings/MeetingRecordDialog";
 import ResponseState from "@/components/meetings/ResponseState";
 import PageContainer from "@/components/shell/PageContainer";
 import ListControls from "@/components/common/ListControls";
@@ -39,6 +40,10 @@ const RSVP_COLOR: Record<RsvpStatus, "default" | "success" | "error"> = {
 };
 
 export default function MeetingsPage() {
+  /** The meeting whose record is open — its agenda, register, decisions and
+   *  minute. Held as an id rather than the object so the dialog reads the
+   *  live record instead of a snapshot taken at click time. */
+  const [recordId, setRecordId] = useState<number | null>(null);
   const { data: me } = useMe();
   const { data: meetings, isLoading } = useMeetings();
   const createMeeting = useCreateMeeting();
@@ -117,7 +122,19 @@ export default function MeetingsPage() {
               <CardContent>
                 <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1 }}>
                   <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                    {/* **The title opens the record.** A meeting is not only
+                        a calendar entry any more — it has an agenda, a
+                        register, decisions and a minute — and the place
+                        somebody looks for those is the meeting itself. */}
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        "&:hover": { textDecoration: "underline" },
+                      }}
+                      onClick={() => setRecordId(meeting.id)}
+                    >
                       {meeting.title}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
@@ -233,6 +250,10 @@ export default function MeetingsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {recordId !== null ? (
+        <MeetingRecordDialog meetingId={recordId} onClose={() => setRecordId(null)} />
+      ) : null}
+
     </PageContainer>
   );
 }

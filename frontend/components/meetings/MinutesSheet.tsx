@@ -144,8 +144,16 @@ export default function MinutesSheet({
         {body ?? (minute.content ? <RichText html={minute.content} /> : <Muted>Nothing written yet.</Muted>)}
       </Box>
 
-      {/* ── The register that closes it ─────────────────────────────── */}
-      <ConsentRegister decisions={decisions} />
+      {/* ── The register that closes it ───────────────────────────────
+          Its own heading is suppressed when the template already placed one.
+          The template emits `<h3>Consent and dissent</h3>` followed by the
+          marker, so drawing a second heading here printed the words twice —
+          and the template's is the one that should win, because it is the one
+          somebody can rename. */}
+      <ConsentRegister
+        decisions={decisions}
+        heading={minute.content.includes("data-minutes-consent-table") ? null : "Consent and dissent"}
+      />
     </PaperSheet>
   );
 }
@@ -158,25 +166,34 @@ export default function MinutesSheet({
  * sanitised HTML and could not carry one. It is also live: somebody consenting
  * after the minute was drafted appears here without the minute being rewritten.
  */
-function ConsentRegister({ decisions }: { decisions: MeetingDecision[] }) {
+function ConsentRegister({
+  decisions,
+  heading,
+}: {
+  decisions: MeetingDecision[];
+  /** `null` when the template has already placed one. */
+  heading: string | null;
+}) {
   const withPositions = decisions.filter((d) => d.positions.length > 0);
   if (withPositions.length === 0) return null;
 
   return (
-    <Box sx={{ pt: 3 }}>
-      <Typography
-        sx={{
-          fontFamily: "inherit",
-          fontSize: ".82rem",
-          fontWeight: 700,
-          letterSpacing: ".12em",
-          textTransform: "uppercase",
-          color: "#3b414f",
-          pb: 1,
-        }}
-      >
-        Consent and dissent
-      </Typography>
+    <Box sx={{ pt: heading ? 3 : 1 }}>
+      {heading ? (
+        <Typography
+          sx={{
+            fontFamily: "inherit",
+            fontSize: ".82rem",
+            fontWeight: 700,
+            letterSpacing: ".12em",
+            textTransform: "uppercase",
+            color: "#3b414f",
+            pb: 1,
+          }}
+        >
+          {heading}
+        </Typography>
+      ) : null}
 
       {withPositions.map((decision, index) => (
         <Box key={decision.id} sx={{ mb: 2.5 }}>
