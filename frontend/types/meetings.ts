@@ -7,6 +7,31 @@
  * actually came, decisions people put their name to, and the minute.
  */
 
+export type Meeting = {
+  id: number;
+  title: string;
+  description: string;
+  event_type: "meeting" | "interview" | "announcement" | "other";
+  start_datetime: string;
+  end_datetime: string;
+  /**
+   * Derived from the two timestamps, never stored.
+   *
+   * **This is why there is no planned-versus-actual duration.** A meeting
+   * called for an hour that ran for two is one meeting whose end time was
+   * wrong; the times are editable afterwards, so correcting it corrects the
+   * fact rather than recording a second version of it.
+   */
+  duration_minutes: number | null;
+  /** Chosen by whoever called the meeting, from their own primary and
+   *  secondary companies. The minute is numbered in this company's register. */
+  company: number | null;
+  company_name: string | null;
+  all_day: boolean;
+  location: string;
+  attendees: MeetingAttendee[];
+};
+
 export type MeetingAttendee = {
   id: number;
   employee: number;

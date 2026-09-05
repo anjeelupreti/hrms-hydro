@@ -356,6 +356,11 @@ def mint_minute_id(minute, company=None):
     if company is None:
         company = minute.company
     if company is None:
+        # What whoever called the meeting chose. This is the answer in every
+        # ordinary case; the two below it are for meetings created before the
+        # field existed, and for a caller with no employee record.
+        company = minute.meeting.company
+    if company is None:
         organiser = getattr(minute.meeting.created_by, "employee", None)
         company = getattr(organiser, "primary_company", None)
     if company is None:

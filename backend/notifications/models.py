@@ -102,6 +102,20 @@ class CompanyEvent(AuditModel):
     all_day = models.BooleanField(default=False)
     location = models.CharField(max_length=255, blank=True, help_text="Room name or a video call link.")
 
+    #: **Whose meeting it is, chosen by whoever called it.**
+    #:
+    #: Nullable because the calendar is shared across the group and most
+    #: entries — a holiday, an announcement, a drill — belong to everybody. A
+    #: *meeting* has an owner, though: its minute goes on that company's paper
+    #: and takes its number from that company's register, and the person
+    #: calling the meeting is the one who knows which. They may only pick from
+    #: their own primary and secondary companies — see
+    #: `MeetingCreateSerializer.validate_company`.
+    company = models.ForeignKey(
+        "companies.Company", null=True, blank=True,
+        on_delete=models.PROTECT, related_name="meetings",
+    )
+
     class Meta:
         ordering = ["start_datetime"]
 

@@ -485,3 +485,107 @@ def test_the_heading_carries_the_facts_of_the_meeting(meeting, organiser):
     assert response.data["ends_at"] is not None
     # One hour, derived from the two — never stored, or it could disagree.
     assert response.data["duration_minutes"] == 60
+
+
+# ── Whose meeting, and how long it actually ran ──────────────────────────
+
+
+def test_the_creator_picks_the_company_from_their_own(db, organiser, company, second_company):
+    """The minute goes on this company's paper and takes its number from that
+    company's register, so choosing one you have nothing to do with would put a
+    document into a register it does not belong in."""
+    organiser.primary_company = company
+    organiser.save(update_fields=["primary_company"])
+    started = timezone.now()
+
+    payload = {
+        "title": "Board review",
+        "start_datetime": started.isoformat(),
+        "end_datetime": (started + timedelta(hours=1)).isoformat(),
+        "attendee_ids": [],
+    }
+    client = _client(organiser.user)
+
+    ok = client.post(LIST, {**payload, "company": company.pk}, format="json")
+    assert ok.status_code == 201, ok.data
+    assert ok.data["company"] == company.pk
+
+    refused = client.post(LIST, {**payload, "company": second_company.pk}, format="json")
+    assert refused.status_code == 400, refused.data
+    assert "companies you work for" in str(refused.data)
+
+
+def test_a_secondary_company_counts_as_your_own(db, organiser, company, second_company):
+    """`secondary_companies` exists for people seconded across the group, and
+    somebody seconded runs meetings there."""
+    organiser.primary_company = company
+    organiser.save(update_fields=["primary_company"])
+    organiser.secondary_companies.add(second_company)
+    started = timezone.now()
+
+    response = _client(organiser.user).post(
+        LIST,
+        {
+            "title": "Site coordination",
+            "start_datetime": started.isoformat(),
+            "end_datetime": (started + timedelta(hours=1)).isoformat(),
+            "attendee_ids": [],
+            "company": second_company.pk,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["company"] == second_company.pk
+
+
+def test_the_times_are_editable_afterwards_and_the_duration_follows(meeting, organiser):
+    """**Why there is no planned-versus-actual duration.** A meeting called for
+    an hour that ran for two is one meeting whose end time was wrong; a second
+    duration beside the first leaves two numbers and no rule for which one a
+    minute should print."""
+    client = _client(organiser.user)
+    assert client.get(f"{LIST}{meeting.pk}/").data["duration_minutes"] == 60
+
+    response = client.patch(
+        f"{LIST}{meeting.pk}/",
+        {"end_datetime": (meeting.start_datetime + timedelta(hours=2)).isoformat()},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["duration_minutes"] == 120
+
+
+def test_only_the_organiser_edits_the_meeting(meeting, cast):
+    response = _client(cast["came"].user).patch(
+        f"{LIST}{meeting.pk}/", {"title": "Renamed by an attendee"}, format="json"
+    )
+
+    assert response.status_code == 403, response.data
+
+
+def test_the_minute_is_numbered_in_the_company_the_meeting_chose(
+    db, organiser, company, second_company, cast
+):
+    organiser.primary_company = company
+    organiser.save(update_fields=["primary_company"])
+    organiser.secondary_companies.add(second_company)
+    started = timezone.now()
+    created = _client(organiser.user).post(
+        LIST,
+        {
+            "title": "Site coordination",
+            "start_datetime": started.isoformat(),
+            "end_datetime": (started + timedelta(hours=1)).isoformat(),
+            "attendee_ids": [],
+            "company": second_company.pk,
+        },
+        format="json",
+    )
+
+    minute = _client(organiser.user).post(
+        f"{LIST}{created.data['id']}/minutes/", {}, format="json"
+    )
+
+    assert minute.data["minute_id"] == f"MIN-{second_company.code}-0001"

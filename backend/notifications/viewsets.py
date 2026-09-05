@@ -5,6 +5,7 @@ from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin, UpdateModelMixin
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
@@ -128,7 +129,7 @@ class CompanyEventViewSet(AuditViewSetMixin, ModelViewSet):
         return qs
 
 
-class MeetingViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
     """Meetings are CompanyEvent rows (event_type=MEETING) plus attendees
     — a distinct viewset (not just CompanyEventViewSet with a filter)
     because scheduling a meeting is a normal everyone-action, unlike most
@@ -155,7 +156,7 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         return qs.filter(attendees__employee=employee).distinct()
 
     def create(self, request, *args, **kwargs):
-        serializer = MeetingCreateSerializer(data=request.data)
+        serializer = MeetingCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -166,12 +167,44 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
             start_datetime=data["start_datetime"],
             end_datetime=data["end_datetime"],
             location=data["location"],
+            company_id=data.get("company"),
             created_by=request.user,
             updated_by=request.user,
         )
         attendees = Employee.objects.filter(pk__in=data["attendee_ids"])
         services.invite_attendees(event, attendees, actor=request.user)
         return Response(CompanyEventSerializer(event).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Correct a meeting after it has happened.
+
+        **This is why there is no "planned" and "actual" duration.** A meeting
+        that was called for an hour and ran for two is one meeting whose end
+        time was wrong; recording a second duration beside the first leaves two
+        numbers and no rule for which one a minute should print. The times
+        themselves are editable, and everything derived from them — the
+        duration on the sheet included — follows.
+
+        The company can be moved too, and only among the editor's own. A minute
+        that has already been numbered keeps the company it was numbered in;
+        see `MeetingMinutes.company`.
+        """
+        meeting = self.get_object()
+        if not self._may_run(meeting):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        if "company" in request.data:
+            check = MeetingCreateSerializer(context={"request": request})
+            try:
+                check.validate_company(request.data.get("company"))
+            except ValidationError as error:
+                return Response({"company": error.detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = CompanyEventSerializer(meeting, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        meeting = self.get_queryset().get(pk=meeting.pk)
+        return Response(CompanyEventSerializer(meeting, context={"request": request}).data)
 
     def _may_run(self, meeting):
         """Whoever called the meeting, or anybody who manages the workplace.

@@ -62,6 +62,17 @@ class MeetingAttendeeSerializer(serializers.ModelSerializer):
 
 class CompanyEventSerializer(serializers.ModelSerializer):
     attendees = MeetingAttendeeSerializer(many=True, read_only=True)
+    company_name = serializers.CharField(source="company.name", read_only=True, default=None)
+    #: Derived from the two timestamps, never stored. **This is why there is no
+    #: "planned" and "actual" duration**: the times themselves are editable
+    #: afterwards, so correcting a meeting that overran is correcting the fact
+    #: rather than recording a second version of it.
+    duration_minutes = serializers.SerializerMethodField()
+
+    def get_duration_minutes(self, obj):
+        if not (obj.start_datetime and obj.end_datetime):
+            return None
+        return int((obj.end_datetime - obj.start_datetime).total_seconds() // 60)
 
     class Meta:
         model = CompanyEvent
@@ -72,6 +83,9 @@ class CompanyEventSerializer(serializers.ModelSerializer):
             "event_type",
             "start_datetime",
             "end_datetime",
+            "duration_minutes",
+            "company",
+            "company_name",
             "all_day",
             "location",
             "attendees",
@@ -96,6 +110,33 @@ class MeetingCreateSerializer(serializers.Serializer):
     end_datetime = serializers.DateTimeField()
     location = serializers.CharField(required=False, allow_blank=True, default="")
     attendee_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=True, default=list)
+    company = serializers.IntegerField(required=False, allow_null=True, default=None)
+
+    def validate_company(self, value):
+        """**Your own companies, and nobody else's.**
+
+        The minute goes on this company's paper and takes its number from that
+        company's register, so choosing one you have nothing to do with would
+        put a document into a register it does not belong in. Primary plus
+        secondary is exactly the set somebody works for — see
+        `Employee.secondary_companies`, which exists for people seconded across
+        the group.
+        """
+        if value is None:
+            return None
+        request = self.context.get("request")
+        me = getattr(getattr(request, "user", None), "employee", None)
+        if me is None:
+            raise serializers.ValidationError("Your account has no employee record.")
+
+        allowed = {c.pk for c in me.secondary_companies.all()}
+        if me.primary_company_id:
+            allowed.add(me.primary_company_id)
+        if value not in allowed:
+            raise serializers.ValidationError(
+                "Choose one of the companies you work for."
+            )
+        return value
 
     def validate(self, attrs):
         if attrs["end_datetime"] < attrs["start_datetime"]:
