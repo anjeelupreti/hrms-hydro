@@ -155,6 +155,10 @@ class AnnouncementSerializer(serializers.ModelSerializer):
     metrics = serializers.SerializerMethodField()
     #: The reader's own receipt, so the page knows whether to show the button.
     my_receipt = serializers.SerializerMethodField()
+    #: Whether the reader wrote it. Answered here rather than compared by name
+    #: in the browser — two people share a name often enough, and the read
+    #: receipts are gated on this.
+    is_mine = serializers.SerializerMethodField()
 
     class Meta:
         model = Announcement
@@ -164,14 +168,21 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "recipients", "recipient_names",
             "require_acknowledgement",
             "pinned", "expires_at",
-            "author_name", "metrics", "my_receipt",
+            "author_name", "metrics", "my_receipt", "is_mine",
             "created_at", "is_archived",
         ]
-        read_only_fields = ["id", "created_at", "author_name", "metrics", "my_receipt"]
+        read_only_fields = [
+            "id", "created_at", "author_name", "metrics", "my_receipt", "is_mine",
+        ]
 
     def _me(self):
         request = self.context.get("request")
         return getattr(getattr(request, "user", None), "employee", None)
+
+    def get_is_mine(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return bool(user and obj.created_by_id == user.id)
 
     def get_author_name(self, obj):
         if obj.created_by is None:

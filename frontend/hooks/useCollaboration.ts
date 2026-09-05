@@ -28,6 +28,13 @@ export function useCreateAnnouncement() {
       title: string;
       body: string;
       department?: number | null;
+      /** Named people, when a department is the wrong shape — the four
+       *  running a shutdown are in four different departments. */
+      recipients?: number[];
+      /** Ask them to say they have read it. Off by default: asking a hundred
+       *  people to click on every notice is how the button stops meaning
+       *  anything. */
+      require_acknowledgement?: boolean;
       pinned?: boolean;
       expires_at?: string | null;
     }) =>
@@ -68,5 +75,60 @@ export function useArchive(resource: string, queryKey: string) {
       ),
     meta: { successMessage: "Moved" },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [queryKey] }),
+  });
+}
+
+
+// ── Reading a notice, and saying so ────────────────────────────────────
+
+export type AnnouncementReceipt = {
+  employee: number;
+  employee_name: string;
+  employee_code: string;
+  seen_at: string | null;
+  acknowledged_at: string | null;
+};
+
+function useAnnouncementInvalidate() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ["announcements"] });
+}
+
+/**
+ * Record that this person opened it.
+ *
+ * Observed rather than asserted — called on render. Deliberately distinct from
+ * acknowledging: a rendered page is not somebody having taken a safety
+ * instruction in.
+ */
+export function useMarkAnnouncementSeen() {
+  const invalidate = useAnnouncementInvalidate();
+  return useMutation({
+    mutationFn: (id: number) =>
+      fetchJson<Announcement>(`/api/proxy/notifications/announcements/${id}/seen`, {
+        method: "POST",
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAcknowledgeAnnouncement() {
+  const invalidate = useAnnouncementInvalidate();
+  return useMutation({
+    mutationFn: (id: number) =>
+      fetchJson<Announcement>(`/api/proxy/notifications/announcements/${id}/acknowledge`, {
+        method: "POST",
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/** Who has read it and who has not — the author's own view. */
+export function useAnnouncementReceipts(id: number | null) {
+  return useQuery({
+    queryKey: ["announcements", id, "receipts"],
+    queryFn: () =>
+      fetchJson<AnnouncementReceipt[]>(`/api/proxy/notifications/announcements/${id}/receipts`),
+    enabled: id !== null,
   });
 }

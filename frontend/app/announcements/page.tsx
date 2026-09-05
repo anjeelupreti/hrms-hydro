@@ -24,6 +24,7 @@ import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 import BoardState from "@/components/announcements/BoardState";
@@ -39,6 +40,9 @@ import {
 } from "@/hooks/useCollaboration";
 import { useCan } from "@/hooks/useMe";
 import { useTextFilter } from "@/hooks/useTextFilter";
+import AudiencePicker from "@/components/announcements/AudiencePicker";
+import ReadReceipts from "@/components/announcements/ReadReceipts";
+import AnnouncementReach from "@/components/announcements/AnnouncementReach";
 import { DepartmentPicker } from "@/components/common/pickers";
 
 export default function AnnouncementsPage() {
@@ -54,6 +58,26 @@ export default function AnnouncementsPage() {
   const [body, setBody] = useState("");
   const [department, setDepartment] = useState<number | "">("");
   const [pinned, setPinned] = useState(false);
+  /** Named people, alongside or instead of a department. */
+  const [recipients, setRecipients] = useState<number[]>([]);
+  const [audienceOpen, setAudienceOpen] = useState(false);
+  const [requireAck, setRequireAck] = useState(false);
+  /** The notice whose read-receipts are open — the author's own view. */
+  const [receiptsFor, setReceiptsFor] = useState<number | null>(null);
+
+  /**
+   * Opened straight from the top bar's quick action.
+   *
+   * Read once on mount rather than watched: this is an instruction carried in
+   * from elsewhere, not a piece of state the URL owns — leaving it live would
+   * reopen the composer every time somebody closed it.
+   */
+  const params = useSearchParams();
+  const [composeHandled, setComposeHandled] = useState(false);
+  if (!composeHandled && params.get("compose") === "1") {
+    setComposeHandled(true);
+    setDialogOpen(true);
+  }
   const [error, setError] = useState<string | null>(null);
 
   const { query, setQuery, filtered, isEmptyResult } = useTextFilter(
@@ -68,12 +92,16 @@ export default function AnnouncementsPage() {
         title,
         body,
         department: department || null,
+        recipients,
+        require_acknowledgement: requireAck,
         pinned,
       });
       setDialogOpen(false);
       setTitle("");
       setBody("");
       setDepartment("");
+      setRecipients([]);
+      setRequireAck(false);
       setPinned(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -174,6 +202,16 @@ export default function AnnouncementsPage() {
               <Typography variant="body2" sx={{ mt: 1, maxWidth: "72ch", whiteSpace: "pre-wrap" }}>
                 {announcement.body}
               </Typography>
+
+                {/* How far it has got, and the reader's own part in it. */}
+                <AnnouncementReach
+                  announcement={announcement}
+                  // The endpoint refuses anybody who is not the author or a workplace
+                  // manager, so this only decides whether to draw the button —
+                  // it is not the check.
+                  canSeeNames={Boolean(canManage) || announcement.is_mine}
+                  onOpenReceipts={() => setReceiptsFor(announcement.id)}
+                />
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
                 {announcement.posted_by} · {new Date(announcement.created_at).toLocaleString()}
               </Typography>
@@ -214,6 +252,36 @@ export default function AnnouncementsPage() {
               onChange={(id) => setDepartment(id ?? "")}
               helperText="Leave empty to post company-wide."
             />
+            {/* **Named people, when a department is the wrong shape.** The
+                four running a shutdown are in four different departments. */}
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }} useFlexGap>
+              <Button variant="outlined" size="small" onClick={() => setAudienceOpen(true)}>
+                {recipients.length === 0
+                  ? "Or pick people…"
+                  : `${recipients.length} ${recipients.length === 1 ? "person" : "people"} chosen`}
+              </Button>
+              {recipients.length > 0 ? (
+                <Button size="small" onClick={() => setRecipients([])}>
+                  Clear
+                </Button>
+              ) : null}
+            </Stack>
+
+            {department === "" && recipients.length === 0 ? (
+              <Alert severity="info" sx={{ py: 0.5 }}>
+                With neither set this goes to the whole company — which only
+                somebody who manages the workplace can send.
+              </Alert>
+            ) : null}
+
+            {/* Off by default: asking a hundred people to click a button on
+                every notice is how the button stops meaning anything. */}
+            <FormControlLabel
+              control={
+                <Switch checked={requireAck} onChange={(e) => setRequireAck(e.target.checked)} />
+              }
+              label="Ask people to confirm they have read it"
+            />
             <FormControlLabel
               control={<Switch checked={pinned} onChange={(e) => setPinned(e.target.checked)} />}
               label="Pin to top"
@@ -227,6 +295,14 @@ export default function AnnouncementsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <AudiencePicker
+        open={audienceOpen}
+        value={recipients}
+        onChange={setRecipients}
+        onClose={() => setAudienceOpen(false)}
+      />
+      <ReadReceipts announcementId={receiptsFor} onClose={() => setReceiptsFor(null)} />
+
     </PageContainer>
   );
 }

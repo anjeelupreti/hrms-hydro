@@ -26,6 +26,8 @@ import { PRODUCT_NAME } from "@/lib/product";
 import LiveTrace from "@/components/attendance/LiveTrace";
 import { useMyTodayAttendance } from "@/hooks/useAttendance";
 import LocaleStrip from "@/components/shell/LocaleStrip";
+import CampaignIcon from "@mui/icons-material/Campaign";
+import IconButton from "@mui/material/IconButton";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import { useThemeStore } from "@/lib/store/theme";
 import { useCompanyProfile } from "@/hooks/useOrganization";
@@ -201,6 +203,16 @@ export default function TopBar() {
           a per-viewer display preference belonging to the person and the
           device. Without it the "hide amounts" default was permanent — see
           `AmountPrivacyToggle`. */}
+      {/* **Posting a notice is a quick action, not a page you navigate to.**
+          The things people most need to broadcast — the lift is out, the road
+          is closed, the server is down at four — are the ones they will not
+          go looking for a page to write. It sits beside the bell because that
+          is where the other "tell somebody something" controls are. */}
+      <Tooltip title="Post an announcement">
+        <IconButton component={Link} href="/announcements?compose=1" size="small">
+          <CampaignIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
       <AmountPrivacyToggle />
       <ColorModeToggle />
       {/* No messages or mailbox here: they live in the sidebar under the
