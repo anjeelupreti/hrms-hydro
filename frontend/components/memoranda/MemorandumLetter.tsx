@@ -18,7 +18,12 @@ import DateText from "@/components/common/DateText";
 import { withCode } from "@/lib/people";
 import { RichText } from "@/components/common/RichTextEditor";
 import StateChip from "@/components/common/StateChip";
-import { MEMO_STATUS_TONE, type Memorandum, type MemorandumEvent } from "@/types/memoranda";
+import {
+  MEMO_STATUS_TONE,
+  type Memorandum,
+  type MemorandumEvent,
+  type MemorandumSignature,
+} from "@/types/memoranda";
 
 /**
  * The paper, in millimetres, because that is the unit it is sold in.
@@ -81,6 +86,8 @@ export default function MemorandumLetter({
   body,
   fields,
   history,
+  meId,
+  onMoveSignature,
 }: {
   memo: Memorandum | null;
   draft?: {
@@ -147,6 +154,14 @@ export default function MemorandumLetter({
    * read-only use of this component wants.
    */
   body?: ReactNode;
+  /** The signed-in employee, so only their own mark is draggable. */
+  meId?: number | null;
+  /**
+   * Called when a signature is dragged, with its new position as fractions.
+   * Passed only when the reader may move it — its presence is what makes the
+   * mark draggable at all.
+   */
+  onMoveSignature?: (x: number, y: number, page: number) => void;
 }) {
   const subject = draft?.subject ?? memo?.subject ?? "";
   const content = draft?.content ?? memo?.content ?? "";
@@ -168,34 +183,6 @@ export default function MemorandumLetter({
     .join(" · ");
 
   const contact = [memo?.company_phone, memo?.company_email].filter(Boolean).join(" · ");
-
-  /**
-   * Everybody whose mark belongs on this page, in the order it was collected.
-   *
-   * Recommenders who have acted, then the approver once they have decided. The
-   * initiator is not here: their name is already at the foot as the author, and
-   * repeating it as a signatory would suggest they approved their own request.
-   */
-  const signed = [
-    ...(memo?.recommenders ?? [])
-      .filter((row) => row.has_acted)
-      .map((row) => ({
-        key: `r-${row.id}`,
-        name: withCode(row.employee_name, row.employee_code),
-        role: row.designation || "Recommended",
-        signature: row.signature,
-      })),
-    ...(memo?.status === "approved" && memo.approver_name
-      ? [
-          {
-            key: "approver",
-            name: withCode(memo.approver_name, memo.approver_code),
-            role: memo.approver_post || "Approved",
-            signature: memo.approver_signature,
-          },
-        ]
-      : []),
-  ];
 
   const [sizeKey, setSizeKey] = useState<PageSizeKey>("a4");
   const PAGE = PAGE_SIZES[sizeKey];
@@ -317,6 +304,9 @@ export default function MemorandumLetter({
         // The scale is a screen concern; on paper the page is already A4.
         `.print-sheet { transform:none !important; box-shadow:none !important; border:0 !important; border-radius:0 !important }` +
         `.page-edge { display:none !important }` +
+        // The dashed hint that says "you can move this" is a screen
+        // affordance. On paper it would read as part of the document.
+        `.signature-draggable { outline:none !important }` +
         `</style></head><body>${sheet.outerHTML}</body></html>`
     );
     doc.close();
@@ -798,50 +788,6 @@ export default function MemorandumLetter({
           </Box>
         ) : null}
 
-        {/* ── Who signed it ──────────────────────────────────────────
-            The recommenders, in the order they saw it, with their signatures
-            where they have acted. **This is the block the whole signature
-            apparatus exists for**: a printed memorandum is only a record of who
-            recommended it if their marks are on the paper, and a name in a list
-            is not a mark. Somebody who has acted without an approved signature
-            still appears — the fact that they recommended it is true whether or
-            not they ever uploaded an image. */}
-        {signed.length > 0 ? (
-          <Box sx={{ pt: 4 }}>
-            <Stack direction="row" sx={{ flexWrap: "wrap", gap: 3 }} useFlexGap>
-              {signed.map((person) => (
-                <Box key={person.key} sx={{ minWidth: 170 }}>
-                  <Box
-                    sx={{
-                      height: 44,
-                      display: "flex",
-                      alignItems: "flex-end",
-                      mb: 0.25,
-                    }}
-                  >
-                    {person.signature ? (
-                      <Box
-                        component="img"
-                        src={person.signature}
-                        alt=""
-                        sx={{ maxHeight: 44, maxWidth: 170, objectFit: "contain" }}
-                      />
-                    ) : null}
-                  </Box>
-                  <Box sx={{ borderTop: "1px solid", borderColor: alpha("#16181d", 0.4), pt: 0.5 }}>
-                    <Typography sx={{ fontFamily: "inherit", fontSize: ".8rem", fontWeight: 600 }}>
-                      {person.name}
-                    </Typography>
-                    <Typography sx={{ fontFamily: "inherit", fontSize: ".7rem", color: "#5a6070" }}>
-                      {person.role}
-                    </Typography>
-                  </Box>
-                </Box>
-              ))}
-            </Stack>
-          </Box>
-        ) : null}
-
         {/* The initiator's signature block used to close the page here, and is
             gone. They are already named on the From line at the top, which is
             where a letter says who it is from — repeating them over a rule at
@@ -850,8 +796,139 @@ export default function MemorandumLetter({
             given *to* it: the recommenders who acted and the approver who
             decided, which is the block above. */}
         </Box>
+
+        {/* ── The marks people have actually made ────────────────────
+            Absolutely positioned by fraction of the page, because that is how
+            they are stored: the sheet is drawn at whatever scale the column
+            allows and printed at 1:1, so a pixel offset would land somewhere
+            else on paper than it did on screen.
+
+            Draggable only by their owner, and only while the memorandum can
+            still be changed — `onMoveSignature` is passed in exactly then. */}
+        {(memo?.signatures ?? []).map((mark) => (
+          <PlacedSignature
+            key={mark.id}
+            mark={mark}
+            draggable={Boolean(onMoveSignature) && mark.employee === meId}
+            onMove={onMoveSignature}
+          />
+        ))}
       </Box>
       </Box>
+      </Box>
+    </Box>
+  );
+}
+
+/**
+ * One signature on the page, and the dragging of it.
+ *
+ * **Positioned as a fraction, moved as a fraction.** The pointer gives pixels;
+ * they are divided by the sheet's own measured box on the way out, so the
+ * stored position means the same thing at any scale and on paper.
+ *
+ * Pointer events rather than mouse events: the same handler then works for a
+ * finger, and `setPointerCapture` keeps the drag alive when the pointer leaves
+ * the little box — which it does immediately, because the box is smaller than
+ * the gesture.
+ */
+function PlacedSignature({
+  mark,
+  draggable,
+  onMove,
+}: {
+  mark: MemorandumSignature;
+  draggable: boolean;
+  onMove?: (x: number, y: number, page: number) => void;
+}) {
+  // **The drag flag is a ref, not state, and that is the whole point.**
+  //
+  // It was state, and a quick drag lost every move: `setDragging(true)` does
+  // not take effect until React re-renders, so the handlers that ran in the
+  // meantime still read `false`, discarded the moves, and the pointer-up found
+  // nothing to save. A fast gesture — which is most of them — moved nothing.
+  // A ref updates on the spot, which is what a gesture needs.
+  const draggingRef = useRef(false);
+  const latest = useRef<{ x: number; y: number } | null>(null);
+  // State as well, but only so the cursor can change: nothing depends on it
+  // being timely.
+  const [dragging, setDragging] = useState(false);
+  const [local, setLocal] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  const at = local ?? { x: mark.x, y: mark.y };
+
+  function sheetBox() {
+    return ref.current?.closest(".print-sheet")?.getBoundingClientRect() ?? null;
+  }
+
+  return (
+    <Box
+      ref={ref}
+      onPointerDown={(event) => {
+        if (!draggable) return;
+        event.preventDefault();
+        // Captured on the handler's own element rather than `event.target`,
+        // which is whichever child was under the pointer — the image, or the
+        // name beneath it. Capturing a child works until the pointer leaves
+        // it, which for a box this small is immediately.
+        event.currentTarget.setPointerCapture(event.pointerId);
+        draggingRef.current = true;
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        if (!draggingRef.current) return;
+        const box = sheetBox();
+        if (!box) return;
+        const next = {
+          x: Math.min(Math.max((event.clientX - box.left) / box.width, 0), 1),
+          y: Math.min(Math.max((event.clientY - box.top) / box.height, 0), 1),
+        };
+        latest.current = next;
+        setLocal(next);
+      }}
+      onPointerUp={(event) => {
+        if (!draggingRef.current) return;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        draggingRef.current = false;
+        setDragging(false);
+        if (latest.current) onMove?.(latest.current.x, latest.current.y, mark.page);
+      }}
+      sx={{
+        position: "absolute",
+        left: `${at.x * 100}%`,
+        top: `${at.y * 100}%`,
+        // Anchored by its own top-left, so the fraction means the same thing
+        // whatever size the image turns out to be.
+        width: 168,
+        textAlign: "center",
+        cursor: draggable ? (dragging ? "grabbing" : "grab") : "default",
+        touchAction: "none",
+        userSelect: "none",
+        // A faint outline while it can be moved, so somebody knows it is theirs
+        // to place. Never printed — see the print stylesheet.
+        outline: draggable ? "1px dashed rgba(22,24,29,0.28)" : "none",
+        outlineOffset: 4,
+        borderRadius: 1,
+      }}
+      className={draggable ? "signature-draggable" : undefined}
+    >
+      {mark.image_url ? (
+        <Box
+          component="img"
+          src={mark.image_url}
+          alt=""
+          draggable={false}
+          sx={{ maxHeight: 46, maxWidth: 160, objectFit: "contain", display: "block", mx: "auto" }}
+        />
+      ) : null}
+      <Box sx={{ borderTop: "1px solid", borderColor: alpha("#16181d", 0.4), pt: 0.4, mt: 0.2 }}>
+        <Typography sx={{ fontFamily: "inherit", fontSize: ".72rem", fontWeight: 600 }}>
+          {withCode(mark.employee_name, mark.employee_code)}
+        </Typography>
+        <Typography sx={{ fontFamily: "inherit", fontSize: ".62rem", color: "#5a6070" }}>
+          {mark.role || "Signed"}
+        </Typography>
       </Box>
     </Box>
   );

@@ -23,6 +23,7 @@ from django.utils import timezone
 
 from memoranda.models import (
     Memorandum,
+    MemorandumSignature,
     MemorandumAction,
     MemorandumCounter,
     MemorandumEvent,
@@ -480,6 +481,96 @@ def archive(memo, employee, *, actor=None):
     memo.updated_by = actor
     memo.save(update_fields=["status", "updated_by", "updated_at"])
     log(memo, MemorandumEvent.Kind.ARCHIVED, actor=actor, employee=employee)
+    return memo
+
+
+def _party_to(memo, employee):
+    """Is this person on this memorandum at all?
+
+    Signing is for the people it goes through — the initiator who raised it,
+    the recommenders it passes, the approver who ends it. Anybody else putting
+    a mark on it is not endorsing a document, they are defacing one.
+    """
+    if employee is None:
+        return False
+    return bool(_role_of(memo, employee))
+
+
+@transaction.atomic
+def sign(memo, employee, *, actor=None):
+    """Place this person's approved signature on the memorandum.
+
+    **Their own, and by their own hand.** There is no way to sign on somebody
+    else's behalf and there should not be: the whole value of the mark is that
+    the person it names chose to make it.
+
+    Refused once the memorandum is decided. That is deliberate and it puts the
+    acts in the right order — you sign the paper and *then* it is approved, not
+    the other way round. A signature appearing on a document after it was
+    decided would be a document that changed after the decision.
+    """
+    from employees.models import Signature
+
+    if memo.is_locked:
+        raise MemorandumError(
+            "This memorandum has been decided. Sign it before it is approved, not after."
+        )
+    if not _party_to(memo, employee):
+        raise NotYourTurn("Only the people this memorandum goes through can sign it.")
+
+    approved = Signature.objects.filter(
+        employee=employee, status=Signature.Status.APPROVED
+    ).first()
+    if approved is None:
+        raise MemorandumError(
+            "You have no approved signature yet. Upload one on your workspace and "
+            "ask HR to approve it."
+        )
+
+    _row, created = MemorandumSignature.objects.get_or_create(
+        memorandum=memo,
+        employee=employee,
+        defaults={"signature": approved, "created_by": actor, "updated_by": actor},
+    )
+    if not created:
+        raise MemorandumError("You have already signed this memorandum.")
+    # The memorandum, like every other transition here — the viewset re-reads
+    # it and answers with the whole record, so the page redraws with the new
+    # mark on it rather than having to stitch a row in.
+    return memo
+
+
+def place_signature(memo, employee, *, x, y, page=0):
+    """Move a signature to where its owner wants it on the page.
+
+    Only their own. Somebody dragging another person's signature around a
+    document is doing something the paper equivalent has no answer for.
+    """
+    if memo.is_locked:
+        raise MemorandumError("This memorandum has been decided and cannot be changed.")
+    row = MemorandumSignature.objects.filter(memorandum=memo, employee=employee).first()
+    if row is None:
+        raise MemorandumError("You have not signed this memorandum.")
+
+    # Clamped rather than validated-and-refused: a drag that ends a little off
+    # the sheet is a slip, not a bad request, and snapping it back to the edge
+    # is what the person meant.
+    row.x = min(max(float(x), 0.0), 1.0)
+    row.y = min(max(float(y), 0.0), 1.0)
+    row.page = max(int(page), 0)
+    row.save(update_fields=["x", "y", "page", "updated_at"])
+    return memo
+
+
+def unsign(memo, employee):
+    """Take your own signature off again, while it still can be."""
+    if memo.is_locked:
+        raise MemorandumError("This memorandum has been decided and cannot be changed.")
+    deleted, _ = MemorandumSignature.objects.filter(
+        memorandum=memo, employee=employee
+    ).delete()
+    if not deleted:
+        raise MemorandumError("You have not signed this memorandum.")
     return memo
 
 

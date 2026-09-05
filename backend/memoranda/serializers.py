@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from memoranda.models import (
+    MemorandumSignature,
     Memorandum,
     MemorandumAction,
     MemorandumAttachment,
@@ -323,12 +324,20 @@ class MemorandumSerializer(MemorandumListSerializer):
     can_edit_content = serializers.SerializerMethodField()
     can_edit_chain = serializers.SerializerMethodField()
     return_targets = serializers.SerializerMethodField()
+    #: Placed signatures, with their positions. Empty until somebody signs —
+    #: nothing is applied automatically, see `workflow.sign`.
+    signatures = serializers.SerializerMethodField()
+    #: Whether the reader may put their own mark on this, so the button is
+    #: drawn only where pressing it would work.
+    can_sign = serializers.SerializerMethodField()
+    has_signed = serializers.SerializerMethodField()
 
     class Meta(MemorandumListSerializer.Meta):
         fields = MemorandumListSerializer.Meta.fields + [
             "content", "serial_number",
             "recommenders", "recommender_ids", "attachments", "events",
             "my_role", "can_act", "can_edit_content", "can_edit_chain", "return_targets",
+            "signatures", "can_sign", "has_signed",
             "updated_at",
         ]
         read_only_fields = [
@@ -385,6 +394,33 @@ class MemorandumSerializer(MemorandumListSerializer):
         me = self._me()
         return bool(me and not obj.is_locked and obj.initiator_id == me.pk)
 
+    def get_signatures(self, obj):
+        return MemorandumSignatureSerializer(
+            obj.signatures.select_related("employee__user", "signature").all(),
+            many=True,
+            context=self.context,
+        ).data
+
+    def get_can_sign(self, obj):
+        """Party to it, not yet signed, not yet decided, and has an approved
+        signature to place. All four, because a button that fails on any one of
+        them is a button that lies."""
+        from employees.models import Signature
+        from memoranda.workflow import _party_to
+
+        me = self._me()
+        if me is None or obj.is_locked or not _party_to(obj, me):
+            return False
+        if obj.signatures.filter(employee=me).exists():
+            return False
+        return Signature.objects.filter(
+            employee=me, status=Signature.Status.APPROVED
+        ).exists()
+
+    def get_has_signed(self, obj):
+        me = self._me()
+        return bool(me and obj.signatures.filter(employee=me).exists())
+
     def get_return_targets(self, obj):
         from memoranda.workflow import eligible_return_targets
 
@@ -439,3 +475,37 @@ class MemorandumSerializer(MemorandumListSerializer):
                     f"Once submitted, only the content can be changed — not {names}."
                 )
         return attrs
+
+
+class MemorandumSignatureSerializer(serializers.ModelSerializer):
+    """A signature as placed on a page: whose, which image, and where."""
+
+    employee_name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
+    image_url = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MemorandumSignature
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "image_url", "role", "x", "y", "page", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_employee_name(self, obj):
+        return _name(obj.employee)
+
+    def get_image_url(self, obj):
+        if not obj.signature.image:
+            return None
+        request = self.context.get("request")
+        url = obj.signature.image.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_role(self, obj):
+        """What they are on this memorandum — printed under the mark, because a
+        signature without a capacity is just a name."""
+        from memoranda.workflow import _role_of
+
+        return _role_of(obj.memorandum, obj.employee)

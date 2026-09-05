@@ -391,3 +391,60 @@ class MemorandumEvent(models.Model):
 
     def __str__(self):
         return f"{self.memorandum_id}: {self.kind} by {self.actor_label}"
+
+
+class MemorandumSignature(AuditModel):
+    """Somebody's signature, placed on a memorandum on purpose.
+
+    **Signing is an act, not a side effect.** The first version of this printed
+    a signature automatically as soon as somebody recommended or approved — so
+    a mark appeared on a document because a workflow advanced, not because
+    anybody chose to put it there. That is precisely backwards: a signature
+    means "I have read this and I am putting my name to it", and a system that
+    applies it for you means nothing by it.
+
+    So the signature is placed by its owner, pressing a button, and dragged to
+    where it belongs on the page — because on a real memorandum the recommender
+    signs in the margin beside their remark and the approver signs at the foot,
+    and which is which carries meaning.
+
+    **Pinned to the `Signature` row, not to a file path.** A person can replace
+    their signature; the old row is superseded rather than deleted (see
+    `employees.Signature`) exactly so a document signed last year still resolves
+    to the image that was actually used.
+    """
+
+    memorandum = models.ForeignKey(
+        Memorandum, on_delete=models.CASCADE, related_name="signatures"
+    )
+    employee = models.ForeignKey(
+        "employees.Employee", on_delete=models.PROTECT, related_name="memorandum_signatures"
+    )
+    #: The approved signature image used. PROTECT, because deleting the image a
+    #: signed document points at would leave the document unexplained.
+    signature = models.ForeignKey(
+        "employees.Signature", on_delete=models.PROTECT, related_name="placements"
+    )
+
+    #: Position as a **fraction of the page**, 0–1 from the top-left.
+    #:
+    #: Not pixels: the page is drawn at whatever scale the column allows and
+    #: printed at 1:1, so a pixel offset would land somewhere else on paper
+    #: than it did on screen. A fraction survives both.
+    x = models.FloatField(default=0.62)
+    y = models.FloatField(default=0.78)
+    #: Which sheet, zero-based, for a memorandum that runs to several.
+    page = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            # One signature per person per memorandum. Signing twice is not a
+            # stronger endorsement; it is a mistake.
+            models.UniqueConstraint(
+                fields=["memorandum", "employee"], name="one_signature_per_person_per_memo"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.employee} signed {self.memorandum_id}"

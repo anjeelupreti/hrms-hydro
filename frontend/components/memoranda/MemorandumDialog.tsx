@@ -6,6 +6,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DescriptionIcon from "@mui/icons-material/Description";
 import LockIcon from "@mui/icons-material/Lock";
 import SendIcon from "@mui/icons-material/Send";
+import DrawIcon from "@mui/icons-material/Draw";
 import SkipNextIcon from "@mui/icons-material/SkipNext";
 import EditIcon from "@mui/icons-material/Edit";
 import VisibilityIcon from "@mui/icons-material/Visibility";
@@ -51,6 +52,8 @@ import {
   useRejectMemorandum,
   useRemoveMemorandumAttachment,
   useResubmitMemorandum,
+  usePlaceSignature,
+  useSignMemorandum,
   useSkipMemorandum,
   useSaveMemorandum,
   useSendBackMemorandum,
@@ -168,6 +171,8 @@ export default function MemorandumDialog({
   const sendBack = useSendBackMemorandum();
   const resubmit = useResubmitMemorandum();
   const skipHolder = useSkipMemorandum();
+  const signMemo = useSignMemorandum();
+  const placeSignature = usePlaceSignature();
   const approve = useApproveMemorandum();
   const reject = useRejectMemorandum();
   const destroy = useDeleteMemorandum();
@@ -482,6 +487,29 @@ export default function MemorandumDialog({
                       afterwards is to see it clean. So the page is the only
                       surface, and Preview takes the blanks and the ribbon away
                       rather than putting a second copy beside them. */}
+                  {/* **Signing is a button, not a side effect.**
+                      Nothing is applied when somebody recommends or approves —
+                      a mark a workflow made for you means nothing by it. This
+                      places their own, and it can then be dragged to where it
+                      belongs: a recommender signs in the margin beside their
+                      remark, the approver at the foot, and which is which
+                      carries meaning. */}
+                  {memo && !locked && (memo.can_sign || memo.has_signed) ? (
+                    <Button
+                      size="small"
+                      variant={memo.has_signed ? "outlined" : "contained"}
+                      color={memo.has_signed ? "inherit" : "primary"}
+                      startIcon={<DrawIcon />}
+                      disabled={signMemo.isPending}
+                      onClick={() =>
+                        run(signMemo.mutateAsync({ id: memo.id, sign: !memo.has_signed }))
+                      }
+                      sx={{ flexShrink: 0 }}
+                    >
+                      {memo.has_signed ? "Remove my signature" : "Sign"}
+                    </Button>
+                  ) : null}
+
                   {canEditBody ? (
                     <ToggleButtonGroup
                       exclusive
@@ -513,6 +541,15 @@ export default function MemorandumDialog({
                   memo={memo}
                   body={editing && canEditBody ? surface : undefined}
                   history={memo?.events ?? []}
+                  meId={me?.employee_id ?? null}
+                  // Passed only when they have signed and it can still be
+                  // changed — its presence is what makes their own mark
+                  // draggable, so a locked memorandum's marks are fixed.
+                  onMoveSignature={
+                    memo && memo.has_signed && !locked
+                      ? (x, y, page) => placeSignature.mutate({ id: memo.id, x, y, page })
+                      : undefined
+                  }
                   fields={
                     editing && canEditBody
                       ? {

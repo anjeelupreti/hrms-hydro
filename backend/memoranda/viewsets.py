@@ -396,6 +396,32 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             actor=request.user,
         )
 
+    @action(detail=True, methods=["post", "delete"])
+    def sign(self, request, *args, **kwargs):
+        """Put your own signature on it, or take it off again.
+
+        Nothing is applied automatically — see `workflow.sign` for why a
+        signature a workflow placed for you means nothing.
+        """
+        memo = self.get_object()
+        me = self._me()
+        if request.method == "DELETE":
+            return self._run(lambda m: workflow.unsign(m, me), memo)
+        return self._run(workflow.sign, memo, me, actor=request.user)
+
+    @action(detail=True, methods=["patch"], url_path="sign/place")
+    def place_sign(self, request, *args, **kwargs):
+        """Move your signature to where you dragged it."""
+        memo = self.get_object()
+        return self._run(
+            workflow.place_signature,
+            memo,
+            self._me(),
+            x=request.data.get("x", 0.62),
+            y=request.data.get("y", 0.78),
+            page=request.data.get("page", 0),
+        )
+
     @action(detail=True, methods=["post"])
     def archive(self, request, *args, **kwargs):
         """File it away. Initiator only — see `workflow.archive`."""

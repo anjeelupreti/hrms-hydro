@@ -1115,7 +1115,14 @@ def test_the_initiator_can_change_the_company_when_it_is_sent_back(memo, cast, c
     assert memo.memo_id != original and "SNHL" in memo.memo_id
 
 
-# ── Signatures on the page ───────────────────────────────────────────────
+
+
+# ── Signing, which is an act ─────────────────────────────────────────────
+#
+# These replace four tests that asserted a signature appeared automatically as
+# soon as somebody recommended or approved. That behaviour is gone: a mark a
+# workflow applied on your behalf means nothing by it, so signing is a button
+# somebody presses and a place they drag it to.
 
 
 def _signed(employee, status="approved"):
@@ -1134,55 +1141,101 @@ def _signed(employee, status="approved"):
     return row
 
 
-def test_a_recommender_s_signature_appears_only_once_they_have_acted(memo, cast, recommend):
-    """A signature beside a name that has recommended nothing yet would put a
-    signature on a document nobody has signed."""
+def test_nothing_is_signed_until_somebody_signs(memo, cast, recommend):
+    """The point of the change: recommending is not signing."""
+    _signed(cast["a"])
+    submit(memo)
+    proceed(memo, cast["a"], action=recommend, comment="Recommended.")
+
+    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
+
+    assert response.data["signatures"] == []
+
+
+def test_signing_places_your_own_mark(memo, cast):
     _signed(cast["a"])
     submit(memo)
 
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-    before = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
-    assert before[cast["a"].pk] is None
+    response = _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
 
-    proceed(memo, cast["a"], action=recommend, comment="")
-
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-    after = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
-    assert after[cast["a"].pk] is not None
+    assert response.status_code == 200, response.data
+    placed = response.data["signatures"]
+    assert len(placed) == 1
+    assert placed[0]["employee"] == cast["a"].pk
+    assert placed[0]["role"] == "recommender"
 
 
-def test_only_an_approved_signature_is_ever_applied(memo, cast, recommend):
-    """A pending upload is a picture somebody sent in. Printing it under a
-    recommendation would put an unchecked signature on the record."""
+def test_signing_twice_is_refused(memo, cast):
+    """Signing twice is not a stronger endorsement; it is a mistake."""
+    _signed(cast["a"])
+    submit(memo)
+    _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    response = _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    assert response.status_code == 400, response.data
+
+
+def test_you_cannot_sign_without_an_approved_signature(memo, cast):
+    """A pending upload is a picture somebody sent in."""
     _signed(cast["a"], status="pending")
     submit(memo)
-    proceed(memo, cast["a"], action=recommend, comment="")
 
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-    rows = {r["employee"]: r["signature"] for r in response.data["recommenders"]}
-    assert rows[cast["a"].pk] is None
+    response = _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    assert response.status_code == 400, response.data
+    assert "no approved signature" in str(response.data).lower()
 
 
-def test_the_approver_s_signature_waits_for_the_decision(memo, cast, recommend):
-    _signed(cast["approver"])
+def test_a_signature_can_be_dragged_and_stays_where_it_is_put(memo, cast):
+    _signed(cast["a"])
+    submit(memo)
+    _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    response = _client(cast["a"]).patch(
+        f"{LIST}{memo.pk}/sign/place/", {"x": 0.25, "y": 0.4, "page": 1}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    placed = response.data["signatures"][0]
+    assert placed["x"] == 0.25 and placed["y"] == 0.4 and placed["page"] == 1
+
+
+def test_a_drag_off_the_sheet_is_snapped_back(memo, cast):
+    """A slip, not a bad request."""
+    _signed(cast["a"])
+    submit(memo)
+    _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    response = _client(cast["a"]).patch(
+        f"{LIST}{memo.pk}/sign/place/", {"x": 1.8, "y": -0.3}, format="json"
+    )
+
+    placed = response.data["signatures"][0]
+    assert placed["x"] == 1.0 and placed["y"] == 0.0
+
+
+def test_a_signature_can_be_taken_off_again(memo, cast):
+    _signed(cast["a"])
+    submit(memo)
+    _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
+
+    response = _client(cast["a"]).delete(f"{LIST}{memo.pk}/sign/")
+
+    assert response.status_code == 200, response.data
+    assert response.data["signatures"] == []
+
+
+def test_a_decided_memorandum_cannot_be_signed(memo, cast, recommend):
+    """Sign the paper, then approve it — not the other way round. A signature
+    appearing after the decision would be a document that changed after it was
+    decided."""
+    _signed(cast["a"])
     submit(memo)
     for person in (cast["a"], cast["b"], cast["c"]):
         proceed(memo, person, action=recommend, comment="")
-
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-    assert response.data["approver_signature"] is None
-
     decide(memo, cast["approver"], approve=True)
 
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-    assert response.data["approver_signature"] is not None
+    response = _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
 
-
-def test_a_draft_carries_no_signature_at_all(memo, cast):
-    """Signing a draft would leave the signature on a document that then
-    changes underneath it."""
-    _signed(cast["initiator"])
-
-    response = _client(cast["initiator"]).get(f"{LIST}{memo.pk}/")
-
-    assert response.data["initiator_signature"] is None
+    assert response.status_code == 400, response.data

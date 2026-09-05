@@ -32,8 +32,6 @@ export type MemorandumRecommender = {
   employee: number;
   employee_name: string;
   employee_code: string;
-  /** Their signature, and only once they have actually acted. */
-  signature: string | null;
   designation: string | null;
   order: number;
   /** Has handled it at some point — read from the log, and the reason the chip
@@ -128,7 +126,12 @@ export type MemorandumListItem = {
   initiator_code: string;
   /** The approved signature image, once the memorandum has been sent. Null
    *  while it is a draft, or where the person has no approved signature. */
-  initiator_signature: string | null;
+  /** Placed signatures, with where their owners dragged them. Empty until
+   *  somebody signs — nothing is applied automatically. */
+  signatures: MemorandumSignature[];
+  /** Whether the reader may put their own mark on this. */
+  can_sign: boolean;
+  has_signed: boolean;
   /** The office they hold, for the From line. A memorandum addresses a chair
    *  as much as a person. */
   initiator_post: string;
@@ -137,7 +140,6 @@ export type MemorandumListItem = {
   approver_code: string;
   /** Only once they have decided — the approver's signature *is* the
    *  decision, so it must not appear while the memorandum is still climbing. */
-  approver_signature: string | null;
   /** The office the approver holds, for the To line. */
   approver_post: string;
   current_holder: number | null;
@@ -199,4 +201,22 @@ export const MEMO_STATUS_TONE: Record<
   in_progress: "caution",
   approved: "normal",
   rejected: "alarm",
+};
+
+
+export type MemorandumSignature = {
+  id: number;
+  employee: number;
+  employee_name: string;
+  employee_code: string;
+  image_url: string | null;
+  /** What they are on this memorandum — a signature without a capacity is
+   *  just a name. */
+  role: string;
+  /** Fractions of the page, 0–1 from the top-left. Not pixels: the page is
+   *  drawn at whatever scale the column allows and printed at 1:1. */
+  x: number;
+  y: number;
+  page: number;
+  created_at: string;
 };

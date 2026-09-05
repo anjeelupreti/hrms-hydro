@@ -169,6 +169,33 @@ export const useResubmitMemorandum = transition<{ comment?: string }>("resubmit"
  * as a recommendation — see `workflow.skip`.
  */
 export const useSkipMemorandum = transition<{ comment?: string }>("skip");
+/**
+ * Put your own signature on it, take it off, or move it.
+ *
+ * Three calls rather than one because they are three different acts, and the
+ * middle one is a DELETE — `transition` only sends POST.
+ */
+export function useSignMemorandum() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, sign }: { id: number; sign: boolean }) =>
+      fetchJson<Memorandum>(`${BASE}/${id}/sign`, { method: sign ? "POST" : "DELETE" }),
+    onSuccess: (memo) => invalidate(memo.id),
+  });
+}
+
+export function usePlaceSignature() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({ id, x, y, page }: { id: number; x: number; y: number; page: number }) =>
+      fetchJson<Memorandum>(`${BASE}/${id}/sign/place`, {
+        method: "PATCH",
+        body: JSON.stringify({ x, y, page }),
+      }),
+    onSuccess: (memo) => invalidate(memo.id),
+  });
+}
+
 export const useApproveMemorandum = transition<{ comment?: string }>("approve");
 export const useRejectMemorandum = transition<{ comment?: string }>("reject");
 /**
