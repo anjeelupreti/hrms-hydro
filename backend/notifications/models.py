@@ -488,6 +488,22 @@ class MeetingMinutes(AuditModel):
     meeting = models.OneToOneField(
         CompanyEvent, on_delete=models.CASCADE, related_name="minutes"
     )
+    #: **Whose minute it is.** A `CompanyEvent` is a row on the calendar and
+    #: has no company — the calendar is shared across the group. The minute is
+    #: a document, and a document is on somebody's paper: the heading says so
+    #: and the reference number carries the company's code.
+    #:
+    #: Defaults to the primary company, which is the one payroll and the rest
+    #: of the register run through.
+    company = models.ForeignKey(
+        "companies.Company", null=True, blank=True,
+        on_delete=models.PROTECT, related_name="meeting_minutes",
+    )
+    #: `MIN-VLUCL-0007`. Minted when the minute is drafted, not when the
+    #: meeting is called: a meeting that never gets written up should not
+    #: consume a number out of the register.
+    minute_id = models.CharField(max_length=40, unique=True, null=True, blank=True)
+    serial_number = models.PositiveIntegerField(null=True, blank=True)
     template = models.ForeignKey(
         MinutesTemplate, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="minutes",
@@ -506,3 +522,21 @@ class MeetingMinutes(AuditModel):
 
     def __str__(self):
         return f"Minutes for {self.meeting_id}"
+
+
+class MinutesCounter(models.Model):
+    """The next minute serial, per company.
+
+    A row rather than `MAX(serial) + 1`, for the same reason
+    `MemorandumCounter` is one: two people drafting a minute in the same second
+    both read the same maximum, both write it, and the loser finds out through
+    a unique-constraint error on a document they have already started.
+    """
+
+    company = models.OneToOneField(
+        "companies.Company", on_delete=models.CASCADE, related_name="minutes_counter"
+    )
+    next_serial = models.PositiveIntegerField(default=1)
+
+    def __str__(self):
+        return f"{self.company_id}: next minute {self.next_serial}"

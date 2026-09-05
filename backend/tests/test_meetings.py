@@ -442,3 +442,46 @@ def test_the_template_is_configurable_and_the_draft_follows_it(meeting, organise
     assert "<h3>Upasthiti</h3>" in body
     assert "<h3>Nirnaya</h3>" in body
     assert "Agenda" not in body
+
+
+def test_a_minute_gets_a_numbered_reference_on_its_company(meeting, organiser, company):
+    """`MIN-VLUCL-0001`. The prefix is there because these are filed alongside
+    memoranda and travel orders, and a bare number in a folder tells nobody
+    which register it came out of."""
+    response = _client(organiser.user).post(f"{LIST}{meeting.pk}/minutes/", {}, format="json")
+
+    assert response.status_code == 201, response.data
+    assert response.data["minute_id"] == f"MIN-{company.code}-0001"
+    assert response.data["company_name"] == company.name
+
+
+def test_the_serial_runs_per_company_and_does_not_repeat(meeting, organiser, company, cast):
+    """Two meetings, two numbers."""
+    started = timezone.now() - timedelta(days=1)
+    second = CompanyEvent.objects.create(
+        title="Board review",
+        event_type=CompanyEvent.EventType.MEETING,
+        start_datetime=started,
+        end_datetime=started + timedelta(hours=2),
+        created_by=organiser.user,
+        updated_by=organiser.user,
+    )
+    client = _client(organiser.user)
+
+    first_id = client.post(f"{LIST}{meeting.pk}/minutes/", {}, format="json").data["minute_id"]
+    second_id = client.post(f"{LIST}{second.pk}/minutes/", {}, format="json").data["minute_id"]
+
+    assert first_id == f"MIN-{company.code}-0001"
+    assert second_id == f"MIN-{company.code}-0002"
+
+
+def test_the_heading_carries_the_facts_of_the_meeting(meeting, organiser):
+    """Date, time, location and duration go at the top of the sheet, so the
+    minute is readable without the calendar beside it."""
+    response = _client(organiser.user).post(f"{LIST}{meeting.pk}/minutes/", {}, format="json")
+
+    assert response.data["meeting_title"] == "Monthly site review"
+    assert response.data["starts_at"] is not None
+    assert response.data["ends_at"] is not None
+    # One hour, derived from the two — never stored, or it could disagree.
+    assert response.data["duration_minutes"] == 60

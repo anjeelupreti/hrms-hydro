@@ -317,14 +317,53 @@ class MinutesTemplateSerializer(serializers.ModelSerializer):
 class MeetingMinutesSerializer(serializers.ModelSerializer):
     template_name = serializers.CharField(source="template.name", read_only=True, default=None)
     is_locked = serializers.BooleanField(read_only=True)
+    #: The heading of the sheet: whose paper, and the facts of the meeting.
+    #: Served with the minute so the page needs one request, not three.
+    company_name = serializers.CharField(source="company.name", read_only=True, default=None)
+    company_address = serializers.SerializerMethodField()
+    company_logo = serializers.SerializerMethodField()
+    meeting_title = serializers.CharField(source="meeting.title", read_only=True)
+    starts_at = serializers.DateTimeField(source="meeting.start_datetime", read_only=True)
+    ends_at = serializers.DateTimeField(source="meeting.end_datetime", read_only=True)
+    location = serializers.CharField(source="meeting.location", read_only=True)
+    duration_minutes = serializers.SerializerMethodField()
 
     class Meta:
         model = MeetingMinutes
         fields = [
             "id", "meeting", "template", "template_name",
+            "minute_id", "company", "company_name", "company_address", "company_logo",
+            "meeting_title", "starts_at", "ends_at", "location", "duration_minutes",
             "content", "status", "finalised_at", "is_locked",
         ]
-        read_only_fields = ["id", "meeting", "status", "finalised_at", "is_locked"]
+        read_only_fields = [
+            "id", "meeting", "status", "finalised_at", "is_locked", "minute_id",
+        ]
+
+    def get_duration_minutes(self, obj):
+        """Derived, never stored. A duration that disagrees with the start and
+        end times is a fact with two answers."""
+        meeting = obj.meeting
+        if not (meeting.start_datetime and meeting.end_datetime):
+            return None
+        return int((meeting.end_datetime - meeting.start_datetime).total_seconds() // 60)
+
+    def get_company_address(self, obj):
+        company = obj.company
+        if company is None:
+            return ""
+        parts = []
+        for part in (company.address, company.district, company.province):
+            if part and part.lower() not in ", ".join(parts).lower():
+                parts.append(part)
+        return ", ".join(parts)
+
+    def get_company_logo(self, obj):
+        logo = getattr(obj.company, "logo", None) if obj.company else None
+        if not logo:
+            return None
+        request = self.context.get("request")
+        return request.build_absolute_uri(logo.url) if request else logo.url
 
     def validate_content(self, value):
         """Same allow-list as a memorandum. Sanitised on the way in, so what is

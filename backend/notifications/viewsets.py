@@ -409,6 +409,7 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
                 created_by=request.user,
                 updated_by=request.user,
             )
+            services.mint_minute_id(minute)
             return Response(
                 MeetingMinutesSerializer(minute, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,

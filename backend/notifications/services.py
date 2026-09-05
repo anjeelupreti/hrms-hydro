@@ -334,3 +334,46 @@ def build_minutes_body(meeting, template):
             parts.append(f"<p>{escape(section.hint)}</p>" if section.hint else "<p><br></p>")
 
     return "".join(parts)
+
+
+def mint_minute_id(minute, company=None):
+    """Give a minute its number, under a row lock.
+
+    `MIN-<company code>-<serial>`. The prefix is there because these are filed
+    alongside memoranda and travel orders, and a bare number in a folder tells
+    nobody which register it came out of.
+    """
+    from django.db import transaction
+
+    from companies.models import primary_company
+    from notifications.models import MinutesCounter
+
+    # **Whose paper is it?** The meeting itself has no company — the calendar
+    # is shared across the group — so this is resolved in the order the answer
+    # is most likely to be right: what the caller said, what the minute already
+    # says, the company of whoever called the meeting, and finally the group's
+    # primary company.
+    if company is None:
+        company = minute.company
+    if company is None:
+        organiser = getattr(minute.meeting.created_by, "employee", None)
+        company = getattr(organiser, "primary_company", None)
+    if company is None:
+        company = primary_company()
+    if company is None:
+        # No company anywhere. The minute is still a minute; it simply has no
+        # register to be numbered in, and saying so beats inventing one.
+        return minute
+
+    with transaction.atomic():
+        counter, _ = MinutesCounter.objects.get_or_create(company=company)
+        counter = MinutesCounter.objects.select_for_update().get(pk=counter.pk)
+        serial = counter.next_serial
+        counter.next_serial = serial + 1
+        counter.save(update_fields=["next_serial"])
+
+    minute.company = company
+    minute.serial_number = serial
+    minute.minute_id = f"MIN-{company.code}-{serial:04d}"
+    minute.save(update_fields=["company", "serial_number", "minute_id"])
+    return minute
