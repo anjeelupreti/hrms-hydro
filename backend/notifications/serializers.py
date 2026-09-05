@@ -1,10 +1,16 @@
 from rest_framework import serializers
 
 from notifications.models import (
+    AgendaItem,
     Announcement,
     CompanyEvent,
     Holiday,
     MeetingAttendee,
+    DecisionPosition,
+    MeetingDecision,
+    MeetingMinutes,
+    MinutesSection,
+    MinutesTemplate,
     Notification,
     NotificationPreference,
     ReminderRule,
@@ -41,8 +47,14 @@ class MeetingAttendeeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MeetingAttendee
-        fields = ["id", "employee", "employee_code", "employee_name", "rsvp_status"]
-        read_only_fields = ["id", "employee", "employee_code", "employee_name"]
+        fields = [
+            "id", "employee", "employee_code", "employee_name", "rsvp_status",
+            # Who actually came, which is not who accepted — see the model.
+            "attendance", "attendance_marked_at",
+        ]
+        read_only_fields = [
+            "id", "employee", "employee_code", "employee_name", "attendance_marked_at",
+        ]
 
     def get_employee_name(self, obj):
         return obj.employee.user.get_full_name() or obj.employee.user.get_username()
@@ -208,3 +220,115 @@ class ReminderRuleSerializer(serializers.ModelSerializer):
                     )
                 })
         return attrs
+
+
+class AgendaItemSerializer(serializers.ModelSerializer):
+    presenter_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AgendaItem
+        fields = [
+            "id", "meeting", "order", "title", "detail",
+            "presenter", "presenter_name", "raised_in_meeting",
+        ]
+        read_only_fields = ["id", "meeting", "presenter_name"]
+
+    def get_presenter_name(self, obj):
+        if obj.presenter is None:
+            return None
+        user = obj.presenter.user
+        return user.get_full_name() or user.get_username()
+
+
+class DecisionPositionSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField()
+    employee_code = serializers.CharField(source="employee.employee_code", read_only=True)
+    signature_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DecisionPosition
+        fields = [
+            "id", "employee", "employee_name", "employee_code",
+            "position", "signature_url", "reason", "answered_at",
+        ]
+        read_only_fields = fields
+
+    def get_employee_name(self, obj):
+        user = obj.employee.user
+        return user.get_full_name() or user.get_username()
+
+    def get_signature_url(self, obj):
+        if obj.signature is None or not obj.signature.image:
+            return None
+        request = self.context.get("request")
+        url = obj.signature.image.url
+        return request.build_absolute_uri(url) if request else url
+
+
+class MeetingDecisionSerializer(serializers.ModelSerializer):
+    positions = DecisionPositionSerializer(many=True, read_only=True)
+    #: What the reader may do with it, answered by the server so a button is
+    #: never drawn where pressing it would be refused.
+    my_position = serializers.SerializerMethodField()
+    tally = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MeetingDecision
+        fields = [
+            "id", "meeting", "agenda_item", "order", "text", "status",
+            "circulated_at", "positions", "my_position", "tally",
+        ]
+        read_only_fields = ["id", "meeting", "status", "circulated_at", "positions"]
+
+    def _me(self):
+        request = self.context.get("request")
+        return getattr(getattr(request, "user", None), "employee", None)
+
+    def get_my_position(self, obj):
+        me = self._me()
+        if me is None:
+            return None
+        row = next((p for p in obj.positions.all() if p.employee_id == me.pk), None)
+        return row.position if row else None
+
+    def get_tally(self, obj):
+        """The count, so a reader sees where a decision stands without doing
+        the arithmetic on a list of names."""
+        counts = {"consent": 0, "dissent": 0, "abstain": 0, "pending": 0}
+        for row in obj.positions.all():
+            counts[row.position] = counts.get(row.position, 0) + 1
+        return counts
+
+
+class MinutesSectionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MinutesSection
+        fields = ["id", "order", "heading", "source", "hint"]
+
+
+class MinutesTemplateSerializer(serializers.ModelSerializer):
+    sections = MinutesSectionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MinutesTemplate
+        fields = ["id", "name", "is_default", "is_active", "sections"]
+
+
+class MeetingMinutesSerializer(serializers.ModelSerializer):
+    template_name = serializers.CharField(source="template.name", read_only=True, default=None)
+    is_locked = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = MeetingMinutes
+        fields = [
+            "id", "meeting", "template", "template_name",
+            "content", "status", "finalised_at", "is_locked",
+        ]
+        read_only_fields = ["id", "meeting", "status", "finalised_at", "is_locked"]
+
+    def validate_content(self, value):
+        """Same allow-list as a memorandum. Sanitised on the way in, so what is
+        stored is what is safe to render."""
+        from memoranda.sanitize import clean_html
+
+        return clean_html(value)

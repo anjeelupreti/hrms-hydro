@@ -139,3 +139,198 @@ def publish_announcement(announcement):
             f"{announcement.title}: {announcement.body}",
             email_subject=f"Announcement: {announcement.title}",
         )
+
+
+def circulate_decision(decision, actor=None):
+    """Put a decision to everybody who was invited, and tell them.
+
+    A position row per person, created once — re-circulating a decision does
+    not wipe the answers already given, which is what somebody pressing the
+    button twice would otherwise do.
+    """
+    from django.utils import timezone
+
+    from notifications.models import DecisionPosition, MeetingDecision
+
+    meeting = decision.meeting
+    for attendee in meeting.attendees.select_related("employee__user"):
+        row, created = DecisionPosition.objects.get_or_create(
+            decision=decision,
+            employee=attendee.employee,
+            defaults={"created_by": actor, "updated_by": actor},
+        )
+        if created:
+            notify(
+                attendee.employee.user,
+                "decision_circulated",
+                f'A decision from "{meeting.title}" needs your consent or dissent.',
+                email_subject="A meeting decision needs your response",
+            )
+
+    decision.status = MeetingDecision.Status.CIRCULATED
+    decision.circulated_at = timezone.now()
+    decision.updated_by = actor
+    decision.save(update_fields=["status", "circulated_at", "updated_by", "updated_at"])
+    return decision
+
+
+def record_position(row, *, position, reason="", actor=None):
+    """One person's consent, dissent or abstention.
+
+    Raises `ValueError` for anything the record would be worse for holding: a
+    consent with no signature to stamp, or a dissent with no reason. The
+    viewset turns those into a 400 with the message.
+    """
+    from django.utils import timezone
+
+    from employees.models import Signature
+    from notifications.models import DecisionPosition
+
+    if position not in DecisionPosition.Position.values or position == "pending":
+        raise ValueError("Choose consent, dissent or abstain.")
+
+    if position == DecisionPosition.Position.CONSENT:
+        signature = Signature.objects.filter(
+            employee=row.employee, status=Signature.Status.APPROVED
+        ).first()
+        if signature is None:
+            raise ValueError(
+                "You have no approved signature yet. Upload one on your workspace "
+                "and ask HR to approve it."
+            )
+        row.signature = signature
+        row.reason = ""
+    else:
+        row.signature = None
+        if position == DecisionPosition.Position.DISSENT and not (reason or "").strip():
+            raise ValueError("Say why you disagree — a dissent without a reason records nothing.")
+        row.reason = (reason or "").strip()
+
+    row.position = position
+    row.answered_at = timezone.now()
+    row.updated_by = actor
+    row.save(update_fields=["position", "signature", "reason", "answered_at", "updated_by", "updated_at"])
+    return row
+
+
+#: The shape a minute takes when nobody has configured one.
+#:
+#: Seeded rather than hardcoded into the builder, so an office can change it —
+#: which is the whole reason `MinutesTemplate` is a table. These headings are
+#: the ones most Nepali company minutes actually carry.
+DEFAULT_MINUTES_SECTIONS = [
+    ("Present", "attendance", ""),
+    ("Agenda", "agenda", ""),
+    ("Matters discussed", "manual", "What was said, item by item."),
+    ("Decisions", "decisions", ""),
+    ("Consent and dissent", "consent_table", ""),
+]
+
+
+def default_minutes_template():
+    """The configured default, created on first use if there is none.
+
+    Falls back to creating rather than raising, for the same reason
+    `leave.get_default_chain` does: a missing configuration row should not be
+    able to stop somebody writing up a meeting.
+    """
+    from notifications.models import MinutesSection, MinutesTemplate
+
+    template = MinutesTemplate.objects.filter(is_default=True, is_active=True).first()
+    if template:
+        return template
+
+    template = MinutesTemplate.objects.create(name="Standard minutes", is_default=True)
+    for order, (heading, source, hint) in enumerate(DEFAULT_MINUTES_SECTIONS):
+        MinutesSection.objects.create(
+            template=template, order=order, heading=heading, source=source, hint=hint
+        )
+    return template
+
+
+def build_minutes_body(meeting, template):
+    """Draft a minute from the template, the register and the decisions.
+
+    **The sections that can be filled in are filled in.** The register and the
+    decision list are already known to the meeting; retyping them into the
+    minute is how a minute comes to disagree with the record it summarises. A
+    `MANUAL` section gets its heading and an empty paragraph, which is the
+    invitation to write.
+
+    Returns HTML in the same allow-list the memorandum uses — this is a
+    starting draft, and everything in it is editable afterwards.
+    """
+    from html import escape
+
+    from notifications.models import MeetingAttendee, MinutesSection
+
+    def name(employee):
+        user = employee.user
+        label = user.get_full_name() or user.get_username()
+        code = employee.employee_code or ""
+        return f"{label} ({code})" if code else label
+
+    parts = []
+    for section in template.sections.all():
+        parts.append(f"<h3>{escape(section.heading)}</h3>")
+
+        if section.source == MinutesSection.Source.ATTENDANCE:
+            present = [a for a in meeting.attendees.all() if a.attendance == "present"]
+            absent = [a for a in meeting.attendees.all() if a.attendance == "absent"]
+            unmarked = [a for a in meeting.attendees.all() if a.attendance == "unmarked"]
+            if present:
+                parts.append(
+                    "<p><strong>Present:</strong> "
+                    + escape(", ".join(name(a.employee) for a in present))
+                    + "</p>"
+                )
+            if absent:
+                parts.append(
+                    "<p><strong>Apologies:</strong> "
+                    + escape(", ".join(name(a.employee) for a in absent))
+                    + "</p>"
+                )
+            if unmarked:
+                # Said plainly rather than folded into either list — the
+                # register was not taken, and a minute should not imply it was.
+                parts.append(
+                    "<p><em>Not recorded:</em> "
+                    + escape(", ".join(name(a.employee) for a in unmarked))
+                    + "</p>"
+                )
+            if not meeting.attendees.exists():
+                parts.append("<p><em>Nobody was invited.</em></p>")
+
+        elif section.source == MinutesSection.Source.AGENDA:
+            items = list(meeting.agenda_items.all())
+            if items:
+                parts.append("<ol>")
+                for item in items:
+                    line = escape(item.title)
+                    if item.raised_in_meeting:
+                        line += " <em>(raised in the meeting)</em>"
+                    parts.append(f"<li>{line}</li>")
+                parts.append("</ol>")
+            else:
+                parts.append("<p><em>No agenda was recorded.</em></p>")
+
+        elif section.source == MinutesSection.Source.DECISIONS:
+            decisions = list(meeting.decisions.all())
+            if decisions:
+                parts.append("<ol>")
+                for decision in decisions:
+                    parts.append(f"<li>{escape(decision.text)}</li>")
+                parts.append("</ol>")
+            else:
+                parts.append("<p><em>No decisions were recorded.</em></p>")
+
+        elif section.source == MinutesSection.Source.CONSENT_TABLE:
+            # Left to the page to draw. The table needs the signature images,
+            # which are files rather than text — see `MinutesConsentTable` in
+            # the frontend. A marker keeps its place in the document.
+            parts.append('<p data-minutes-consent-table="1"></p>')
+
+        else:
+            parts.append(f"<p>{escape(section.hint)}</p>" if section.hint else "<p><br></p>")
+
+    return "".join(parts)

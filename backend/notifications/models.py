@@ -119,9 +119,26 @@ class MeetingAttendee(AuditModel):
         ACCEPTED = "accepted", "Accepted"
         DECLINED = "declined", "Declined"
 
+    class Attendance(models.TextChoices):
+        #: Nobody has taken the register yet. Distinct from absent on purpose:
+        #: "we did not record it" and "they did not come" are different facts,
+        #: and a minute that cannot tell them apart is not worth signing.
+        UNMARKED = "unmarked", "Not recorded"
+        PRESENT = "present", "Present"
+        ABSENT = "absent", "Absent"
+
     event = models.ForeignKey(CompanyEvent, on_delete=models.CASCADE, related_name="attendees")
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="meeting_invites")
     rsvp_status = models.CharField(max_length=20, choices=RsvpStatus.choices, default=RsvpStatus.PENDING)
+
+    #: **Who actually came, which is not who accepted.** RSVP is a promise made
+    #: beforehand and attendance is what happened; the minute records the
+    #: second. Marked after the meeting and re-markable at any time, because
+    #: the register is routinely taken from memory the following morning.
+    attendance = models.CharField(
+        max_length=10, choices=Attendance.choices, default=Attendance.UNMARKED
+    )
+    attendance_marked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["employee__employee_code"]
@@ -256,3 +273,236 @@ class ReminderLog(models.Model):
 
     def __str__(self):
         return f"{self.rule.kind} → {self.recipient_id} ({self.lead_days}d before {self.due_date})"
+
+
+# ── What a meeting produces ──────────────────────────────────────────────
+#
+# `CompanyEvent` stays what it always was — a row on the calendar — and
+# `MeetingAttendee` stays the invitation. What follows is everything a meeting
+# generates *after* it has been called, none of which had anywhere to live: an
+# agenda, the decisions taken, who consented or dissented to each, and the
+# minute that assembles them.
+
+
+class AgendaItem(AuditModel):
+    """One thing to be discussed.
+
+    **Addable and removable at any point, not only when the meeting is
+    called.** Half an agenda is known a week beforehand and the rest arrives in
+    the room; a list that froze at creation would be filled in afterwards by
+    editing the description, which is how an agenda stops being a list.
+    """
+
+    meeting = models.ForeignKey(
+        CompanyEvent, on_delete=models.CASCADE, related_name="agenda_items"
+    )
+    #: Dense and renumbered on reorder, so it stays a plain index.
+    order = models.PositiveSmallIntegerField(default=0)
+    title = models.CharField(max_length=250)
+    detail = models.TextField(blank=True)
+    #: Who is speaking to it. Optional — plenty of items have no owner until
+    #: somebody raises them.
+    presenter = models.ForeignKey(
+        Employee, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="agenda_items_presented",
+    )
+    #: Raised in the room rather than circulated in advance. Worth recording:
+    #: an item nobody saw beforehand is one people may reasonably not have
+    #: been ready for, and the minute should say so.
+    raised_in_meeting = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["order", "pk"]
+
+    def __str__(self):
+        return f"{self.meeting_id}.{self.order} {self.title}"
+
+
+class MeetingDecision(AuditModel):
+    """A decision taken, and the thing people consent or dissent to.
+
+    Separate from the agenda item because they are not one thing: an item can
+    produce two decisions, or none, and a decision can be reached on something
+    nobody put on the agenda. Linked where there is a link.
+    """
+
+    class Status(models.TextChoices):
+        #: Being written up. Nobody has been asked to sign anything.
+        DRAFT = "draft", "Draft"
+        #: Sent to the attendees for consent or dissent.
+        CIRCULATED = "circulated", "Circulated"
+        #: Closed — every position that is coming has come.
+        CLOSED = "closed", "Closed"
+
+    meeting = models.ForeignKey(
+        CompanyEvent, on_delete=models.CASCADE, related_name="decisions"
+    )
+    agenda_item = models.ForeignKey(
+        AgendaItem, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="decisions",
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    text = models.TextField()
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    circulated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["order", "pk"]
+
+    def __str__(self):
+        return f"Decision {self.pk} on meeting {self.meeting_id}"
+
+
+class DecisionPosition(AuditModel):
+    """One person's consent or dissent, and what it rests on.
+
+    **Consent carries a signature; dissent carries a reason.** Those are not
+    symmetrical and should not be: agreeing is signing your name to something,
+    and disagreeing is worth nothing to a reader unless it says why. The model
+    requires each of them for its own side — see `clean`.
+    """
+
+    class Position(models.TextChoices):
+        PENDING = "pending", "Not yet answered"
+        CONSENT = "consent", "Consented"
+        DISSENT = "dissent", "Dissented"
+        #: Present but taking no side — recorded rather than left pending, so
+        #: "has not answered" keeps meaning that.
+        ABSTAIN = "abstain", "Abstained"
+
+    decision = models.ForeignKey(
+        MeetingDecision, on_delete=models.CASCADE, related_name="positions"
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT, related_name="decision_positions"
+    )
+    position = models.CharField(
+        max_length=10, choices=Position.choices, default=Position.PENDING
+    )
+    #: The stamp. Points at `employees.Signature` for the same reason a
+    #: memorandum's does: a person can replace their signature, and a document
+    #: signed last year must still resolve to the image actually used.
+    signature = models.ForeignKey(
+        "employees.Signature", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="decision_stamps",
+    )
+    #: Required on dissent. A dissent with no reason tells a reader nothing
+    #: except that somebody was unhappy.
+    reason = models.TextField(blank=True)
+    answered_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["employee__employee_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["decision", "employee"], name="one_position_per_person_per_decision"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.employee} {self.position} on decision {self.decision_id}"
+
+
+class MinutesTemplate(AuditModel):
+    """The shape a minute takes in this organisation.
+
+    **Configurable, because every office writes minutes to its own form.** One
+    wants "Present / In attendance / Apologies / Matters arising"; another wants
+    the agenda numbered straight through. Hardcoding either produces a document
+    somebody has to fight, so the headings are data.
+    """
+
+    name = models.CharField(max_length=120, unique=True)
+    is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            # Exactly one default, enforced rather than hoped for: two
+            # defaults means the minute you get depends on row order.
+            models.UniqueConstraint(
+                fields=["is_default"],
+                condition=models.Q(is_default=True),
+                name="one_default_minutes_template",
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class MinutesSection(AuditModel):
+    """One heading in a minutes template, and where its content comes from.
+
+    **`source` is what makes the template more than a list of headings.** A
+    section that draws the attendance register or the decision table should not
+    be retyped by hand every time — the meeting already knows those. Sections
+    that are genuinely prose stay `MANUAL`.
+    """
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Written by hand"
+        ATTENDANCE = "attendance", "Who was present and absent"
+        AGENDA = "agenda", "The agenda, in order"
+        DECISIONS = "decisions", "The decisions taken"
+        #: The table the minute closes with: name, consent, dissent,
+        #: signature, and the dissenter's reason.
+        CONSENT_TABLE = "consent_table", "Consent and dissent register"
+
+    template = models.ForeignKey(
+        MinutesTemplate, on_delete=models.CASCADE, related_name="sections"
+    )
+    order = models.PositiveSmallIntegerField(default=0)
+    heading = models.CharField(max_length=200)
+    source = models.CharField(max_length=16, choices=Source.choices, default=Source.MANUAL)
+    #: Shown greyed in the editor to say what belongs here. Only meaningful for
+    #: a manual section.
+    hint = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["order", "pk"]
+
+    def __str__(self):
+        return f"{self.template_id}.{self.order} {self.heading}"
+
+
+class MeetingMinutes(AuditModel):
+    """The minute itself — one per meeting.
+
+    **Written after the decisions, because they are its source.** A minute
+    drafted first is a summary of what somebody remembers; drafted from the
+    agenda and the decision register it is a record of what happened.
+
+    The body is sanitised HTML, the same allow-list the memorandum uses, and it
+    is rendered on the same page-like sheet — a minute is a document that gets
+    printed, filed and referred back to, exactly like a memorandum.
+    """
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        #: Sent to those who were there, to be read before it is fixed.
+        CIRCULATED = "circulated", "Circulated"
+        FINAL = "final", "Final"
+
+    meeting = models.OneToOneField(
+        CompanyEvent, on_delete=models.CASCADE, related_name="minutes"
+    )
+    template = models.ForeignKey(
+        MinutesTemplate, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="minutes",
+    )
+    content = models.TextField(blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    finalised_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name_plural = "meeting minutes"
+
+    @property
+    def is_locked(self):
+        """Final is evidence. Checked on every write path, like a memorandum."""
+        return self.status == self.Status.FINAL
+
+    def __str__(self):
+        return f"Minutes for {self.meeting_id}"
