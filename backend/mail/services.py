@@ -201,3 +201,111 @@ def send_email(to, subject, body, cc=None):
         is_read=True,
         is_outgoing=True,
     )
+
+
+# ── Sending a registered letter ──────────────────────────────────────────
+
+#: The `ReminderRule` kind that carries the covering-note wording.
+#:
+#: The same mechanism the birthday and festival messages use: the office edits
+#: the subject and body, we own when it fires. `{ref}`, `{subject}`, `{date}`
+#: and `{company}` are substituted; anything else is left alone, so a stray
+#: brace in somebody's wording cannot break a send.
+LETTER_TEMPLATE_KIND = "outgoing_letter"
+
+DEFAULT_LETTER_SUBJECT = "{ref} — {subject}"
+DEFAULT_LETTER_BODY = (
+    "Please find attached our letter {ref} dated {date} regarding {subject}.\n\n"
+    "Kindly acknowledge receipt.\n\n"
+    "{company}"
+)
+
+
+def letter_template():
+    """The office's covering note, or ours until they write one."""
+    from notifications.models import ReminderRule
+
+    rule = ReminderRule.objects.filter(kind=LETTER_TEMPLATE_KIND).first()
+    subject = (getattr(rule, "subject", "") or "").strip() or DEFAULT_LETTER_SUBJECT
+    body = (getattr(rule, "body", "") or "").strip() or DEFAULT_LETTER_BODY
+    return subject, body
+
+
+def _fill(text, letter):
+    """Substitute the four facts, and survive anything else.
+
+    `str.format` raises on an unknown key, which would turn a typo in somebody's
+    template into a letter that cannot be sent. Replaced one at a time instead.
+    """
+    values = {
+        "ref": letter.ref,
+        "subject": letter.subject,
+        "date": letter.letter_date.isoformat() if letter.letter_date else "",
+        "company": letter.company.name if letter.company else "",
+    }
+    for key, value in values.items():
+        text = text.replace("{" + key + "}", str(value))
+    return text
+
+
+def send_outgoing_letter(letter, actor=None):
+    """Send it, and record what happened either way.
+
+    **The register entry is written before this runs and is never rolled back.**
+    `send_templated_mail` is fail-soft — it never raises — so a caller that
+    trusted it would report success into an unreachable mail server. This asks
+    it to raise instead, catches that, and stores the reason on the row so
+    somebody can read it and press resend.
+
+    A letter with no recipients is not a failure: plenty are hand-delivered,
+    and the register should hold them without pretending an email was tried.
+    """
+    from django.utils import timezone
+
+    from core.email import send_templated_mail
+    from mail.models import OutgoingLetter
+
+    recipients = [r for r in (letter.recipients or []) if r]
+    if not recipients:
+        letter.status = OutgoingLetter.Status.NOT_EMAILED
+        letter.error = ""
+        letter.updated_by = actor
+        letter.save(update_fields=["status", "error", "updated_by", "updated_at"])
+        return letter
+
+    subject_template, body_template = letter_template()
+    attachments = []
+    for row in letter.attachments.all():
+        try:
+            row.file.open("rb")
+            attachments.append((row.file.name.split("/")[-1], row.file.read(), None))
+        finally:
+            row.file.close()
+
+    try:
+        send_templated_mail(
+            _fill(subject_template, letter),
+            recipients,
+            heading=letter.subject,
+            paragraphs=[p for p in _fill(body_template, letter).split("\n") if p.strip()],
+            facts=[
+                {"label": "Reference", "value": letter.ref},
+                {"label": "Date", "value": letter.letter_date.isoformat()},
+            ],
+            attachments=attachments or None,
+            cc=[c for c in (letter.cc or []) if c] or None,
+            raise_on_error=True,
+        )
+    except Exception as error:  # noqa: BLE001 — the reason is the point
+        letter.status = OutgoingLetter.Status.FAILED
+        letter.error = str(error)[:2000]
+        letter.updated_by = actor
+        letter.save(update_fields=["status", "error", "updated_by", "updated_at"])
+        return letter
+
+    letter.status = OutgoingLetter.Status.SENT
+    letter.sent_at = timezone.now()
+    letter.error = ""
+    letter.updated_by = actor
+    letter.save(update_fields=["status", "sent_at", "error", "updated_by", "updated_at"])
+    return letter

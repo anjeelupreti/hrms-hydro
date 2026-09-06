@@ -67,6 +67,8 @@ def send_templated_mail(
     outro=None,
     from_email=None,
     attachments=None,
+    cc=None,
+    raise_on_error=False,
 ):
     """Sends a branded, responsive HTML email (with a plain-text
     alternative) using core/templates/emails/base_email.html. Never
@@ -75,7 +77,17 @@ def send_templated_mail(
     `facts` is a list of {"label", "value"} dicts rendered as a styled
     key/value box (e.g. credentials on onboarding). `cta_label`/`cta_url`
     render a call-to-action button. `attachments` is a list of
-    (filename, content_bytes, mimetype) tuples (e.g. a certificate PDF)."""
+    (filename, content_bytes, mimetype) tuples (e.g. a certificate PDF).
+
+    **`raise_on_error` breaks the fail-soft contract on purpose, for the one
+    kind of caller that needs it.** Swallowing the failure is right for a
+    notification — a leave request should not fail because the mail server is
+    down — but a registered letter is different: the office needs to know it did
+    not go, and needs the reason to act on. Those callers store the message and
+    offer a resend, which they cannot do if the failure is only in a log.
+
+    `cc` is passed through to the message. Copying somebody in is an ordinary
+    thing to want and was simply missing."""
     context = {
         "brand_name": BRAND_NAME,
         "subject": subject,
@@ -106,6 +118,7 @@ def send_templated_mail(
             body=text_body,
             from_email=from_email or settings.DEFAULT_FROM_EMAIL,
             to=recipient_list,
+            cc=cc or None,
         )
         message.attach_alternative(html_body, "text/html")
         for filename, content, mimetype in attachments or []:
@@ -114,4 +127,6 @@ def send_templated_mail(
         return True
     except Exception:
         logger.warning("Templated email send failed: subject=%r to=%r", subject, recipient_list, exc_info=True)
+        if raise_on_error:
+            raise
         return False
