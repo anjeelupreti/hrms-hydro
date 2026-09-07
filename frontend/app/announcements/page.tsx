@@ -2,66 +2,56 @@
 
 import AddIcon from "@mui/icons-material/Add";
 import CampaignIcon from "@mui/icons-material/Campaign";
-import DeleteIcon from "@mui/icons-material/Delete";
 import PushPinIcon from "@mui/icons-material/PushPin";
-import Alert from "@mui/material/Alert";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import CardContent from "@mui/material/CardContent";
-import Chip from "@mui/material/Chip";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
-import FormControlLabel from "@mui/material/FormControlLabel";
-import ArchiveIcon from "@mui/icons-material/Archive";
-import UnarchiveIcon from "@mui/icons-material/Unarchive";
-import IconButton from "@mui/material/IconButton";
+import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
-import Tooltip from "@mui/material/Tooltip";
-import Stack from "@mui/material/Stack";
-import Switch from "@mui/material/Switch";
-import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 
+import AnnouncementReach from "@/components/announcements/AnnouncementReach";
 import BoardState from "@/components/announcements/BoardState";
+import ComposeAnnouncement from "@/components/announcements/ComposeAnnouncement";
+import NoticeCard from "@/components/announcements/NoticeCard";
+import ReadReceipts from "@/components/announcements/ReadReceipts";
 import EmptyState from "@/components/common/EmptyState";
-import PageContainer from "@/components/shell/PageContainer";
 import ListControls from "@/components/common/ListControls";
+import PageContainer from "@/components/shell/PageContainer";
 import PageHeader from "@/components/shell/PageHeader";
 import {
   useAnnouncements,
   useArchive,
-  useCreateAnnouncement,
   useDeleteAnnouncement,
 } from "@/hooks/useCollaboration";
 import { useCan } from "@/hooks/useMe";
 import { useTextFilter } from "@/hooks/useTextFilter";
-import AudiencePicker from "@/components/announcements/AudiencePicker";
-import ReadReceipts from "@/components/announcements/ReadReceipts";
-import AnnouncementReach from "@/components/announcements/AnnouncementReach";
-import { DepartmentPicker } from "@/components/common/pickers";
+
+/** A heading over a run of cards, so the two bands read as two bands. */
+function BandHeading({ icon, label, count }: { icon?: React.ReactNode; label: string; count: number }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center", mt: 1 }}>
+      {icon}
+      <Typography variant="overline" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="overline" color="text.disabled">
+        {count}
+      </Typography>
+    </Stack>
+  );
+}
 
 export default function AnnouncementsPage() {
   const canManage = useCan("workplace.manage");
   const [showArchived, setShowArchived] = useState(false);
   const { data: announcements, isLoading } = useAnnouncements(false, showArchived);
   const archive = useArchive("notifications/announcements", "announcements");
-  const createAnnouncement = useCreateAnnouncement();
   const deleteAnnouncement = useDeleteAnnouncement();
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [department, setDepartment] = useState<number | "">("");
-  const [pinned, setPinned] = useState(false);
-  /** Named people, alongside or instead of a department. */
-  const [recipients, setRecipients] = useState<number[]>([]);
-  const [audienceOpen, setAudienceOpen] = useState(false);
-  const [requireAck, setRequireAck] = useState(false);
   /** The notice whose read-receipts are open — the author's own view. */
   const [receiptsFor, setReceiptsFor] = useState<number | null>(null);
 
@@ -78,51 +68,44 @@ export default function AnnouncementsPage() {
     setComposeHandled(true);
     setDialogOpen(true);
   }
-  const [error, setError] = useState<string | null>(null);
 
   const { query, setQuery, filtered, isEmptyResult } = useTextFilter(
     announcements?.results ?? [],
     (a) => [a.title, a.body, a.department_name, a.posted_by]
   );
 
-  async function handleCreate() {
-    setError(null);
-    try {
-      await createAnnouncement.mutateAsync({
-        title,
-        body,
-        department: department || null,
-        recipients,
-        require_acknowledgement: requireAck,
-        pinned,
-      });
-      setDialogOpen(false);
-      setTitle("");
-      setBody("");
-      setDepartment("");
-      setRecipients([]);
-      setRequireAck(false);
-      setPinned(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    }
-  }
+  /**
+   * **Pinned notices get their own band, not a sort order.**
+   *
+   * They were sorted to the top and drawn identically to everything under
+   * them, so the one thing pinning is *for* — being unmissable — depended on
+   * the reader noticing a small icon and inferring why that card came first.
+   * A heading says it.
+   */
+  const pinned = filtered.filter((a) => a.pinned);
+  const rest = filtered.filter((a) => !a.pinned);
+
+  const cardProps = (announcement: (typeof filtered)[number]) => ({
+    announcement,
+    canManage: Boolean(canManage),
+    archived: showArchived,
+    onArchiveToggle: () => archive.mutate({ id: announcement.id, archived: showArchived }),
+    onDelete: () => deleteAnnouncement.mutate(announcement.id),
+    onOpenReceipts: () => setReceiptsFor(announcement.id),
+  });
 
   return (
     <PageContainer>
       <PageHeader
         title="Announcements"
-        subtitle="Company and department notices"
+        subtitle="The company noticeboard — who said it, who it was for, and who has read it"
         icon={<CampaignIcon />}
         actions={
-          <>
-            
-            {canManage && (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
-                New Announcement
-              </Button>
-            )}
-          </>
+          canManage ? (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+              New announcement
+            </Button>
+          ) : null
         }
       />
 
@@ -155,154 +138,47 @@ export default function AnnouncementsPage() {
         <BoardState announcements={announcements?.results ?? []} />
       )}
 
-      {/* The reading measure applies to the body text, not to the card. These
-          are notice cards — a title, a couple of chips, two or three lines —
-          so capping the card would leave a 1400px page carrying an 820px
-          column against 580px of nothing. The cards take the width they are
-          given and hold their paragraphs to a readable line inside it. */}
       <Stack spacing={2}>
-        {filtered.map((announcement) => (
-          <Card key={announcement.id} variant="outlined">
-            <CardContent>
-              <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                  {announcement.pinned && <PushPinIcon fontSize="small" color="primary" />}
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                    {announcement.title}
-                  </Typography>
-                  {announcement.department_name && <Chip size="small" label={announcement.department_name} />}
-                </Stack>
-                {canManage && (
-                  <Stack direction="row" spacing={0.5}>
-                    <Tooltip title={showArchived ? "Put it back on the board" : "File it away"}>
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          archive.mutate({ id: announcement.id, archived: showArchived })
-                        }
-                      >
-                        {showArchived ? (
-                          <UnarchiveIcon fontSize="small" />
-                        ) : (
-                          <ArchiveIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete permanently">
-                      <IconButton size="small" onClick={() => deleteAnnouncement.mutate(announcement.id)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                )}
-              </Stack>
-              {/* The reading measure, on the thing that is actually prose. A
-                  notice runs to a paragraph and a 1400px line is unreadable;
-                  the card around it is free to use the page. */}
-              <Typography variant="body2" sx={{ mt: 1, maxWidth: "72ch", whiteSpace: "pre-wrap" }}>
-                {announcement.body}
-              </Typography>
+        {pinned.length > 0 ? (
+          <>
+            <BandHeading
+              icon={<PushPinIcon fontSize="small" color="primary" />}
+              label="Pinned"
+              count={pinned.length}
+            />
+            {pinned.map((announcement) => (
+              <NoticeCard key={announcement.id} {...cardProps(announcement)} />
+            ))}
+          </>
+        ) : null}
 
-                {/* How far it has got, and the reader's own part in it. */}
-                <AnnouncementReach
-                  announcement={announcement}
-                  // The endpoint refuses anybody who is not the author or a workplace
-                  // manager, so this only decides whether to draw the button —
-                  // it is not the check.
-                  canSeeNames={Boolean(canManage) || announcement.is_mine}
-                  onOpenReceipts={() => setReceiptsFor(announcement.id)}
-                />
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-                {announcement.posted_by} · {new Date(announcement.created_at).toLocaleString()}
-              </Typography>
-            </CardContent>
-          </Card>
-        ))}
+        {rest.length > 0 ? (
+          <>
+            {pinned.length > 0 ? (
+              <BandHeading label={showArchived ? "Archived" : "Everything else"} count={rest.length} />
+            ) : null}
+            {rest.map((announcement) => (
+              <NoticeCard key={announcement.id} {...cardProps(announcement)} />
+            ))}
+          </>
+        ) : null}
+
         {!isLoading && filtered.length === 0 && (
           <EmptyState
             variant={isEmptyResult ? "noResults" : "empty"}
             title={isEmptyResult ? `No announcements match “${query}”` : "No announcements yet"}
             description={
               isEmptyResult
-              ? "Try a different search, or clear it to see everything."
-              : "Post company-wide or department notices. Pin the ones that should stay at the top."
+                ? "Try a different search, or clear it to see everything."
+                : "Post company-wide or department notices. Pin the ones that should stay at the top."
             }
             surface
           />
         )}
       </Stack>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>New announcement</DialogTitle>
-        <DialogContent>
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Title" fullWidth value={title} onChange={(e) => setTitle(e.target.value)} />
-            <TextField label="Body" fullWidth multiline minRows={3} value={body} onChange={(e) => setBody(e.target.value)} />
-            {/* No department selected means company-wide, so the helper text
-                has to say so — an empty picker is otherwise indistinguishable
-                from one you forgot to fill in. */}
-            <DepartmentPicker
-              label="Audience"
-              value={department === "" ? null : department}
-              onChange={(id) => setDepartment(id ?? "")}
-              helperText="Leave empty to post company-wide."
-            />
-            {/* **Named people, when a department is the wrong shape.** The
-                four running a shutdown are in four different departments. */}
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }} useFlexGap>
-              <Button variant="outlined" size="small" onClick={() => setAudienceOpen(true)}>
-                {recipients.length === 0
-                  ? "Or pick people…"
-                  : `${recipients.length} ${recipients.length === 1 ? "person" : "people"} chosen`}
-              </Button>
-              {recipients.length > 0 ? (
-                <Button size="small" onClick={() => setRecipients([])}>
-                  Clear
-                </Button>
-              ) : null}
-            </Stack>
-
-            {department === "" && recipients.length === 0 ? (
-              <Alert severity="info" sx={{ py: 0.5 }}>
-                With neither set this goes to the whole company — which only
-                somebody who manages the workplace can send.
-              </Alert>
-            ) : null}
-
-            {/* Off by default: asking a hundred people to click a button on
-                every notice is how the button stops meaning anything. */}
-            <FormControlLabel
-              control={
-                <Switch checked={requireAck} onChange={(e) => setRequireAck(e.target.checked)} />
-              }
-              label="Ask people to confirm they have read it"
-            />
-            <FormControlLabel
-              control={<Switch checked={pinned} onChange={(e) => setPinned(e.target.checked)} />}
-              label="Pin to top"
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreate} disabled={createAnnouncement.isPending}>
-            Post
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <AudiencePicker
-        open={audienceOpen}
-        value={recipients}
-        onChange={setRecipients}
-        onClose={() => setAudienceOpen(false)}
-      />
+      <ComposeAnnouncement open={dialogOpen} onClose={() => setDialogOpen(false)} />
       <ReadReceipts announcementId={receiptsFor} onClose={() => setReceiptsFor(null)} />
-
     </PageContainer>
   );
 }
