@@ -1,9 +1,11 @@
 "use client";
 
 import AddIcon from "@mui/icons-material/Add";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DescriptionIcon from "@mui/icons-material/Description";
+import InsertDriveFileOutlinedIcon from "@mui/icons-material/InsertDriveFileOutlined";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import SendIcon from "@mui/icons-material/Send";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
@@ -17,6 +19,7 @@ import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
+import MuiLink from "@mui/material/Link";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
@@ -24,7 +27,7 @@ import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import DateText from "@/components/common/DateText";
 import RichTextEditor from "@/components/common/RichTextEditor";
@@ -39,10 +42,13 @@ import {
   useFinaliseMinutes,
   useMarkAttendance,
   useMeeting,
+  useMeetingPapers,
   useMinutes,
   useRemoveAgendaItem,
   useRespondToDecision,
   useSaveMinutes,
+  useTablePaper,
+  useWithdrawPaper,
 } from "@/hooks/useMeetingRecord";
 import { useMe } from "@/hooks/useMe";
 import { withCode } from "@/lib/people";
@@ -104,6 +110,7 @@ export default function MeetingRecordDialog({
           <Tab label="Agenda" />
           <Tab label="Who came" />
           <Tab label="Decisions" />
+          <Tab label="Papers" />
           <Tab label="Minute" />
         </Tabs>
       </DialogTitle>
@@ -112,7 +119,8 @@ export default function MeetingRecordDialog({
         {tab === 0 ? <AgendaTab meetingId={meetingId} /> : null}
         {tab === 1 ? <RegisterTab meetingId={meetingId} attendees={meeting?.attendees ?? []} /> : null}
         {tab === 2 ? <DecisionsTab meetingId={meetingId} /> : null}
-        {tab === 3 ? <MinuteTab meetingId={meetingId} /> : null}
+        {tab === 3 ? <PapersTab meetingId={meetingId} /> : null}
+        {tab === 4 ? <MinuteTab meetingId={meetingId} /> : null}
       </DialogContent>
 
       <DialogActions>
@@ -528,6 +536,130 @@ function DecisionCard({
         />
       ) : null}
     </Box>
+  );
+}
+
+// ── The papers ─────────────────────────────────────────────────────────
+
+/**
+ * What was tabled.
+ *
+ * **A minute that cites "the report at item 3" is worth much less when the
+ * report is in somebody's inbox.** The pack belongs with the record it is read
+ * against, so it lives beside the agenda rather than in Documents.
+ *
+ * The caption is asked for beside the file rather than after it: `paper-3.pdf`
+ * does not say which item it is for, and nobody goes back to add that later.
+ */
+function PapersTab({ meetingId }: { meetingId: number }) {
+  const { data: papers, isPending } = useMeetingPapers(meetingId);
+  const table = useTablePaper();
+  const withdraw = useWithdrawPaper();
+  const input = useRef<HTMLInputElement>(null);
+  const [caption, setCaption] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  if (isPending) return <Skeleton variant="rounded" height={180} />;
+
+  return (
+    <Stack spacing={2}>
+      {error ? (
+        <Alert severity="error" onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      ) : null}
+
+      {(papers ?? []).length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          Nothing tabled yet. Board papers, a report, the slides — whatever the
+          room is expected to have read.
+        </Typography>
+      ) : (
+        <Stack spacing={1}>
+          {(papers ?? []).map((paper) => (
+            <Stack
+              key={paper.id}
+              direction="row"
+              spacing={1.5}
+              sx={{
+                alignItems: "center",
+                px: 1.5,
+                py: 1,
+                borderRadius: 1.5,
+                border: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <InsertDriveFileOutlinedIcon fontSize="small" color="action" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <MuiLink
+                  href={paper.file_url}
+                  target="_blank"
+                  rel="noopener"
+                  variant="body2"
+                  sx={{ fontWeight: 600 }}
+                >
+                  {paper.caption || paper.filename}
+                </MuiLink>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                  {paper.caption ? `${paper.filename} · ` : ""}
+                  {paper.uploaded_by_name ? `tabled by ${paper.uploaded_by_name}` : "tabled"}
+                </Typography>
+              </Box>
+              <Tooltip title="Withdraw">
+                <IconButton
+                  size="small"
+                  disabled={withdraw.isPending}
+                  onClick={() =>
+                    withdraw.mutate(
+                      { meetingId, id: paper.id },
+                      { onError: (e) => setError(e.message) }
+                    )
+                  }
+                >
+                  <DeleteOutlineIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          ))}
+        </Stack>
+      )}
+
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ alignItems: "center" }}>
+        <TextField
+          size="small"
+          fullWidth
+          label="What is it (optional)"
+          placeholder="Item 3 — the contractor's claim"
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+        />
+        <Button
+          startIcon={<AttachFileIcon />}
+          disabled={table.isPending}
+          onClick={() => input.current?.click()}
+          sx={{ flexShrink: 0 }}
+        >
+          {table.isPending ? "Tabling…" : "Table a paper"}
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            // Cleared either way: picking the same file twice in a row fires
+            // no change event unless the input is reset.
+            event.target.value = "";
+            if (!file) return;
+            table.mutate(
+              { meetingId, file, caption: caption.trim() || undefined },
+              { onSuccess: () => setCaption(""), onError: (e) => setError(e.message) }
+            );
+          }}
+        />
+      </Stack>
+    </Stack>
   );
 }
 

@@ -120,6 +120,76 @@ export function useRemoveAgendaItem() {
  * Anybody not named is left as they were, so marking one late arrival does not
  * blank everybody else — see the endpoint.
  */
+/**
+ * The papers tabled with a meeting.
+ *
+ * **The one thing a meeting could hold nothing of.** It carried an agenda, a
+ * register, decisions and a minute, and not the board papers those were
+ * written from — so the pack went round by email and the record pointed at
+ * nothing.
+ */
+export type EventAttachment = {
+  id: number;
+  file_url: string;
+  filename: string;
+  caption: string;
+  uploaded_by_name: string | null;
+  uploaded_at: string;
+};
+
+export function useMeetingPapers(meetingId: number | null) {
+  return useQuery({
+    queryKey: ["meeting", meetingId, "attachments"],
+    queryFn: () => fetchJson<EventAttachment[]>(`${BASE}/${meetingId}/attachments/`),
+    enabled: meetingId !== null,
+  });
+}
+
+function usePapersInvalidate() {
+  const queryClient = useQueryClient();
+  return (meetingId: number) => {
+    queryClient.invalidateQueries({ queryKey: ["meeting", meetingId, "attachments"] });
+    // The meeting itself carries the pack too, so the badge on the record
+    // and the list row do not disagree with the tab.
+    queryClient.invalidateQueries({ queryKey: ["meeting", meetingId] });
+    queryClient.invalidateQueries({ queryKey: ["meetings"] });
+  };
+}
+
+export function useTablePaper() {
+  const invalidate = usePapersInvalidate();
+  return useMutation({
+    mutationFn: ({
+      meetingId,
+      file,
+      caption,
+    }: {
+      meetingId: number;
+      file: File;
+      caption?: string;
+    }) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (caption) form.append("caption", caption);
+      // No Content-Type: the boundary is the browser's to set — see fetchJson.
+      return fetchJson<EventAttachment>(`${BASE}/${meetingId}/attachments/`, {
+        method: "POST",
+        body: form,
+      });
+    },
+    onSuccess: (_row, { meetingId }) => invalidate(meetingId),
+  });
+}
+
+export function useWithdrawPaper() {
+  const invalidate = usePapersInvalidate();
+  return useMutation({
+    mutationFn: ({ meetingId, id }: { meetingId: number; id: number }) =>
+      fetchJson<void>(`${BASE}/${meetingId}/attachments/${id}/`, { method: "DELETE" }),
+    onSuccess: (_void, { meetingId }) => invalidate(meetingId),
+  });
+}
+
 export function useMarkAttendance() {
   const invalidate = useInvalidate();
   return useMutation({

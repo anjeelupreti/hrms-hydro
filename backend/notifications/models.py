@@ -150,6 +150,50 @@ class CompanyEvent(AuditModel):
         return f"{self.title} ({self.start_datetime})"
 
 
+def event_attachment_path(instance, filename):
+    return f"events/{instance.event_id}/{filename}"
+
+
+class EventAttachment(models.Model):
+    """A paper circulated with a meeting or a calendar entry.
+
+    **The one thing a meeting could hold nothing of.** It could carry an
+    agenda, a register, decisions and a minute, and not the board papers those
+    were written from — so the pack went round by email and the meeting record
+    pointed at nothing. A minute that cites "the report tabled at item 3" is
+    worth much less when the report is in somebody's inbox.
+
+    Hung on `CompanyEvent` rather than on the meeting models beside it, because
+    a meeting *is* a `CompanyEvent` — the papers for a board meeting and the
+    map attached to a site inspection are the same object, and splitting them
+    would mean two upload paths and two places to fix the next thing.
+
+    **`uploaded_by` is kept where `LetterAttachment` does not keep one.** A
+    letter's attachment belongs to the letter, which already records who sent
+    it; a meeting pack is assembled by several people over the days before, and
+    "who tabled this" is a question somebody asks of a minute later.
+    """
+
+    event = models.ForeignKey(
+        CompanyEvent, on_delete=models.CASCADE, related_name="attachments"
+    )
+    file = models.FileField(upload_to=event_attachment_path)
+    #: What it is, when the filename does not say. `board-paper-3.pdf` is not
+    #: an answer to "which item is this for".
+    caption = models.CharField(max_length=200, blank=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="+",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["pk"]
+
+    def __str__(self):
+        return self.file.name
+
+
 class MeetingAttendee(AuditModel):
     """Per-attendee invite/RSVP for a `CompanyEvent` — the gap explicitly
     flagged as deferred back in Phase 8. `organizer` is just the event's

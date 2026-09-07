@@ -5,9 +5,10 @@ from notifications.models import (
     Announcement,
     AnnouncementReceipt,
     CompanyEvent,
+    DecisionPosition,
+    EventAttachment,
     Holiday,
     MeetingAttendee,
-    DecisionPosition,
     MeetingDecision,
     MeetingMinutes,
     MinutesSection,
@@ -61,8 +62,40 @@ class MeetingAttendeeSerializer(serializers.ModelSerializer):
         return obj.employee.user.get_full_name() or obj.employee.user.get_username()
 
 
+class EventAttachmentSerializer(serializers.ModelSerializer):
+    """A paper on a meeting or a calendar entry."""
+
+    file_url = serializers.SerializerMethodField()
+    filename = serializers.SerializerMethodField()
+    uploaded_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EventAttachment
+        fields = [
+            "id", "file", "file_url", "filename",
+            "caption", "uploaded_by_name", "uploaded_at",
+        ]
+        read_only_fields = ["id", "file_url", "filename", "uploaded_by_name", "uploaded_at"]
+        # Written on upload and read back as a URL the browser can reach —
+        # see the rewrite in the BFF proxy and `app/media/[...path]`.
+        extra_kwargs = {"file": {"write_only": True}}
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+
+    def get_filename(self, obj):
+        return obj.file.name.split("/")[-1]
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by is None:
+            return None
+        return obj.uploaded_by.get_full_name() or obj.uploaded_by.get_username()
+
+
 class CompanyEventSerializer(serializers.ModelSerializer):
     attendees = MeetingAttendeeSerializer(many=True, read_only=True)
+    attachments = EventAttachmentSerializer(many=True, read_only=True)
     company_name = serializers.CharField(source="company.name", read_only=True, default=None)
     #: Derived from the two timestamps, never stored. **This is why there is no
     #: "planned" and "actual" duration**: the times themselves are editable
@@ -142,6 +175,7 @@ class CompanyEventSerializer(serializers.ModelSerializer):
             "all_day",
             "location",
             "attendees",
+            "attachments",
             "status",
             "state",
             "cancelled_at",

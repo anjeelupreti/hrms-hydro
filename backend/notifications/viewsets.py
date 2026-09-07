@@ -17,20 +17,22 @@ from core.viewsets import AuditViewSetMixin
 from employees.models import Employee
 from notifications import services
 from notifications.models import (
-    AnnouncementReceipt,
-    DecisionPosition,
-    MeetingDecision,
-    MeetingMinutes,
     Announcement,
+    AnnouncementReceipt,
     CompanyEvent,
+    DecisionPosition,
+    EventAttachment,
     Holiday,
     MeetingAttendee,
+    MeetingDecision,
+    MeetingMinutes,
     Notification,
     NotificationPreference,
     PushSubscription,
     ReminderRule,
 )
 from notifications.serializers import (
+    EventAttachmentSerializer,
     AgendaItemSerializer,
     MeetingDecisionSerializer,
     MeetingMinutesSerializer,
@@ -117,12 +119,74 @@ class HolidayViewSet(AuditViewSetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
 
 
-class CompanyEventViewSet(AuditViewSetMixin, ModelViewSet):
+class EventAttachmentsMixin:
+    """Papers on a `CompanyEvent`, for the two viewsets that expose one.
+
+    A meeting and a calendar entry are the same row underneath, so the upload
+    lives here once rather than being written twice with two chances to drift.
+    Each viewset keeps its own answer to *who may attach* — `_may_write` — since
+    a meeting is governed by its organiser and a calendar entry by whoever
+    manages the workplace.
+    """
+
+    def _may_write(self, event):  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    @action(detail=True, methods=["get", "post"], url_path="attachments")
+    def attachments(self, request, *args, **kwargs):
+        event = self.get_object()
+        if request.method == "GET":
+            return Response(
+                EventAttachmentSerializer(
+                    event.attachments.all(), many=True, context={"request": request}
+                ).data
+            )
+        if not self._may_write(event):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"detail": "No file."}, status=status.HTTP_400_BAD_REQUEST)
+        row = EventAttachment.objects.create(
+            event=event,
+            file=upload,
+            caption=request.data.get("caption", ""),
+            uploaded_by=request.user,
+        )
+        return Response(
+            EventAttachmentSerializer(row, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"attachments/(?P<attachment_id>[0-9]+)",
+    )
+    def remove_attachment(self, request, attachment_id=None, *args, **kwargs):
+        event = self.get_object()
+        if not self._may_write(event):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        row = event.attachments.filter(pk=attachment_id).first()
+        if row is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        row.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CompanyEventViewSet(AuditViewSetMixin, EventAttachmentsMixin, ModelViewSet):
     serializer_class = CompanyEventSerializer
     permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
 
+    def _may_write(self, event):
+        """The same rule the rest of this viewset runs on — a calendar entry is
+        HR's, so its papers are too."""
+        return can(self.request.user, Perm.WORKPLACE_MANAGE)
+
     def get_queryset(self):
-        qs = CompanyEvent.objects.prefetch_related("attendees__employee__user")
+        qs = CompanyEvent.objects.prefetch_related(
+            "attendees__employee__user", "attachments"
+        )
         start = self.request.query_params.get("start")
         end = self.request.query_params.get("end")
         if start:
@@ -138,7 +202,9 @@ def _name_of(employee):
     return user.get_full_name() or user.get_username()
 
 
-class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet):
+class MeetingViewSet(
+    EventAttachmentsMixin, ListModelMixin, RetrieveModelMixin, UpdateModelMixin, GenericViewSet
+):
     """Meetings are CompanyEvent rows (event_type=MEETING) plus attendees
     — a distinct viewset (not just CompanyEventViewSet with a filter)
     because scheduling a meeting is a normal everyone-action, unlike most
@@ -155,6 +221,7 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
             "agenda_items__presenter__user",
             "decisions__positions__employee__user",
             "decisions__positions__signature",
+            "attachments",
         ).select_related("minutes")
         user = self.request.user
         if not can(user, Perm.WORKPLACE_MANAGE):
@@ -432,6 +499,10 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
                 "dissents": dissents,
             }
         )
+
+    def _may_write(self, event):
+        """Papers follow the same hand as the agenda and the register."""
+        return self._may_run(event)
 
     def _may_run(self, meeting):
         """Whoever called the meeting, or anybody who manages the workplace.

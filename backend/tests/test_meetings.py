@@ -657,12 +657,20 @@ def test_the_report_only_covers_meetings_you_can_already_see(meeting, cast, comp
 
 
 def test_the_report_can_be_narrowed_by_date(meeting, organiser):
-    """The commonest question is "this year", so both bounds are optional."""
-    on = meeting.start_datetime.date().isoformat()
+    """The commonest question is "this year", so both bounds are optional.
+
+    🔴 **Dated in the company's timezone, not UTC.** `start_datetime__date`
+    converts to the active timezone before extracting the day — which is right,
+    because somebody asking for "meetings on the 8th" means their own calendar
+    day. This test compared against `.date()` on the UTC value, so it agreed
+    with the endpoint for nineteen hours out of every twenty-four and failed in
+    the five-and-three-quarters where Kathmandu is already on the next day.
+    """
+    on = timezone.localtime(meeting.start_datetime).date().isoformat()
     client = _client(organiser.user)
 
     assert client.get(f"{LIST}report/?from={on}&to={on}").data["meetings"] == 1
-    later = (meeting.start_datetime + timedelta(days=30)).date().isoformat()
+    later = (timezone.localtime(meeting.start_datetime) + timedelta(days=30)).date().isoformat()
     assert client.get(f"{LIST}report/?from={later}").data["meetings"] == 0
 
 # ── Calling one off, and the states a list has to tell apart ─────────────
@@ -960,3 +968,115 @@ def test_the_newest_meeting_is_first(organiser, cast):
     rows = _client(organiser.user).get(f"{LIST}report/").data["by_meeting"]
 
     assert [row["title"] for row in rows] == ["Newer", "Older"]
+
+# ── The papers ───────────────────────────────────────────────────────────
+#
+# **The one thing a meeting could hold nothing of.** It carried an agenda, a
+# register, decisions and a minute, and not the board papers those were written
+# from — so the pack went round by email and the record pointed at nothing.
+
+
+def test_a_paper_can_be_tabled_on_a_meeting(meeting, organiser):
+    response = _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="board-paper-3.png"), "caption": "Item 3 — the report"},
+        format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["filename"] == "board-paper-3.png"
+    assert response.data["caption"] == "Item 3 — the report"
+    assert response.data["uploaded_by_name"]
+
+
+def test_the_papers_come_back_with_the_meeting(meeting, organiser):
+    """One fetch carries the pack — the record dialog should not need a second
+    round trip to know whether anything was tabled."""
+    client = _client(organiser.user)
+    client.post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="minutes-of-the-last.png")},
+        format="multipart",
+    )
+
+    row = client.get(f"{LIST}{meeting.pk}/").data
+
+    assert [a["filename"] for a in row["attachments"]] == ["minutes-of-the-last.png"]
+
+
+def test_who_tabled_it_is_recorded(meeting, organiser):
+    """A pack is assembled by several people over the days before, and "who
+    tabled this" is a question somebody asks of a minute later."""
+    from notifications.models import EventAttachment
+
+    _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="paper.png")},
+        format="multipart",
+    )
+
+    assert EventAttachment.objects.get().uploaded_by == organiser.user
+
+
+def test_only_the_organiser_tables_a_paper(meeting, cast):
+    """Papers follow the same hand as the agenda and the register."""
+    response = _client(cast["came"].user).post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="not-mine.png")},
+        format="multipart",
+    )
+
+    assert response.status_code == 403
+
+
+def test_anybody_invited_can_read_the_papers(meeting, organiser, cast):
+    """The point of tabling one is that the room can read it."""
+    _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="paper.png")},
+        format="multipart",
+    )
+
+    response = _client(cast["came"].user).get(f"{LIST}{meeting.pk}/attachments/")
+
+    assert response.status_code == 200
+    assert len(response.data) == 1
+
+
+def test_a_paper_can_be_withdrawn(meeting, organiser):
+    from notifications.models import EventAttachment
+
+    client = _client(organiser.user)
+    made = client.post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="wrong-version.png")},
+        format="multipart",
+    )
+
+    response = client.delete(f"{LIST}{meeting.pk}/attachments/{made.data['id']}/")
+
+    assert response.status_code == 204
+    assert EventAttachment.objects.count() == 0
+
+
+def test_an_upload_with_no_file_is_refused(meeting, organiser):
+    response = _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/attachments/", {}, format="multipart"
+    )
+
+    assert response.status_code == 400
+
+
+def test_papers_survive_the_meeting_being_called_off(meeting, organiser):
+    """Cancelled is not deleted — the pack that went round is still the pack
+    that went round."""
+    client = _client(organiser.user)
+    client.post(
+        f"{LIST}{meeting.pk}/attachments/",
+        {"file": ContentFile(PNG, name="paper.png")},
+        format="multipart",
+    )
+
+    client.post(f"{LIST}{meeting.pk}/cancel/", {"reason": "Postponed."}, format="json")
+
+    assert len(client.get(f"{LIST}{meeting.pk}/").data["attachments"]) == 1
