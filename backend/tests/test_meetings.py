@@ -864,3 +864,99 @@ def test_the_seed_can_be_run_twice(db, company, hr_user):
 
     assert first == 12
     assert again == 0
+
+# ── The report, read down the meetings rather than across them ───────────
+
+
+def test_the_report_has_a_row_per_meeting(meeting, organiser, cast):
+    """**The question the report could not answer.** Everything else in it reads
+    across meetings — "this person has missed six of eight" — which cannot say
+    how a particular Tuesday went."""
+    from notifications.models import AgendaItem
+
+    AgendaItem.objects.create(meeting=meeting, order=0, title="Progress report")
+    meeting.attendees.filter(employee=cast["came"]).update(attendance="present")
+    meeting.attendees.filter(employee=cast["missed"]).update(attendance="absent")
+
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    rows = report["by_meeting"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["title"] == "Monthly site review"
+    assert row["invited"] == 2
+    assert row["present"] == 1
+    assert row["absent"] == 1
+    assert row["rate"] == 0.5
+    assert row["agenda_items"] == 1
+    assert row["state"] == "ended"
+
+
+def test_a_meeting_whose_register_was_never_taken_has_no_turnout(meeting, organiser):
+    """`null`, not zero — the same rule the per-person table follows. A register
+    nobody took is not evidence that nobody came."""
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    assert report["by_meeting"][0]["rate"] is None
+    assert report["by_meeting"][0]["unmarked"] == 2
+
+
+def test_each_meeting_carries_its_own_decision_outcomes(meeting, organiser, cast):
+    """Totals across every meeting cannot say which meeting the dissent was in."""
+    decision_id = _decision(meeting, organiser).data["id"]
+    _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/decisions/{decision_id}/circulate/", {}, format="json"
+    )
+    _approved_signature(cast["came"])
+    _client(cast["came"].user).post(
+        f"{LIST}{meeting.pk}/decisions/{decision_id}/respond/",
+        {"position": "consent"},
+        format="json",
+    )
+
+    row = _client(organiser.user).get(f"{LIST}report/").data["by_meeting"][0]
+
+    assert row["decisions"] == 1
+    assert row["outcomes"]["consent"] == 1
+    assert row["outcomes"]["pending"] == 1
+
+
+def test_a_cancelled_meeting_is_still_in_the_report(meeting, organiser):
+    """It was called and people planned around it; leaving it out would make a
+    quiet month look like a busy one."""
+    _client(organiser.user).post(f"{LIST}{meeting.pk}/cancel/", {"reason": "Postponed."}, format="json")
+
+    row = _client(organiser.user).get(f"{LIST}report/").data["by_meeting"][0]
+
+    assert row["state"] == "cancelled"
+
+
+def test_the_report_is_still_readable_across_meetings(meeting, organiser, cast):
+    """The per-person half is what it always was — the new rows are beside it,
+    not instead of it."""
+    meeting.attendees.filter(employee=cast["came"]).update(attendance="present")
+
+    report = _client(organiser.user).get(f"{LIST}report/").data
+
+    assert report["meetings"] == 1
+    assert any(row["name"] for row in report["attendance"])
+    assert "by_meeting" in report
+
+
+def test_the_newest_meeting_is_first(organiser, cast):
+    """A report is read from the last meeting backwards."""
+    for offset, title in ((30, "Older"), (2, "Newer")):
+        starts = timezone.now() - timedelta(days=offset)
+        event = CompanyEvent.objects.create(
+            title=title,
+            event_type=CompanyEvent.EventType.MEETING,
+            start_datetime=starts,
+            end_datetime=starts + timedelta(hours=1),
+            created_by=organiser.user,
+            updated_by=organiser.user,
+        )
+        MeetingAttendee.objects.create(event=event, employee=cast["came"])
+
+    rows = _client(organiser.user).get(f"{LIST}report/").data["by_meeting"]
+
+    assert [row["title"] for row in rows] == ["Newer", "Older"]

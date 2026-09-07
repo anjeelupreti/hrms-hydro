@@ -283,6 +283,27 @@ export type MeetingReport = {
      *  evidence of absence, so it is kept out of the rate entirely. */
     rate: number | null;
   }[];
+  /** One row per meeting. The rest of this payload reads *across* meetings —
+   *  "this person has missed six of eight" — which cannot answer the question
+   *  anybody actually asks about a particular Tuesday. */
+  by_meeting: {
+    id: number;
+    title: string;
+    date: string;
+    company_name: string | null;
+    organiser: string | null;
+    state: "scheduled" | "ended" | "cancelled";
+    invited: number;
+    present: number;
+    absent: number;
+    unmarked: number;
+    /** Null where nobody took the register. */
+    rate: number | null;
+    agenda_items: number;
+    decisions: number;
+    outcomes: { consent: number; dissent: number; abstain: number; pending: number };
+    minute_status: "draft" | "circulated" | "final" | null;
+  }[];
   dissents: {
     meeting: number;
     meeting_title: string;

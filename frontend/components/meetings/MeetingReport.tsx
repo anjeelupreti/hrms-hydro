@@ -22,10 +22,16 @@ import { withCode } from "@/lib/people";
 /**
  * What the meetings add up to.
  *
- * **Three questions, none answerable from a single meeting.** Who turns up,
- * whether decisions actually get answered, and what people have disagreed with
- * — the last being the one a board asks for and the one nothing in the product
- * could produce before this.
+ * **Two readings of the same data, because they answer different questions.**
+ * Across meetings: who turns up, whether decisions get answered, what people
+ * have disagreed with — "this person has missed six of eight" is a fact
+ * somebody can act on. Down the meetings: one row each, with its own register
+ * and its own decisions, which is what anybody asks for when they are looking
+ * at a particular Tuesday.
+ *
+ * Only the first half existed, which left the obvious question — "how did the
+ * board meeting go" — unanswerable on the one screen that exists to answer
+ * questions about meetings.
  *
  * Scoped by the server to the meetings the reader may already see, so this is
  * a different arrangement of their own data rather than a wider view of
@@ -78,10 +84,121 @@ export default function MeetingReport() {
         </Box>
       ) : null}
 
+      {/* ── Meeting by meeting ──────────────────────────────────────── */}
+      <Box>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+          Meeting by meeting
+        </Typography>
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Meeting</TableCell>
+                <TableCell>When</TableCell>
+                <TableCell align="right">Invited</TableCell>
+                <TableCell align="right">Came</TableCell>
+                <TableCell align="right">Turnout</TableCell>
+                <TableCell align="right">Agenda</TableCell>
+                <TableCell>Decisions</TableCell>
+                <TableCell>Minute</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.by_meeting.map((row) => (
+                <TableRow
+                  key={row.id}
+                  hover
+                  // A cancelled meeting stays in the report — it was called,
+                  // people planned around it — but must not read as one that
+                  // happened.
+                  sx={row.state === "cancelled" ? { opacity: 0.6 } : undefined}
+                >
+                  <TableCell sx={{ maxWidth: 260 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={row.title}>
+                      {row.title}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {[row.company_name, row.organiser].filter(Boolean).join(" · ") || "—"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <DateText value={row.date} />
+                    {row.state !== "ended" ? (
+                      <Typography
+                        variant="caption"
+                        sx={{ display: "block" }}
+                        color={row.state === "cancelled" ? "error.main" : "info.main"}
+                      >
+                        {row.state === "cancelled" ? "Cancelled" : "Scheduled"}
+                      </Typography>
+                    ) : null}
+                  </TableCell>
+                  <TableCell align="right">{row.invited}</TableCell>
+                  <TableCell align="right">{row.present}</TableCell>
+                  <TableCell align="right">
+                    {/* Null, not 0%, where nobody took the register — the
+                        same rule the per-person table follows. */}
+                    {row.rate === null ? (
+                      <Typography variant="caption" color="text.disabled">
+                        not taken
+                      </Typography>
+                    ) : (
+                      `${Math.round(row.rate * 100)}%`
+                    )}
+                  </TableCell>
+                  <TableCell align="right">{row.agenda_items}</TableCell>
+                  <TableCell>
+                    {row.decisions === 0 ? (
+                      <Typography variant="caption" color="text.disabled">
+                        none
+                      </Typography>
+                    ) : (
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }} useFlexGap>
+                        <Chip size="small" variant="outlined" label={row.decisions} />
+                        {row.outcomes.consent > 0 ? (
+                          <Chip size="small" color="success" variant="outlined" label={`${row.outcomes.consent} for`} />
+                        ) : null}
+                        {row.outcomes.dissent > 0 ? (
+                          <Chip size="small" color="error" variant="outlined" label={`${row.outcomes.dissent} against`} />
+                        ) : null}
+                        {row.outcomes.abstain > 0 ? (
+                          <Chip size="small" variant="outlined" label={`${row.outcomes.abstain} abstained`} />
+                        ) : null}
+                        {row.outcomes.pending > 0 ? (
+                          <Chip size="small" color="warning" variant="outlined" label={`${row.outcomes.pending} waiting`} />
+                        ) : null}
+                      </Stack>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {row.minute_status ? (
+                      <Chip
+                        size="small"
+                        variant={row.minute_status === "final" ? "filled" : "outlined"}
+                        color={row.minute_status === "final" ? "success" : "default"}
+                        label={row.minute_status}
+                      />
+                    ) : row.state === "ended" ? (
+                      <Typography variant="caption" color="warning.main">
+                        none
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">
+                        —
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
+      </Box>
+
       {/* ── Who turns up ────────────────────────────────────────────── */}
       <Box>
         <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-          Attendance
+          Attendance, person by person
         </Typography>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">

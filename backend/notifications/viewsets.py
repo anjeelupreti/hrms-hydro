@@ -284,12 +284,19 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
 
     @action(detail=False, methods=["get"], url_path="report")
     def report(self, request, *args, **kwargs):
-        """What the meetings add up to.
+        """What the meetings add up to, and what each one came to.
 
-        **Three questions, none answerable from a single meeting.** Who turns
-        up, whether decisions actually get answered, and what people have
-        disagreed with — the last being the one a board asks for and the one
-        nothing in the product could produce.
+        **Two readings of the same data, because they answer different
+        questions.** Across meetings: who turns up, whether decisions get
+        answered, what people have disagreed with — "this person has missed six
+        of eight" is a fact somebody can act on. Down the meetings: one row per
+        meeting with its own register and its own decisions — which is what
+        anybody asks for when they are looking at a particular Tuesday.
+
+        The cross-meeting half was here first and the per-meeting half was not,
+        which made the obvious question — "how did the board meeting go" —
+        unanswerable from the one screen that exists to answer questions about
+        meetings.
 
         Scoped to the meetings the reader may already see, so this is a
         different arrangement of their own data rather than a way round the
@@ -314,7 +321,12 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
         # took is not evidence of absence, and folding it in would quietly
         # punish people for somebody else's paperwork.
         attendance = {}
+        # One row per meeting, built in the same walk. The queryset already
+        # prefetches attendees, agenda items, decisions and positions — see
+        # `get_queryset` — so this costs no extra queries.
+        by_meeting = []
         for meeting in meetings:
+            here = {"present": 0, "absent": 0, "unmarked": 0}
             for row in meeting.attendees.all():
                 who = row.employee
                 entry = attendance.setdefault(
@@ -331,6 +343,49 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
                 )
                 entry["invited"] += 1
                 entry[row.attendance] += 1
+                here[row.attendance] = here.get(row.attendance, 0) + 1
+
+            outcomes = {"consent": 0, "dissent": 0, "abstain": 0, "pending": 0}
+            for decision in meeting.decisions.all():
+                for position in decision.positions.all():
+                    outcomes[position.position] = outcomes.get(position.position, 0) + 1
+
+            invited = len(meeting.attendees.all())
+            counted = here["present"] + here["absent"]
+            minutes = getattr(meeting, "minutes", None)
+            by_meeting.append(
+                {
+                    "id": meeting.pk,
+                    "title": meeting.title,
+                    "date": meeting.start_datetime,
+                    "company_name": meeting.company.name if meeting.company else None,
+                    "organiser": (
+                        meeting.created_by.get_full_name() or meeting.created_by.get_username()
+                        if meeting.created_by
+                        else None
+                    ),
+                    # Same three words the list uses, derived the same way, so a
+                    # report and a list can never disagree about a meeting.
+                    "state": (
+                        "cancelled"
+                        if meeting.status == CompanyEvent.Status.CANCELLED
+                        else "ended"
+                        if meeting.has_ended
+                        else "scheduled"
+                    ),
+                    "invited": invited,
+                    "present": here["present"],
+                    "absent": here["absent"],
+                    "unmarked": here["unmarked"],
+                    # None, not zero, where nobody took the register — "we did
+                    # not record it" is not "nobody came".
+                    "rate": round(here["present"] / counted, 3) if counted else None,
+                    "agenda_items": len(meeting.agenda_items.all()),
+                    "decisions": len(meeting.decisions.all()),
+                    "outcomes": outcomes,
+                    "minute_status": minutes.status if minutes else None,
+                }
+            )
 
         for entry in attendance.values():
             counted = entry["present"] + entry["absent"]
@@ -369,6 +424,11 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
                 "decisions": decisions.count(),
                 "positions": totals,
                 "attendance": sorted(attendance.values(), key=lambda e: e["name"]),
+                # Most recent first: a report is read from the last meeting
+                # backwards, not from whenever the company started.
+                "by_meeting": sorted(
+                    by_meeting, key=lambda m: m["date"], reverse=True
+                ),
                 "dissents": dissents,
             }
         )
