@@ -1,3 +1,31 @@
+# ---------------------------------------------------------------------------
+# Host ports, in one place.
+#
+# **Every one is offset**, because this product was forked from a multi-tenant
+# SaaS HRMS that many of us still have running on the same machine. Sharing a
+# port means the two stacks cannot both be up and — far worse — that a stray
+# `psql -p 5432` reaches whichever container started first, so a migration lands
+# in the wrong database and nothing says so.
+#
+# **Override them in `deployment/.env`** (gitignored) rather than editing this
+# file, so a machine juggling several projects keeps its own numbers and never
+# has a port change show up in a diff:
+#
+#     BACKEND_PORT=8005
+#     FRONTEND_PORT=3005
+#
+# 🔴 `BACKEND_PORT` is the one with a second reader. The browser opens the chat
+# WebSocket straight at it — no BFF proxy in front — so it is also compiled into
+# the bundle as `NEXT_PUBLIC_WS_URL`. Both come from this single variable now.
+# They used to be written out twice, they drifted, and chat quietly stopped
+# updating live: messages still sent, and only appeared on a refresh.
+#
+# ⚠️ `NEXT_PUBLIC_*` is baked into the browser bundle at build time, so a port
+# change needs `docker compose up -d frontend` — which recreates the container
+# with the new value. `docker compose restart frontend` reuses the old one and
+# will leave you debugging a change that was never applied.
+# ---------------------------------------------------------------------------
+
 # Compose project name, set explicitly, and **not `hrms`**.
 #
 # Two reasons, and the second is the one that bites.
@@ -33,10 +61,11 @@ services:
       # `DB_PORT` reaches whichever container happened to start first, so a
       # migration lands in the wrong database and nothing says so.
       #
-      # Every host port in this file is offset for the same reason. Change one
-      # and change its twin in `backend/.env`; they are the same fact written
-      # down twice.
-      - "5442:5432"
+      # Every host port in this file is offset for the same reason, and every
+      # one now comes from a variable — see the banner at the top of this file.
+      # `backend/.env` still has its own `DB_PORT` for running the backend
+      # outside Docker; that one is genuinely a different fact.
+      - "${POSTGRES_PORT:-5442}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -54,14 +83,14 @@ services:
       # port has to clear that whole span. Containers still reach each other on
       # 6379 via the service name — only the host mapping moved. The 1 on the
       # end keeps it clear of the SaaS stack's 16380.
-      - "16381:6379"
+      - "${REDIS_PORT:-16381}:6379"
 
   mailhog:
     image: mailhog/mailhog:latest
     container_name: hrms-hydro-mailhog
     ports:
-      - "8026:8025" # web UI
-      - "1026:1025" # SMTP
+      - "${MAILHOG_UI_PORT:-8026}:8025" # web UI
+      - "${MAILHOG_SMTP_PORT:-1026}:1025" # SMTP
 
   backend:
     image: hrms-hydro-backend
@@ -102,7 +131,7 @@ services:
     volumes:
       - ../backend:/app
     ports:
-      - "8001:8000"
+      - "${BACKEND_PORT:-8001}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -226,7 +255,7 @@ services:
       #
       # `NEXT_PUBLIC_*` is compiled into the browser bundle, so it has to be
       # the address a *browser on the host* can reach — the published port.
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8001
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8001}
       # 🔴 **The chat socket needs this, and its absence is silent.**
       #
       # The browser talks to the BFF for everything else, so a wrong API port
@@ -237,7 +266,7 @@ services:
       # appeared to work because sending still POSTs, and messages showed up on
       # the next refresh instead of arriving. This is the published daphne port
       # — 8001 here, offset so this stack never collides with the other one.
-      NEXT_PUBLIC_WS_URL: ws://localhost:8001
+      NEXT_PUBLIC_WS_URL: ws://localhost:${BACKEND_PORT:-8001}
       # This one is used by the BFF routes, which run **inside this container**.
       # There, `localhost` is the container itself, so the default of
       # 127.0.0.1:8000 makes Next.js call itself and every login returns 500
@@ -320,7 +349,7 @@ services:
       - hrms_frontend_modules:/app/node_modules
       - hrms_frontend_next:/app/.next
     ports:
-      - "3001:3000"
+      - "${FRONTEND_PORT:-3001}:3000"
     depends_on:
       # Not `service_healthy` — the frontend is useful while the backend boots,
       # and Next.js recompiles on demand anyway.
