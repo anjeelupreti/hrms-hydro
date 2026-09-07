@@ -71,7 +71,7 @@ export default function AnnouncementsPage() {
 
   const { query, setQuery, filtered, isEmptyResult } = useTextFilter(
     announcements?.results ?? [],
-    (a) => [a.title, a.body, a.department_name, a.posted_by]
+    (a) => [a.title, a.body, a.department_name, a.author_name]
   );
 
   /**

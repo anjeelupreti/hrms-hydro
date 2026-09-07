@@ -20,7 +20,10 @@ export type Announcement = {
   my_receipt: { seen_at: string | null; acknowledged_at: string | null } | null;
   pinned: boolean;
   expires_at: string | null;
-  posted_by: string | null;
+  /** 🔴 `posted_by` used to be declared here and the API has never sent it —
+   *  `AnnouncementSerializer` exposes `author_name`. Every card read the
+   *  phantom, so every notice showed its author as "—" and its avatar as "?",
+   *  which looked like missing data rather than the wrong field name. */
   created_at: string;
 };
 

@@ -50,7 +50,11 @@ export default function NoticeCard({
   onDelete: () => void;
   onOpenReceipts: () => void;
 }) {
-  const { department_name: departmentName, recipient_names: recipientNames } = announcement;
+  const {
+    department_name: departmentName,
+    recipient_names: recipientNames,
+    author_name: author,
+  } = announcement;
   const named = recipientNames?.length ?? 0;
   // Neither set means the whole company — see `Announcement.recipients`.
   const companyWide = !departmentName && named === 0;
@@ -81,7 +85,7 @@ export default function NoticeCard({
     >
       <Box sx={{ p: 2, pl: announcement.pinned ? 2.75 : 2 }}>
         <Stack direction="row" spacing={2} sx={{ alignItems: "flex-start" }}>
-          <PersonAvatar name={announcement.posted_by || "?"} size={38} variant="outlined" />
+          <PersonAvatar name={author || "?"} size={38} variant="outlined" />
 
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Stack
@@ -113,12 +117,19 @@ export default function NoticeCard({
               sx={{ alignItems: "center", flexWrap: "wrap", mt: 0.5 }}
               useFlexGap
             >
-              <Typography variant="caption" color="text.secondary">
-                {announcement.posted_by ?? "—"}
-              </Typography>
-              <Typography variant="caption" color="text.disabled">
-                ·
-              </Typography>
+              {/* An announcement can outlive the account that posted it —
+                  `created_by` is nullable — so the byline is dropped rather
+                  than rendered as a dash beside a question-mark avatar. */}
+              {author ? (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    {author}
+                  </Typography>
+                  <Typography variant="caption" color="text.disabled">
+                    ·
+                  </Typography>
+                </>
+              ) : null}
               <Typography variant="caption" color="text.secondary">
                 <DateText value={announcement.created_at} withTime />
               </Typography>
