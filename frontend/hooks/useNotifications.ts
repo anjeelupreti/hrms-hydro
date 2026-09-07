@@ -86,6 +86,10 @@ export type ReminderRule = {
   /** Placeholders this kind offers. Served from the registry, not stored, so
    *  the screen cannot describe a kind wrongly. */
   variables: string[];
+  /** Sent by somebody pressing a button rather than by the nightly sweep — the
+   *  covering note on a registered letter. Lead times and the enable switch
+   *  have no meaning for one, and the screen hides both. */
+  on_demand: boolean;
   is_enabled: boolean;
   lead_days: number[];
   subject: string;

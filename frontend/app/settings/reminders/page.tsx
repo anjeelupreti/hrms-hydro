@@ -116,21 +116,38 @@ function RuleCard({
               {rule.description}
             </Typography>
           </Box>
-          <Tooltip title={rule.is_enabled ? "Switch off" : "Switch on"}>
-            <Switch
-              checked={rule.is_enabled}
-              disabled={!canManage || update.isPending}
-              onChange={(e) => save({ is_enabled: e.target.checked })}
-            />
-          </Tooltip>
+          {rule.on_demand ? (
+            // No switch: this wording goes out whenever somebody presses the
+            // button it belongs to. An off position would promise a letter
+            // could be sent with no covering note, which is not a thing that
+            // happens.
+            <Chip size="small" label="Sent on demand" variant="outlined" />
+          ) : (
+            <Tooltip title={rule.is_enabled ? "Switch off" : "Switch on"}>
+              <Switch
+                checked={rule.is_enabled}
+                disabled={!canManage || update.isPending}
+                onChange={(e) => save({ is_enabled: e.target.checked })}
+              />
+            </Tooltip>
+          )}
         </Stack>
 
         {/* Everything below is inert while the rule is off. Editing the wording
             of something that will not be sent is a way to believe you have
             changed something. */}
-        <Box sx={{ opacity: rule.is_enabled ? 1 : 0.45, pointerEvents: rule.is_enabled ? "auto" : "none" }}>
+        <Box
+          sx={{
+            opacity: rule.on_demand || rule.is_enabled ? 1 : 0.45,
+            pointerEvents: rule.on_demand || rule.is_enabled ? "auto" : "none",
+          }}
+        >
           <Divider sx={{ my: 2 }} />
 
+          {/* Lead times answer "how long before the event" — and an on-demand
+              message has no event to be before. */}
+          {!rule.on_demand ? (
+            <>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
             Send this many days ahead
           </Typography>
@@ -167,8 +184,10 @@ function RuleCard({
               </Stack>
             ) : null}
           </Stack>
+            </>
+          ) : null}
 
-          <Stack spacing={2} sx={{ mt: 2.5 }}>
+          <Stack spacing={2} sx={{ mt: rule.on_demand ? 0 : 2.5 }}>
             <TextField
               label="Subject"
               size="small"

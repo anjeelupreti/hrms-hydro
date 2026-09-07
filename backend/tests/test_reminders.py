@@ -289,15 +289,40 @@ def test_seeding_twice_does_not_duplicate(company):
     assert ReminderRule.objects.count() == len(kinds("company"))
 
 
-def test_most_kinds_arrive_switched_off(company):
+def test_most_scheduled_kinds_arrive_switched_off(company):
     """A product that starts mailing everybody about everything on day one gets
-    its notifications turned off wholesale, including the ones that mattered."""
+    its notifications turned off wholesale, including the ones that mattered.
+
+    Scoped to the kinds that fire on a schedule, because those are the only ones
+    that could surprise anybody — see the on-demand case below.
+    """
     seed_default_rules()
+    scheduled = {k.key for k in kinds("company") if not k.on_demand}
     enabled = set(
-        ReminderRule.objects.filter(is_enabled=True).values_list("kind", flat=True)
+        ReminderRule.objects.filter(is_enabled=True, kind__in=scheduled)
+        .values_list("kind", flat=True)
     )
 
     assert enabled == {"probation_ending", "holiday_upcoming"}
+
+
+def test_an_on_demand_kind_is_wording_not_a_schedule(company, mailoutbox):
+    """**It carries a template and nothing else.** The covering note on a
+    registered letter is edited on the same screen as the birthday message
+    because it is the same object — a subject, a body and named substitutions —
+    but it goes out when somebody presses Send, never on the nightly sweep.
+
+    So it arrives switched on, since an off position would promise a letter
+    could be posted with no covering note, and the sweep still sends nothing.
+    """
+    seed_default_rules()
+    rule = ReminderRule.objects.get(kind="outgoing_letter")
+    assert rule.is_enabled
+    assert rule.lead_days == []
+
+    run_reminders()
+
+    assert mailoutbox == []
 
 
 def test_every_registered_kind_declares_its_variables():

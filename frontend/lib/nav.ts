@@ -29,6 +29,11 @@ import SchoolIcon from "@mui/icons-material/School";
 import PersonIcon from "@mui/icons-material/Person";
 import SpaceDashboardIcon from "@mui/icons-material/SpaceDashboard";
 import ConfirmationNumberIcon from "@mui/icons-material/ConfirmationNumber";
+// A paper plane and a mailbox. Outbox and MoveToInbox are both a box with
+// an arrow through it and were indistinguishable in the 20px rail — which
+// matters most here, where the two rows sit directly above each other.
+import SendIcon from "@mui/icons-material/Send";
+import MarkunreadMailboxIcon from "@mui/icons-material/MarkunreadMailbox";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 
 import type { ModuleKey } from "@/lib/theme/tokens";
@@ -397,6 +402,42 @@ export const NAV_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    // **The two registers, as two rows under one heading.** This rail has no
+    // nesting anywhere in it — a group heading with its rows indented under it
+    // *is* the submenu here, and the collapsed 72px rail has nowhere to put a
+    // second level. Outgoing and incoming are also worked by different hands on
+    // different days, so one row that opens onto a tab switch would put a click
+    // in front of whichever half you came for.
+    id: "correspondence",
+    label: "Correspondence",
+    items: [
+      {
+        // No permission, matching the API: `mail/viewsets.py` lets any
+        // authenticated user read and write both registers, and a row gated
+        // here would hide a page the server would have served. What the
+        // registry is *for* is that letters stop living in one person's drawer.
+        href: "/correspondence/outgoing",
+        label: "Outgoing letters",
+        icon: SendIcon,
+        module: "documents",
+        keywords: [
+          "chalani", "outgoing", "letter", "letters", "dispatch", "sent",
+          "correspondence", "registry", "register", "ref", "patra",
+        ],
+      },
+      {
+        href: "/correspondence/incoming",
+        label: "Incoming letters",
+        icon: MarkunreadMailboxIcon,
+        module: "documents",
+        keywords: [
+          "darta", "incoming", "letter", "letters", "received", "inward",
+          "correspondence", "registry", "register", "ref", "patra",
+        ],
+      },
+    ],
+  },
   // **Deliberately not a sidebar group.** Setup is a task with an end: a
   // permanent menu row for something you finish in week one is clutter for
   // every week after. It lives in Settings, is surfaced on the dashboard while
@@ -535,6 +576,9 @@ const SEGMENT_LABELS: Record<string, string> = {
   meetings: "Meetings",
   reviews: "Reviews",
   mail: "Mail",
+  correspondence: "Correspondence",
+  outgoing: "Outgoing letters",
+  incoming: "Incoming letters",
 };
 
 export type Crumb = { label: string; href?: string };

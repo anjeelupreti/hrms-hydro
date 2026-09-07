@@ -249,17 +249,18 @@ class ReminderRuleSerializer(serializers.ModelSerializer):
     label = serializers.SerializerMethodField()
     description = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
+    on_demand = serializers.SerializerMethodField()
 
     class Meta:
         model = ReminderRule
         fields = [
-            "id", "kind", "label", "description", "variables",
+            "id", "kind", "label", "description", "variables", "on_demand",
             "is_enabled", "lead_days", "subject", "body",
         ]
         # `kind` names a registry entry and is set when the rule is seeded.
         # Editable, it would let somebody point a configured message at a
         # different query and quietly change who receives it.
-        read_only_fields = ["id", "kind", "label", "description", "variables"]
+        read_only_fields = ["id", "kind", "label", "description", "variables", "on_demand"]
 
     def _kind(self, obj):
         from notifications.reminders import get_kind
@@ -277,6 +278,15 @@ class ReminderRuleSerializer(serializers.ModelSerializer):
     def get_variables(self, obj):
         kind = self._kind(obj)
         return list(kind.variables) if kind else []
+
+    def get_on_demand(self, obj):
+        """Whether this wording is sent by a button rather than by the clock.
+
+        The screen needs it to know whether lead times and the enable switch
+        mean anything — for a covering note on a letter, neither does.
+        """
+        kind = self._kind(obj)
+        return bool(kind.on_demand) if kind else False
 
     def validate_lead_days(self, value):
         if not isinstance(value, list):

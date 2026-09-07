@@ -89,6 +89,15 @@ class ReminderKind:
     #: Platform-to-company rather than inside a company. Keeps the two registries
     #: apart without a second module.
     scope: str = "company"
+    #: **Wording the customer owns, on a message we do not schedule.**
+    #: An on-demand kind is sent by somebody pressing a button — the covering
+    #: note on a registered letter goes out when the clerk sends the letter, not
+    #: on a nightly sweep. It is here because the thing being configured is
+    #: identical (a subject, a body, and a list of names it may substitute) and
+    #: a second settings screen holding one text box would be a second place to
+    #: look. Its `resolve` returns nothing and the dispatcher skips it, so lead
+    #: times and the enable switch have no meaning and the screen hides them.
+    on_demand: bool = False
 
 
 _REGISTRY: dict = {}
@@ -297,6 +306,34 @@ register(ReminderKind(
 ))
 
 
+# ── Wording we do not schedule ───────────────────────────────────────────
+#
+# Registered here rather than in `mail`, because what the office edits is a
+# subject and a body with named substitutions — the same object the birthday
+# and festival messages are, and worth exactly one screen.
+
+register(ReminderKind(
+    key="outgoing_letter",
+    label="Covering note on an outgoing letter",
+    description=(
+        "The email that carries a registered letter out. Sent when somebody "
+        "presses Send on the letter, not on a schedule — the letter itself is "
+        "the attachment."
+    ),
+    # Nothing to find: this kind is never swept for. See `on_demand`.
+    resolve=lambda _target_date: [],
+    variables=("ref", "subject", "date", "company"),
+    default_lead_days=(),
+    default_subject="{ref} — {subject}",
+    default_body=(
+        "Please find attached our letter {ref} dated {date} regarding {subject}.\n\n"
+        "Kindly acknowledge receipt.\n\n"
+        "{company}"
+    ),
+    on_demand=True,
+))
+
+
 # ── Dispatch ─────────────────────────────────────────────────────────────
 
 
@@ -311,7 +348,11 @@ def seed_default_rules():
     """
     from notifications.models import ReminderRule
 
+    # On-demand kinds are always "on": they fire when somebody presses the
+    # button, and a switch showing off would say a letter goes out with no
+    # covering note at all.
     on_by_default = {"probation_ending", "holiday_upcoming"}
+    on_by_default |= {k.key for k in kinds("company") if k.on_demand}
     created = []
     for kind in kinds("company"):
         rule, made = ReminderRule.objects.get_or_create(
@@ -354,6 +395,10 @@ def run_reminders(on_date=None, *, dry_run=False):
             # kind withdrawn. Skipped rather than raising: one stale row must
             # not stop every other reminder going out.
             logger.warning("Reminder rule %s names an unknown kind.", rule.kind)
+            continue
+        if kind.on_demand:
+            # Its wording lives here; its trigger does not. Sent by whoever
+            # pressed the button — see `ReminderKind.on_demand`.
             continue
 
         for lead in rule.offsets():
