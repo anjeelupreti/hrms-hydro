@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
@@ -156,12 +157,52 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
             "decisions__positions__signature",
         ).select_related("minutes")
         user = self.request.user
-        if can(user, Perm.WORKPLACE_MANAGE):
-            return qs
-        employee = _requesting_employee(user)
-        if employee is None:
-            return qs.none()
-        return qs.filter(attendees__employee=employee).distinct()
+        if not can(user, Perm.WORKPLACE_MANAGE):
+            employee = _requesting_employee(user)
+            if employee is None:
+                # Somebody who is not a person in the system cannot have been
+                # invited to anything. They may still have *called* meetings,
+                # which the `role` filter below can find.
+                qs = qs.filter(created_by=user)
+            else:
+                qs = qs.filter(
+                    Q(attendees__employee=employee) | Q(created_by=user)
+                ).distinct()
+        return self._narrow(qs)
+
+    def _narrow(self, qs):
+        """`?state=` and `?role=` — the two questions a meetings list is asked.
+
+        **Both are derived, and neither is a stored flag.** "Ended" is a past
+        end time, so no meeting is ever in the wrong bucket because nobody
+        pressed a button; "mine" is `created_by`, which is what the organiser
+        has always been. Filtering here rather than in the browser means the
+        answer does not depend on how many rows happened to be fetched.
+        """
+        from django.utils import timezone
+
+        params = self.request.query_params
+        now = timezone.now()
+
+        state = params.get("state")
+        if state == "cancelled":
+            qs = qs.filter(status=CompanyEvent.Status.CANCELLED)
+        elif state == "ended":
+            qs = qs.filter(status=CompanyEvent.Status.SCHEDULED, end_datetime__lt=now)
+        elif state == "scheduled":
+            qs = qs.filter(status=CompanyEvent.Status.SCHEDULED, end_datetime__gte=now)
+
+        role = params.get("role")
+        if role == "mine":
+            qs = qs.filter(created_by=self.request.user)
+        elif role == "invited":
+            employee = _requesting_employee(self.request.user)
+            qs = (
+                qs.filter(attendees__employee=employee).exclude(created_by=self.request.user)
+                if employee is not None
+                else qs.none()
+            )
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = MeetingCreateSerializer(data=request.data, context={"request": request})
@@ -211,6 +252,33 @@ class MeetingViewSet(ListModelMixin, RetrieveModelMixin, UpdateModelMixin, Gener
         serializer = CompanyEventSerializer(meeting, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save(updated_by=request.user)
+        meeting = self.get_queryset().get(pk=meeting.pk)
+        return Response(CompanyEventSerializer(meeting, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, *args, **kwargs):
+        """Call it off, with a reason, and tell everybody invited.
+
+        Its own action rather than a PATCH on `status`, because cancelling is
+        not an edit — it sends a message to the room, and a field anybody could
+        flip would cancel a meeting silently.
+        """
+        meeting = self.get_object()
+        if not self._may_run(meeting):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        services.cancel_meeting(
+            meeting, reason=request.data.get("reason", ""), actor=request.user
+        )
+        meeting = self.get_queryset().get(pk=meeting.pk)
+        return Response(CompanyEventSerializer(meeting, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def reinstate(self, request, *args, **kwargs):
+        """Put it back on, keeping the agenda it already had."""
+        meeting = self.get_object()
+        if not self._may_run(meeting):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        services.reinstate_meeting(meeting, actor=request.user)
         meeting = self.get_queryset().get(pk=meeting.pk)
         return Response(CompanyEventSerializer(meeting, context={"request": request}).data)
 

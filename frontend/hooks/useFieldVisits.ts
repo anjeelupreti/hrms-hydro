@@ -80,8 +80,19 @@ export type FieldVisit = {
   district: string;
   starts_on: string;
   ends_on: string;
-  /** Inclusive of both ends — a one-day visit is one day, not zero. */
+  /** The clock, for a trip that does not take a day. Empty where nobody set
+   *  them, which is not the same as a trip that took no time. */
+  starts_at: string | null;
+  ends_at: string | null;
+  /** Inclusive of both ends — a one-day visit is one day, not zero. Still
+   *  whole days when the times are set, because this is what the allowance and
+   *  the roster read; `duration_hours` is the finer measure. */
   days: number;
+  /** Hours, where the times were given and the trip was inside one day.
+   *  `null` when nobody said — different from zero. */
+  duration_hours: number | null;
+  /** Under eight hours, so worth showing as a morning rather than a day. */
+  is_part_day: boolean;
   description: string;
   report: string;
   transport: string;
@@ -113,6 +124,10 @@ export type FieldVisitFormValues = {
   district: string;
   starts_on: string;
   ends_on: string;
+  /** Optional. A three-day supervision visit has no meaningful start time and
+   *  demanding one would be paperwork for its own sake. */
+  starts_at: string;
+  ends_at: string;
   description: string;
   transport: string;
   estimated_cost: string;

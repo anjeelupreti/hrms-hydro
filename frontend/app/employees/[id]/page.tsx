@@ -1,7 +1,6 @@
 "use client";
 
 import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
-import ApartmentIcon from "@mui/icons-material/Apartment";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import BadgeIcon from "@mui/icons-material/Badge";
@@ -81,6 +80,7 @@ import { useCan, useMe } from "@/hooks/useMe";
 import { useLifecycleEvents } from "@/hooks/useLifecycle";
 import { useMyProfile, type ExperienceKind, type ProfileExperience } from "@/hooks/useProfile";
 import { employeeHref } from "@/lib/employeeProfile";
+import { withCode } from "@/lib/people";
 
 /**
  * **One profile, whoever is looking and wherever they came from.**
@@ -280,10 +280,14 @@ function ProfileInner() {
           }}
         />
         <CardContent sx={{ pt: 0 }}>
+          {/* The avatar laps the cover by half its height and the text sits on
+              the card, not against the banner: aligning the name to the bottom
+              of a 108px avatar pushed it up into the cover image, which is why
+              it read as crowded. */}
           <Stack
             direction={{ xs: "column", md: "row" }}
-            spacing={2}
-            sx={{ alignItems: { md: "flex-end" }, mt: -6 }}
+            spacing={2.5}
+            sx={{ alignItems: { md: "flex-end" }, mt: -5.5 }}
           >
             <Avatar
               src={p.photo ?? undefined}
@@ -299,41 +303,28 @@ function ProfileInner() {
             >
               {initials(p.full_name)}
             </Avatar>
-            <Box sx={{ flex: 1, pb: 0.5, minWidth: 0 }}>
-              <Typography variant="h5">{p.full_name}</Typography>
-              <Typography variant="body2" color="text.secondary">
+            <Box sx={{ flex: 1, pb: 1, minWidth: 0 }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                {p.full_name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
                 {p.designation_title ?? "—"}
                 {p.department_name ? ` · ${p.department_name}` : ""}
               </Typography>
-              <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }} useFlexGap>
+              {/* **Identity only.** This used to carry the company, the
+                  secondaries, the corporate post and the corporate role as
+                  well — seven or more chips that wrapped onto three lines,
+                  truncated the company name to "Seti Nadi Hydrop…", and
+                  crowded the one thing a header is for, which is whose page
+                  this is. Those are employment *facts* and they now sit in the
+                  Employment card below with labels on them, where a reader can
+                  tell a corporate post from a job title. */}
+              <Stack direction="row" spacing={1} sx={{ mt: 1.25, flexWrap: "wrap" }} useFlexGap>
                 <Chip size="small" icon={<BadgeIcon />} label={p.employee_code} />
                 <StateChip
                   label={p.employment_status.replace("_", " ")}
                   tone={EMPLOYMENT_TONE[p.employment_status] ?? "muted"}
                 />
-                {/* Which company employs them. On a group running several
-                    project companies this is not decoration — it is the answer
-                    to whose payroll they are on, and the secondaries are where
-                    else they actually work. */}
-                {record?.primary_company_name ? (
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    icon={<ApartmentIcon />}
-                    label={record.primary_company_name}
-                  />
-                ) : null}
-                {(record?.secondary_company_names ?? []).map((name) => (
-                  <Chip key={name} size="small" variant="outlined" label={`also ${name}`} />
-                ))}
-                {/* The chair and the work. Two chips because they are two
-                    facts — see `Employee.corporate_post`. */}
-                {record?.corporate_post_name ? (
-                  <Chip size="small" variant="outlined" label={record.corporate_post_name} />
-                ) : null}
-                {record?.corporate_role_name ? (
-                  <Chip size="small" variant="outlined" label={record.corporate_role_name} />
-                ) : null}
               </Stack>
             </Box>
             {isSelf ? (
@@ -421,6 +412,86 @@ function ProfileInner() {
           {seesEverything ? <AtAGlance employeeId={id} mine={isSelf} /> : null}
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 5 }}>
+              {/* **Where the employment facts live now.**
+                  Supervisors, the employing company, the corporate post and
+                  the corporate role were all editable on the form and shown
+                  nowhere readable — supervisors were not on the page at all,
+                  so the only way to find out who approves somebody's leave was
+                  to open the edit dialog and read the form. A field you have to
+                  open an editor to see is a field that is write-only, and an
+                  editor is a dangerous place to go looking. */}
+              <Card sx={{ mb: 2 }}>
+                <CardContent>
+                  <Typography variant="overline" color="text.secondary">
+                    Employment
+                  </Typography>
+                  <Stack spacing={1.5} sx={{ mt: 1 }}>
+                    <Fact
+                      label="Employed by"
+                      value={record?.primary_company_name ?? "—"}
+                      hint="Whose payroll they are on."
+                    />
+                    {(record?.secondary_company_names ?? []).length ? (
+                      <Fact
+                        label="Also works for"
+                        value={(record?.secondary_company_names ?? []).join(", ")}
+                      />
+                    ) : null}
+                    <Fact
+                      label="Job title"
+                      value={
+                        [p.designation_title, p.department_name].filter(Boolean).join(" · ") || "—"
+                      }
+                    />
+                    {/* The chair and the work are two facts — see
+                        `Employee.corporate_post`. Labelled, because side by
+                        side as bare chips nobody could tell which was which. */}
+                    {record?.corporate_post_name ? (
+                      <Fact
+                        label="Corporate post"
+                        value={record.corporate_post_name}
+                        hint="The chair they hold, not the job they do."
+                      />
+                    ) : null}
+                    {record?.corporate_role_name ? (
+                      <Fact label="Corporate role" value={record.corporate_role_name} />
+                    ) : null}
+                    {/* **Who signs off their leave, and in what order.**
+                        Supervisor 1 is the maker and is notified; the last is
+                        the checker and decides. Order is the whole meaning, so
+                        it is numbered rather than listed. */}
+                    <Fact
+                      label="Supervisors"
+                      value={
+                        (record?.supervisors ?? []).length ? (
+                          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }} useFlexGap>
+                            {[...(record?.supervisors ?? [])]
+                              .sort((a, b) => a.order - b.order)
+                              .map((person, position, all) => (
+                                <Chip
+                                  key={person.id}
+                                  size="small"
+                                  variant="outlined"
+                                  component={Link}
+                                  href={employeeHref(person.id)}
+                                  clickable
+                                  label={`${position + 1}. ${withCode(person.name, person.employee_code)}${
+                                    position === all.length - 1 && all.length > 1 ? " · decides" : ""
+                                  }`}
+                                />
+                              ))}
+                          </Stack>
+                        ) : (
+                          "Nobody set — requests fall back to the department head."
+                        )
+                      }
+                      hint="First is notified, last decides."
+                    />
+                    <Fact label="Joined" value={<DateText value={p.date_joined} />} />
+                  </Stack>
+                </CardContent>
+              </Card>
+
               <Card sx={{ mb: 2 }}>
                 <CardContent>
                   <Typography variant="overline" color="text.secondary">
@@ -743,6 +814,48 @@ function ProfileInner() {
         <ExperienceDialog kind={addingExp} onClose={() => setAddingExp(null)} />
       ) : null}
     </PageContainer>
+  );
+}
+
+/**
+ * A labelled fact.
+ *
+ * **A value with no label is a value nobody can read.** The employment facts
+ * were bare chips in the header — a company name beside a corporate post
+ * beside a corporate role, three grey pills with nothing saying which was
+ * which. The label is the difference between a fact and a decoration.
+ */
+function Fact({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+}) {
+  return (
+    <Box>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: "block", fontWeight: 600, letterSpacing: 0.2 }}
+      >
+        {label}
+      </Typography>
+      {typeof value === "string" ? (
+        <Typography variant="body2" sx={{ mt: 0.25 }}>
+          {value}
+        </Typography>
+      ) : (
+        <Box sx={{ mt: 0.5 }}>{value}</Box>
+      )}
+      {hint ? (
+        <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25 }}>
+          {hint}
+        </Typography>
+      ) : null}
+    </Box>
   );
 }
 

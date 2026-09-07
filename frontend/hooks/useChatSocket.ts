@@ -12,26 +12,36 @@ const MAX_BACKOFF_MS = 15000;
 /**
  * Where the chat socket lives.
  *
- * Derived from the page, never hardcoded. A fixed `ws://localhost:8000` is
- * wrong everywhere but a single-company machine: on `acme.localhost:3000` it
- * drops the company subdomain, and on a deployed host it points the browser at
- * its own machine. So:
+ * Derived from configuration, never hardcoded. A fixed `ws://localhost:8000` is
+ * wrong everywhere but one machine: on `acme.localhost` it drops the company
+ * subdomain, and on a deployed host it points the browser at itself. So:
  *
  *   - `NEXT_PUBLIC_WS_URL` always wins when set (split-host deployments).
- *   - In dev the Next dev server (3000) and Django/daphne (8000) are two
- *     processes, so keep the hostname — subdomain included — and swap ports.
- *   - Anywhere else the reverse proxy fronts both, so use the same origin
- *     and let it route `/ws/`. wss: on https, so no mixed-content block.
+ *   - Otherwise, if `NEXT_PUBLIC_DEV_API_PORT` is set the API is a separate
+ *     process on this host: keep the hostname — subdomain included — and use
+ *     that port.
+ *   - Otherwise a reverse proxy fronts both, so use the same origin and let it
+ *     route `/ws/`. wss: on https, so no mixed-content block.
+ *
+ * 🔴 **This used to trigger on `port === "3000"` and nothing else.** Any stack
+ * serving the frontend anywhere else — this one publishes it on 3001 — fell
+ * through to the same-origin branch and opened `ws://localhost:3001/ws/chat/`,
+ * which Next.js does not serve. Nothing errored visibly: the socket failed, the
+ * reconnect loop backed off quietly, and chat looked like it worked because
+ * sending still POSTs and a refetch shows the message. **That is exactly the
+ * "messages only appear after a refresh" symptom** — the send was never the
+ * problem, the live echo was. A port number is not a deployment topology, and
+ * the version of this rule that guesses one will always be wrong somewhere.
  */
 function wsBase(): string {
   const configured = process.env.NEXT_PUBLIC_WS_URL;
   if (configured) return configured.replace(/\/$/, "");
   if (typeof window === "undefined") return "";
-  const { protocol, hostname, port } = window.location;
+  const { protocol, hostname, host } = window.location;
   const scheme = protocol === "https:" ? "wss:" : "ws:";
-  const devApiPort = process.env.NEXT_PUBLIC_DEV_API_PORT ?? "8000";
-  if (port === "3000") return `${scheme}//${hostname}:${devApiPort}`;
-  return `${scheme}//${window.location.host}`;
+  const devApiPort = process.env.NEXT_PUBLIC_DEV_API_PORT;
+  if (devApiPort) return `${scheme}//${hostname}:${devApiPort}`;
+  return `${scheme}//${host}`;
 }
 
 // An optimistic (not-yet-acked) message carries the client_id so the server

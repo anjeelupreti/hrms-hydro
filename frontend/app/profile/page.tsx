@@ -22,12 +22,17 @@ import { employeeHref } from "@/lib/employeeProfile";
  * The route stays because it is in the sidebar, in old links and in people's
  * habits.
  *
- * **Where it forwards to depends on whether a tab was named.** "My profile" in
- * the account menu is a bare link and now lands on **My workspace** — that is
- * the page somebody signing in wants, and the employee record is the HR view of
- * a person, which is a different question wearing the same words. A link that
- * names a tab (`?tab=payroll`, the portal's "My payslips" chip) still goes to
- * the record, because it is asking for something the workspace does not hold.
+ * **It forwards to the record, because that is what "My profile" means.** This
+ * used to land on My workspace on the argument that the employee record is the
+ * HR view of a person. That reasoning does not survive contact with the menu it
+ * sits in: somebody clicking their own face expects to see their own details —
+ * their department, their contact numbers, their documents — and being put on a
+ * dashboard instead reads as a broken link. My workspace has its own row in the
+ * sidebar for people who want it.
+ *
+ * The workspace remains the destination for an account with **no employee
+ * record** — an administrator who is not on the payroll has no profile to show,
+ * and the honest answer is the page that does have something on it.
  */
 export default function ProfilePage() {
   return (
@@ -49,21 +54,20 @@ function ProfileRedirect() {
   const { data: me, isLoading } = useMe();
   const employeeId = me?.employee_id ?? null;
 
-  const tab = searchParams.get("tab");
-
   useEffect(() => {
-    // No tab named: this is the account menu's "My profile", which belongs on
-    // the workspace. It does not need an employee record to get there, so it
-    // runs before the `employeeId` guard below.
-    if (!tab) {
-      router.replace("/portal");
+    if (isLoading) return;
+    if (employeeId != null) {
+      // `?tab=payroll` and the portal's chips name a tab; the account menu's
+      // bare link does not. Either way the destination is the record.
+      const query = searchParams.toString();
+      router.replace(`${employeeHref(employeeId)}${query ? `?${query}` : ""}`);
       return;
     }
-    if (employeeId == null) return;
-    router.replace(`${employeeHref(employeeId)}?${searchParams.toString()}`);
-  }, [employeeId, router, searchParams, tab]);
+    // Nothing to show, and the workspace does have something on it.
+    router.replace("/portal");
+  }, [employeeId, isLoading, router, searchParams]);
 
-  if (isLoading || !tab || employeeId != null) {
+  if (isLoading || employeeId != null) {
     return (
       <PageContainer>
         <Skeleton variant="rounded" height={260} />
@@ -71,13 +75,14 @@ function ProfileRedirect() {
     );
   }
 
-  // An account with no employee record — an administrator who is not
-  // themselves on the payroll. There is nothing to forward to, and saying so
-  // beats redirecting to `/employees/null`.
+  // Shown for the instant before the redirect above lands, and if it somehow
+  // does not: an administrator who is not themselves on the payroll has no
+  // record to open, which beats sending them to `/employees/null`.
   return (
     <PageContainer>
       <Alert severity="info">
-        This account has no employee record, so there is no profile to show.
+        This account has no employee record, so there is no profile to show —
+        taking you to My workspace.
       </Alert>
     </PageContainer>
   );

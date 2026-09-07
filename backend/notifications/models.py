@@ -94,6 +94,15 @@ class CompanyEvent(AuditModel):
         ANNOUNCEMENT = "announcement", "Announcement"
         OTHER = "other", "Other"
 
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        #: Called off. **Not deleted, on purpose.** People arranged their week
+        #: around it, an agenda may already have been circulated, and the fact
+        #: that it was called off — and why — is itself worth keeping. Deleting
+        #: it would take the register, the agenda and the reason with it and
+        #: leave everybody who turned up with no record of why nobody else did.
+        CANCELLED = "cancelled", "Cancelled"
+
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     event_type = models.CharField(max_length=20, choices=EventType.choices, default=EventType.OTHER)
@@ -101,6 +110,24 @@ class CompanyEvent(AuditModel):
     end_datetime = models.DateTimeField()
     all_day = models.BooleanField(default=False)
     location = models.CharField(max_length=255, blank=True, help_text="Room name or a video call link.")
+
+    status = models.CharField(
+        max_length=12, choices=Status.choices, default=Status.SCHEDULED
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    #: Why it was called off. Free text and worth asking for: "postponed, the
+    #: DG is in Kathmandu" is the difference between a cancellation people
+    #: understand and one they resent.
+    cancellation_reason = models.CharField(max_length=300, blank=True)
+
+    @property
+    def has_ended(self):
+        """**Derived, never stored.** A meeting is over when its end time has
+        passed — there is no button anybody has to remember to press, and a
+        stored flag would be wrong for every meeting nobody closed."""
+        from django.utils import timezone as _tz
+
+        return bool(self.end_datetime and self.end_datetime < _tz.now())
 
     #: **Whose meeting it is, chosen by whoever called it.**
     #:

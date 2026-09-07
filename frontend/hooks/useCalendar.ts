@@ -75,10 +75,53 @@ export function useDeleteCompanyEvent() {
 
 // --- Meetings (CompanyEvent rows with event_type=meeting + attendees) ------
 
-export function useMeetings() {
+/**
+ * The meetings this reader may see, narrowed server-side.
+ *
+ * `state` and `role` are filtered by the API rather than in the browser, so
+ * the answer does not depend on how many rows happened to be fetched — "my
+ * cancelled meetings" has to mean all of them, not all of the first hundred.
+ */
+export function useMeetings(filters: { state?: string; role?: string } = {}) {
+  const query = new URLSearchParams({ page_size: "100" });
+  if (filters.state) query.set("state", filters.state);
+  if (filters.role) query.set("role", filters.role);
+  const suffix = query.toString();
   return useQuery({
-    queryKey: ["meetings"],
-    queryFn: () => fetchJson<PaginatedResponse<CompanyEvent>>("/api/proxy/notifications/meetings?page_size=100"),
+    queryKey: ["meetings", suffix],
+    queryFn: () =>
+      fetchJson<PaginatedResponse<CompanyEvent>>(`/api/proxy/notifications/meetings?${suffix}`),
+  });
+}
+
+/** Call it off, with a reason, and tell everybody invited. */
+export function useCancelMeeting() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      fetchJson<CompanyEvent>(`/api/proxy/notifications/meetings/${id}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["company-events"] });
+    },
+  });
+}
+
+/** Put it back on, keeping the agenda it already had. */
+export function useReinstateMeeting() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      fetchJson<CompanyEvent>(`/api/proxy/notifications/meetings/${id}/reinstate`, {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["meetings"] });
+      queryClient.invalidateQueries({ queryKey: ["company-events"] });
+    },
   });
 }
 

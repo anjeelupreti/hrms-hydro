@@ -96,7 +96,7 @@ export default function IncomingLettersPage() {
   // An id rather than the row, so an edit's result lands back in the open form.
   const [openId, setOpenId] = useState<number | "new" | null>(null);
 
-  const { data, isPending, isError, refetch } = useIncomingLetters({
+  const { data, isPending, isError, error, refetch } = useIncomingLetters({
     search: search || undefined,
     company,
   });
@@ -138,8 +138,11 @@ export default function IncomingLettersPage() {
       {isPending ? (
         <Skeleton variant="rounded" height={280} />
       ) : isError ? (
+        // **Say what actually failed.** "Could not be loaded" is the same
+        // sentence for a restarted server, an expired session and a bad
+        // filter, and none of them can be acted on without knowing which.
         <Alert severity="error" action={<Button onClick={() => refetch()}>Try again</Button>}>
-          The register could not be loaded.
+          The register could not be loaded — {error?.message ?? "no reason given"}.
         </Alert>
       ) : letters.length === 0 ? (
         <Alert severity="info">

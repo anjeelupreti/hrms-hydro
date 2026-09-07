@@ -203,10 +203,24 @@ class FieldVisit(AuditModel):
     destination = models.CharField(max_length=200)
     district = models.CharField(max_length=100, blank=True)
 
-    #: Whole days, not hours. A visit is measured in days away — which is what
-    #: the allowance, the attendance and the roster all key on.
+    #: The days away. What the allowance, the attendance and the roster key on.
     starts_on = models.DateField()
     ends_on = models.DateField()
+
+    #: **The clock, for the trips that do not take a day.**
+    #:
+    #: This used to be days and nothing else, on the argument that a visit is
+    #: measured in days away. That is true of a trip to the headworks and false
+    #: of most of them: driving to the ward office for a two-hour meeting and
+    #: back is a morning, and recording it as a whole day overstates the trip in
+    #: every report that counts them and in every allowance that pays for them.
+    #:
+    #: Optional, because a three-day supervision visit has no meaningful start
+    #: time and demanding one would be paperwork for its own sake. Set them and
+    #: the visit is measured in hours; leave them and it is measured in days,
+    #: exactly as before.
+    starts_at = models.TimeField(null=True, blank=True)
+    ends_at = models.TimeField(null=True, blank=True)
 
     description = models.TextField(blank=True, help_text="What the visit is for.")
     #: Written on return. Separate from `description`, which is written before:
@@ -257,8 +271,45 @@ class FieldVisit(AuditModel):
 
         A one-day visit is one day, not zero — which a plain date subtraction
         would give, and which would silently zero every allowance.
+
+        **Still whole days even when the times are set,** because this is what
+        the allowance and the roster read and changing it under them would
+        quietly restate every historical trip. `duration_hours` is the finer
+        measure and `is_part_day` is the flag that says to use it.
         """
         return (self.ends_on - self.starts_on).days + 1
+
+    @property
+    def duration_hours(self):
+        """How long it actually took, where anybody said.
+
+        `None` when the times are not set — which is honest, and different from
+        zero. Only meaningful within a single day: across two dates the hours
+        between a start time and an end time are not the hours worked, they are
+        the hours elapsed including a night's sleep.
+        """
+        from datetime import datetime
+
+        if not (self.starts_at and self.ends_at):
+            return None
+        if self.starts_on != self.ends_on:
+            return None
+        start = datetime.combine(self.starts_on, self.starts_at)
+        end = datetime.combine(self.ends_on, self.ends_at)
+        if end <= start:
+            return None
+        return round((end - start).total_seconds() / 3600, 2)
+
+    @property
+    def is_part_day(self):
+        """A trip that took less than a working day and says so.
+
+        Eight hours, because that is what "a day" means to the people counting
+        them — a visit timed at seven hours is a day's work and one timed at two
+        is a morning, and only the second is worth showing differently.
+        """
+        hours = self.duration_hours
+        return hours is not None and hours < 8
 
     @property
     def is_locked(self):

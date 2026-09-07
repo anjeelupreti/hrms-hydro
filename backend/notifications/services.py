@@ -115,6 +115,63 @@ def invite_attendees(event, employees, actor=None):
     return created
 
 
+def cancel_meeting(event, reason="", actor=None):
+    """Call it off, and tell the room.
+
+    **Cancelled rather than deleted.** People arranged their week around it, an
+    agenda may already have gone out, and the fact that it was called off — and
+    why — is worth keeping. Deleting would take the register, the agenda and
+    the reason with it, and leave anybody who turned up with no record of why
+    nobody else did.
+
+    Everybody invited is told, including those who had declined: somebody who
+    said they could not come still needs to know it is not happening, because
+    they may have arranged cover for it.
+    """
+    from django.utils import timezone
+
+    event.status = event.Status.CANCELLED
+    event.cancelled_at = timezone.now()
+    event.cancellation_reason = (reason or "").strip()[:300]
+    event.updated_by = actor
+    event.save(
+        update_fields=[
+            "status", "cancelled_at", "cancellation_reason", "updated_by", "updated_at",
+        ]
+    )
+    tail = f" — {event.cancellation_reason}" if event.cancellation_reason else ""
+    for attendee in event.attendees.select_related("employee__user"):
+        notify(
+            attendee.employee.user,
+            "meeting_cancelled",
+            f'"{event.title}" on {event.start_datetime:%Y-%m-%d %H:%M} is cancelled{tail}',
+            email_subject="Meeting cancelled",
+        )
+    return event
+
+
+def reinstate_meeting(event, actor=None):
+    """Put it back on. A meeting called off and then held is an ordinary week,
+    and the alternative is creating a second one and losing the agenda."""
+    event.status = event.Status.SCHEDULED
+    event.cancelled_at = None
+    event.cancellation_reason = ""
+    event.updated_by = actor
+    event.save(
+        update_fields=[
+            "status", "cancelled_at", "cancellation_reason", "updated_by", "updated_at",
+        ]
+    )
+    for attendee in event.attendees.select_related("employee__user"):
+        notify(
+            attendee.employee.user,
+            "meeting_invited",
+            f'"{event.title}" on {event.start_datetime:%Y-%m-%d %H:%M} is back on.',
+            email_subject="Meeting reinstated",
+        )
+    return event
+
+
 def respond_to_invite(attendee, status, actor=None):
     attendee.rsvp_status = status
     attendee.updated_by = actor

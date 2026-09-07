@@ -109,7 +109,7 @@ def complete(visit, *, report="", actor=None):
 
 
 @transaction.atomic
-def generate_time_entries(visit, *, hours_per_day="8.00", actor=None):
+def generate_time_entries(visit, *, hours_per_day=None, actor=None):
     """Turn a completed visit into timesheet lines.
 
     **The honest version of "can timesheets carry field visits".** They cannot
@@ -118,11 +118,22 @@ def generate_time_entries(visit, *, hours_per_day="8.00", actor=None):
     says where somebody was and why; the entries say what those days were worth
     to a project.
 
+    **The hours come from the visit where the visit knows them.** This was a
+    flat eight hours a day, which turned a two-hour trip to the ward office into
+    a full day billed against a project — the same overstatement the times on
+    `FieldVisit` were added to stop, arriving one step later. A caller may still
+    pass `hours_per_day` and it wins; the default is now the visit's own timed
+    duration, and eight hours only where nobody said otherwise.
+
     Needs a project, because a time entry without one has nothing to be
     reported against. Skips days that already have an entry for the same
     project, so running it twice adds nothing.
     """
     from timesheets.models import TimeEntry
+
+    if hours_per_day is None:
+        timed = visit.duration_hours
+        hours_per_day = f"{timed:.2f}" if timed is not None else "8.00"
 
     if visit.project_id is None:
         raise FieldVisitError(

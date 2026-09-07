@@ -54,6 +54,10 @@ class FieldVisitSerializer(serializers.ModelSerializer):
     participants = FieldVisitParticipantSerializer(many=True, read_only=True)
     attachments = FieldVisitAttachmentSerializer(many=True, read_only=True)
     days = serializers.IntegerField(read_only=True)
+    #: The finer measure, where anybody set the times. `null` rather than zero
+    #: when they did not — "nobody said" and "it took no time" are different.
+    duration_hours = serializers.FloatField(read_only=True)
+    is_part_day = serializers.BooleanField(read_only=True)
     is_locked = serializers.BooleanField(read_only=True)
 
     site_name = serializers.CharField(source="site.name", read_only=True, default=None)
@@ -68,7 +72,8 @@ class FieldVisitSerializer(serializers.ModelSerializer):
             # brings its own supervisors into the choice. See
             # `services.eligible_approvers`.
             "site", "site_name",
-            "starts_on", "ends_on", "days", "description", "report",
+            "starts_on", "ends_on", "starts_at", "ends_at",
+            "days", "duration_hours", "is_part_day", "description", "report",
             "transport", "estimated_cost",
             "status", "status_display", "approver", "approver_name",
             "decided_at", "decision_note", "completed_at",
@@ -94,6 +99,17 @@ class FieldVisitSerializer(serializers.ModelSerializer):
         ends = attrs.get("ends_on") or getattr(self.instance, "ends_on", None)
         if starts and ends and ends < starts:
             raise serializers.ValidationError({"ends_on": "A visit cannot end before it starts."})
+
+        # The clock, for a trip inside one day. Across two dates the times are
+        # not comparable — leaving at 4pm and returning at 9am the next morning
+        # is an ordinary overnight trip, not a mistake — so they are only
+        # checked against each other when the dates match.
+        from_time = attrs.get("starts_at", getattr(self.instance, "starts_at", None))
+        to_time = attrs.get("ends_at", getattr(self.instance, "ends_at", None))
+        if starts and ends and starts == ends and from_time and to_time and to_time <= from_time:
+            raise serializers.ValidationError(
+                {"ends_at": "A visit on one day cannot end before it starts."}
+            )
         if self.instance is not None and self.instance.is_locked:
             raise serializers.ValidationError(
                 "This visit has been decided. Reopen it by raising a new one."

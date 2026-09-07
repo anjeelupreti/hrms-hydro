@@ -233,7 +233,10 @@ class FieldVisitViewSet(AuditViewSetMixin, ModelViewSet):
         try:
             created = services.generate_time_entries(
                 visit,
-                hours_per_day=request.data.get("hours_per_day", "8.00"),
+                # `None` rather than "8.00": the service then reads the visit's
+                # own timed duration, so a two-hour trip does not become a
+                # full day on somebody's timesheet.
+                hours_per_day=request.data.get("hours_per_day") or None,
                 actor=request.user,
             )
         except FieldVisitError as exc:

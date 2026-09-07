@@ -405,3 +405,161 @@ def test_an_approver_who_is_not_on_either_list_is_refused(db, traveller, approve
         validate_approver(traveller, None, stranger)
 
     assert validate_approver(traveller, None, approver) == approver
+
+# ── Not every visit takes a day ──────────────────────────────────────────
+#
+# `starts_on`/`ends_on` used to be the whole story, on the argument that a visit
+# is measured in days away. True of a trip to the headworks and false of most of
+# them: driving to the ward office for a two-hour meeting and back is a morning,
+# and recording it as a whole day overstates the trip in every report that
+# counts them and every allowance that pays for them.
+
+
+def _api(user):
+    from rest_framework.test import APIClient
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
+def _raise(client, **overrides):
+    today = date(2026, 8, 3)
+    payload = {
+        "title": "Ward office meeting",
+        "destination": "Uttargaya-4 ward office",
+        "starts_on": today.isoformat(),
+        "ends_on": today.isoformat(),
+        **overrides,
+    }
+    return client.post(VISITS, payload, format="json")
+
+
+def test_a_visit_can_be_timed_rather_than_counted_in_days(traveller, approver):
+    response = _raise(
+        _api(traveller.user), starts_at="09:30", ends_at="12:00", approver=approver.pk
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["duration_hours"] == 2.5
+    assert response.data["is_part_day"] is True
+
+
+def test_nobody_said_is_not_the_same_as_no_time(traveller, approver):
+    """`null`, not zero — a reader can tell "we did not record it" from "it took
+    no time", and a report that could not would be quietly wrong."""
+    response = _raise(_api(traveller.user), approver=approver.pk)
+
+    assert response.status_code == 201, response.data
+    assert response.data["duration_hours"] is None
+    assert response.data["is_part_day"] is False
+
+
+def test_a_multi_day_visit_is_still_counted_in_days(traveller, approver):
+    """Optional on purpose: a three-day supervision visit has no meaningful
+    start time and demanding one would be paperwork for its own sake."""
+    response = _raise(
+        _api(traveller.user),
+        ends_on=date(2026, 8, 5).isoformat(),
+        approver=approver.pk,
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["days"] == 3
+    assert response.data["duration_hours"] is None
+
+
+def test_a_one_day_visit_cannot_end_before_it_starts(traveller, approver):
+    response = _raise(
+        _api(traveller.user), starts_at="14:00", ends_at="09:00", approver=approver.pk
+    )
+
+    assert response.status_code == 400, response.data
+    assert "ends_at" in response.data
+
+
+def test_an_overnight_trip_is_not_a_backwards_clock(traveller, approver):
+    """Leaving at 4pm and returning at 9am the next morning is an ordinary
+    overnight trip, so the clocks are only compared when the dates match."""
+    response = _raise(
+        _api(traveller.user),
+        ends_on=date(2026, 8, 4).isoformat(),
+        starts_at="16:00",
+        ends_at="09:00",
+        approver=approver.pk,
+    )
+
+    assert response.status_code == 201, response.data
+    # Across two dates those hours are elapsed time including a night's sleep,
+    # not a duration worth reporting.
+    assert response.data["duration_hours"] is None
+    assert response.data["days"] == 2
+
+
+def test_a_full_day_with_times_is_still_a_day(traveller, approver):
+    """Eight hours is what "a day" means to the people counting them, so a visit
+    timed at nine is not flagged as a part day."""
+    response = _raise(
+        _api(traveller.user), starts_at="08:00", ends_at="17:00", approver=approver.pk
+    )
+
+    assert response.data["duration_hours"] == 9.0
+    assert response.data["is_part_day"] is False
+
+
+def test_the_allowance_still_reads_whole_days(traveller, approver):
+    """**`days` deliberately does not change when the times are set.** It is
+    what the allowance and the roster read, and moving it under them would
+    quietly restate every trip already recorded."""
+    response = _raise(
+        _api(traveller.user), starts_at="09:30", ends_at="12:00", approver=approver.pk
+    )
+
+    assert response.data["days"] == 1
+
+
+def test_a_short_visit_does_not_bill_a_full_day(traveller, approver, company):
+    """**The overstatement, one step later.** Generating timesheet lines used a
+    flat eight hours a day, so a two-hour trip to the ward office became a full
+    day billed against a project."""
+    project = Project.objects.create(name="Sanjen civil works")
+    visit = FieldVisit.objects.create(
+        employee=traveller,
+        approver=approver,
+        company=company,
+        project=project,
+        title="Ward office meeting",
+        destination="Uttargaya-4 ward office",
+        starts_on=date(2026, 8, 3),
+        ends_on=date(2026, 8, 3),
+        starts_at="09:30",
+        ends_at="12:00",
+        status=FieldVisit.Status.COMPLETED,
+    )
+
+    services.generate_time_entries(visit)
+
+    entry = TimeEntry.objects.get(employee=traveller, date=date(2026, 8, 3))
+    assert float(entry.hours) == 2.5
+
+
+def test_an_untimed_visit_still_bills_a_working_day(traveller, approver, company):
+    """Eight hours where nobody said otherwise — the behaviour every visit
+    already recorded relies on."""
+    project = Project.objects.create(name="Sanjen civil works")
+    visit = FieldVisit.objects.create(
+        employee=traveller,
+        approver=approver,
+        company=company,
+        project=project,
+        title="Headworks supervision",
+        destination="Sanjen headworks",
+        starts_on=date(2026, 8, 3),
+        ends_on=date(2026, 8, 3),
+        status=FieldVisit.Status.COMPLETED,
+    )
+
+    services.generate_time_entries(visit)
+
+    entry = TimeEntry.objects.get(employee=traveller, date=date(2026, 8, 3))
+    assert float(entry.hours) == 8.0

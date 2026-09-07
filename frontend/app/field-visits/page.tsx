@@ -67,6 +67,20 @@ import { withCode } from "@/lib/people";
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Hours, as somebody would say them out loud.
+ *
+ * "2h 30m", not "2.5 hours" — a duration written as a decimal reads as a
+ * measurement rather than a length of time, and half the readers here will be
+ * checking it against a logbook written in hours and minutes.
+ */
+function formatHours(hours: number): string {
+  const whole = Math.floor(hours);
+  const minutes = Math.round((hours - whole) * 60);
+  if (whole === 0) return `${minutes}m`;
+  return minutes === 0 ? `${whole}h` : `${whole}h ${minutes}m`;
+}
+
 const EMPTY: FieldVisitFormValues = {
   company: null,
   project: null,
@@ -77,6 +91,8 @@ const EMPTY: FieldVisitFormValues = {
   district: "",
   starts_on: TODAY(),
   ends_on: TODAY(),
+  starts_at: "",
+  ends_at: "",
   description: "",
   transport: "",
   estimated_cost: "",
@@ -327,6 +343,39 @@ export default function FieldVisitsPage() {
                 onChange={(value) => setValues({ ...values, ends_on: value ?? "" })}
               />
             </Grid>
+            {/* **Only for a trip inside one day.** Driving to the ward office
+                for a two-hour meeting and back is a morning, and recording it
+                as a whole day overstates it in every report that counts them.
+                Across two dates the times are not a duration — leaving at 4pm
+                and returning at 9am is an ordinary overnight trip — so the
+                fields are not offered there. */}
+            {values.starts_on && values.starts_on === values.ends_on ? (
+              <>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <TextField
+                    label="Left at"
+                    type="time"
+                    fullWidth
+                    size="small"
+                    value={values.starts_at}
+                    onChange={(e) => setValues({ ...values, starts_at: e.target.value })}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <TextField
+                    label="Back at"
+                    type="time"
+                    fullWidth
+                    size="small"
+                    value={values.ends_at}
+                    onChange={(e) => setValues({ ...values, ends_at: e.target.value })}
+                    slotProps={{ inputLabel: { shrink: true } }}
+                    helperText="Optional — leave both empty for a whole day."
+                  />
+                </Grid>
+              </>
+            ) : null}
             <Grid size={{ xs: 12, sm: 6 }}>
               <ProjectPicker
                 label="Project"
@@ -476,7 +525,11 @@ function VisitCard({ visit, onOpen }: { visit: FieldVisit; onOpen: () => void })
             <Typography variant="caption" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
               <ScheduleIcon sx={{ fontSize: 14 }} />
               <DateText value={visit.starts_on} /> – <DateText value={visit.ends_on} />
-              {` · ${visit.days} day${visit.days === 1 ? "" : "s"}`}
+              {/* Hours where anybody said, days otherwise. A two-hour trip
+                  reported as "1 day" is the thing this replaces. */}
+              {visit.duration_hours != null
+                ? ` · ${formatHours(visit.duration_hours)}`
+                : ` · ${visit.days} day${visit.days === 1 ? "" : "s"}`}
             </Typography>
             <Typography variant="caption">{visit.employee_name}</Typography>
             {visit.project_name ? (

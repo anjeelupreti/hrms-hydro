@@ -664,3 +664,203 @@ def test_the_report_can_be_narrowed_by_date(meeting, organiser):
     assert client.get(f"{LIST}report/?from={on}&to={on}").data["meetings"] == 1
     later = (meeting.start_datetime + timedelta(days=30)).date().isoformat()
     assert client.get(f"{LIST}report/?from={later}").data["meetings"] == 0
+
+# ── Calling one off, and the states a list has to tell apart ─────────────
+
+
+def test_a_meeting_can_be_called_off_with_a_reason(meeting, organiser):
+    """**Cancelled, not deleted.** People arranged their week around it and an
+    agenda may already have gone out; the fact that it was called off, and why,
+    is the thing worth keeping."""
+    response = _client(organiser.user).post(
+        f"{LIST}{meeting.pk}/cancel/",
+        {"reason": "The lenders' engineer is held up in Kathmandu."},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["state"] == "cancelled"
+    assert "Kathmandu" in response.data["cancellation_reason"]
+    assert response.data["cancelled_at"] is not None
+
+
+def test_cancelling_keeps_the_agenda_and_the_register(meeting, organiser, cast):
+    """Deleting would take the agenda, the register and the reason with it, and
+    leave anybody who turned up with no record of why nobody else did."""
+    from notifications.models import AgendaItem
+
+    AgendaItem.objects.create(meeting=meeting, order=0, title="Progress report")
+    client = _client(organiser.user)
+
+    client.post(f"{LIST}{meeting.pk}/cancel/", {"reason": "Postponed."}, format="json")
+
+    assert CompanyEvent.objects.filter(pk=meeting.pk).exists()
+    assert AgendaItem.objects.filter(meeting=meeting).count() == 1
+    assert meeting.attendees.count() == len(cast)
+
+
+def test_everybody_invited_is_told_it_is_off(meeting, organiser, cast):
+    """Including anybody who had declined: they may have arranged cover."""
+    from notifications.models import Notification
+
+    meeting.attendees.filter(employee=cast["missed"]).update(rsvp_status="declined")
+
+    _client(organiser.user).post(f"{LIST}{meeting.pk}/cancel/", {}, format="json")
+
+    for person in cast.values():
+        assert Notification.objects.filter(
+            recipient=person.user, verb="meeting_cancelled"
+        ).exists()
+
+
+def test_only_the_organiser_calls_it_off(meeting, cast):
+    response = _client(cast["came"].user).post(f"{LIST}{meeting.pk}/cancel/", {}, format="json")
+
+    assert response.status_code == 403
+
+
+def test_a_cancelled_meeting_can_be_put_back_on(meeting, organiser):
+    """A meeting called off and then held is an ordinary week, and the
+    alternative is creating a second one and losing the agenda."""
+    client = _client(organiser.user)
+    client.post(f"{LIST}{meeting.pk}/cancel/", {"reason": "Postponed."}, format="json")
+
+    response = client.post(f"{LIST}{meeting.pk}/reinstate/", {}, format="json")
+
+    assert response.status_code == 200, response.data
+    assert response.data["state"] == "ended"  # its time has passed
+    assert response.data["cancellation_reason"] == ""
+    assert response.data["cancelled_at"] is None
+
+
+def test_ended_is_a_past_end_time_not_a_stored_flag(meeting, organiser):
+    """Nobody has to remember to close a meeting, so no meeting is ever in the
+    wrong bucket because nobody pressed a button."""
+    response = _client(organiser.user).get(f"{LIST}{meeting.pk}/")
+
+    assert response.data["state"] == "ended"
+
+
+def test_a_future_meeting_reads_as_scheduled(organiser, cast):
+    starts = timezone.now() + timedelta(days=3)
+    event = CompanyEvent.objects.create(
+        title="Board meeting",
+        event_type=CompanyEvent.EventType.MEETING,
+        start_datetime=starts,
+        end_datetime=starts + timedelta(hours=2),
+        created_by=organiser.user,
+        updated_by=organiser.user,
+    )
+
+    response = _client(organiser.user).get(f"{LIST}{event.pk}/")
+
+    assert response.data["state"] == "scheduled"
+
+
+def test_the_list_can_be_narrowed_to_one_state(meeting, organiser):
+    """Filtered by the API, not the browser: "my cancelled meetings" has to
+    mean all of them, not all of the first hundred fetched."""
+    starts = timezone.now() + timedelta(days=3)
+    CompanyEvent.objects.create(
+        title="Board meeting",
+        event_type=CompanyEvent.EventType.MEETING,
+        start_datetime=starts,
+        end_datetime=starts + timedelta(hours=2),
+        created_by=organiser.user,
+        updated_by=organiser.user,
+    )
+    client = _client(organiser.user)
+
+    scheduled = client.get(f"{LIST}?state=scheduled").data["results"]
+    ended = client.get(f"{LIST}?state=ended").data["results"]
+
+    assert [m["title"] for m in scheduled] == ["Board meeting"]
+    assert [m["title"] for m in ended] == ["Monthly site review"]
+
+
+def test_the_list_separates_what_i_called_from_what_i_was_invited_to(
+    meeting, organiser, cast
+):
+    """Two different questions. The organiser may cancel it, take the register
+    and write the minute; an invitee may not."""
+    guest = cast["came"]
+    theirs = CompanyEvent.objects.create(
+        title="Their meeting",
+        event_type=CompanyEvent.EventType.MEETING,
+        start_datetime=timezone.now() + timedelta(days=1),
+        end_datetime=timezone.now() + timedelta(days=1, hours=1),
+        created_by=guest.user,
+        updated_by=guest.user,
+    )
+    MeetingAttendee.objects.create(event=theirs, employee=guest)
+    client = _client(guest.user)
+
+    mine = client.get(f"{LIST}?role=mine").data["results"]
+    invited = client.get(f"{LIST}?role=invited").data["results"]
+
+    assert [m["title"] for m in mine] == ["Their meeting"]
+    assert [m["title"] for m in invited] == ["Monthly site review"]
+
+
+def test_the_row_says_what_the_meeting_produced(meeting, organiser, cast):
+    """A held meeting and one nobody ever wrote up look the same from outside
+    unless the row says so."""
+    from notifications.models import AgendaItem
+
+    AgendaItem.objects.create(meeting=meeting, order=0, title="Progress report")
+    _decision(meeting, organiser)
+    meeting.attendees.filter(employee=cast["came"]).update(attendance="present")
+
+    row = _client(organiser.user).get(f"{LIST}{meeting.pk}/").data
+
+    assert row["agenda_count"] == 1
+    assert row["decision_count"] == 1
+    assert row["attendance_taken"] is True
+    assert row["minute_status"] is None
+    assert row["is_organiser"] is True
+
+
+def test_an_invitee_is_not_the_organiser(meeting, cast):
+    row = _client(cast["came"].user).get(f"{LIST}{meeting.pk}/").data
+
+    assert row["is_organiser"] is False
+    assert row["organiser_name"]
+
+
+def test_the_seed_produces_every_circumstance(db, company, hr_user):
+    """**The seed is the demonstration, so it is worth a test.** A module whose
+    states nobody can see is one nobody can evaluate."""
+    from notifications.seeding import seed_meetings
+
+    for index in range(4):
+        _person(f"seed_cast_{index}", f"SEED-{index}", company)
+
+    made = seed_meetings(for_username=hr_user.get_username())
+
+    assert made == 12
+    meetings = CompanyEvent.objects.filter(event_type=CompanyEvent.EventType.MEETING)
+    states = {
+        "cancelled": meetings.filter(status=CompanyEvent.Status.CANCELLED).count(),
+        "ended": meetings.filter(
+            status=CompanyEvent.Status.SCHEDULED, end_datetime__lt=timezone.now()
+        ).count(),
+        "scheduled": meetings.filter(
+            status=CompanyEvent.Status.SCHEDULED, end_datetime__gte=timezone.now()
+        ).count(),
+    }
+    assert all(count >= 2 for count in states.values()), states
+
+
+def test_the_seed_can_be_run_twice(db, company, hr_user):
+    """A seed that duplicates its own data on the second run is one nobody
+    dares run."""
+    from notifications.seeding import seed_meetings
+
+    for index in range(4):
+        _person(f"seed_cast_{index}", f"SEED-{index}", company)
+
+    first = seed_meetings(for_username=hr_user.get_username())
+    again = seed_meetings(for_username=hr_user.get_username())
+
+    assert first == 12
+    assert again == 0

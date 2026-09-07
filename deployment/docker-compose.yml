@@ -226,7 +226,18 @@ services:
       #
       # `NEXT_PUBLIC_*` is compiled into the browser bundle, so it has to be
       # the address a *browser on the host* can reach — the published port.
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8001
+      # 🔴 **The chat socket needs this, and its absence is silent.**
+      #
+      # The browser talks to the BFF for everything else, so a wrong API port
+      # goes unnoticed — but a WebSocket has no proxy in front of it and
+      # connects to whatever origin it is given. Without this the client fell
+      # back to the page's own origin, opened `ws://localhost:3001/ws/chat/`,
+      # which Next.js does not serve, and retried quietly for ever: chat
+      # appeared to work because sending still POSTs, and messages showed up on
+      # the next refresh instead of arriving. This is the published daphne port
+      # — 8001 here, offset so this stack never collides with the other one.
+      NEXT_PUBLIC_WS_URL: ws://localhost:8001
       # This one is used by the BFF routes, which run **inside this container**.
       # There, `localhost` is the container itself, so the default of
       # 127.0.0.1:8000 makes Next.js call itself and every login returns 500

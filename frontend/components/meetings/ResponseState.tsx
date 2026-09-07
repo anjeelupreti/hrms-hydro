@@ -26,6 +26,11 @@ import type { CompanyEvent } from "@/types/calendar";
  * somebody who never clicked. Including those would put permanent unanswerable
  * rows at the top of a card whose whole job is to list things to chase.
  *
+ * **Cancelled meetings are excluded for the same reason, and it is a sharper
+ * one.** This card says who still needs chasing; a cancelled meeting needs
+ * nobody chased, and listing one tells the organiser to go and ask four people
+ * to confirm they are coming to something that is not happening.
+ *
  * **Three states in a fixed order — accepted, declined, pending — because they
  * are not interchangeable.** A declined invitation is answered; the meeting can
  * proceed knowing that person is out. A pending one is the only one that costs
@@ -45,6 +50,7 @@ export default function ResponseState({ meetings }: { meetings: CompanyEvent[] }
 
   const upcoming = meetings
     .filter((m) => {
+      if (m.state === "cancelled" || m.status === "cancelled") return false;
       const start = new Date(m.start_datetime).getTime();
       return start >= now && start <= horizon && (m.attendees?.length ?? 0) > 0;
     })

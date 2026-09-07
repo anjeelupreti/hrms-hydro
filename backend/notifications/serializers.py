@@ -70,10 +70,62 @@ class CompanyEventSerializer(serializers.ModelSerializer):
     #: rather than recording a second version of it.
     duration_minutes = serializers.SerializerMethodField()
 
+    #: **Where this meeting is in its life, as one word.** A list that shows
+    #: only a date makes the reader work out "has this happened" for every row,
+    #: and cannot show a cancellation at all. Derived rather than stored:
+    #: `ended` is simply a past end time, so nothing depends on somebody having
+    #: remembered to close a meeting.
+    state = serializers.SerializerMethodField()
+    organiser_name = serializers.SerializerMethodField()
+    #: Whether the reader called this meeting. The organiser is `created_by` —
+    #: they may cancel it, take the register and write the minute; an invitee
+    #: may not, and a list that looks identical either way is one where people
+    #: click into meetings to find out.
+    is_organiser = serializers.SerializerMethodField()
+    #: What the meeting has produced so far, for the row. Counted from the
+    #: prefetch the queryset already does, so no extra queries.
+    agenda_count = serializers.SerializerMethodField()
+    decision_count = serializers.SerializerMethodField()
+    attendance_taken = serializers.SerializerMethodField()
+    minute_status = serializers.SerializerMethodField()
+
     def get_duration_minutes(self, obj):
         if not (obj.start_datetime and obj.end_datetime):
             return None
         return int((obj.end_datetime - obj.start_datetime).total_seconds() // 60)
+
+    def get_state(self, obj):
+        if obj.status == CompanyEvent.Status.CANCELLED:
+            return "cancelled"
+        return "ended" if obj.has_ended else "scheduled"
+
+    def get_organiser_name(self, obj):
+        user = obj.created_by
+        if user is None:
+            return None
+        return user.get_full_name() or user.get_username()
+
+    def get_is_organiser(self, obj):
+        request = self.context.get("request")
+        return bool(request and obj.created_by_id == request.user.id)
+
+    def get_agenda_count(self, obj):
+        return len(obj.agenda_items.all()) if hasattr(obj, "agenda_items") else 0
+
+    def get_decision_count(self, obj):
+        return len(obj.decisions.all()) if hasattr(obj, "decisions") else 0
+
+    def get_attendance_taken(self, obj):
+        """Whether anybody has taken the register — not how many came.
+
+        "Not recorded" and "did not come" are different facts, so this counts
+        rows that were actually marked.
+        """
+        return any(row.attendance != "unmarked" for row in obj.attendees.all())
+
+    def get_minute_status(self, obj):
+        minutes = getattr(obj, "minutes", None)
+        return minutes.status if minutes else None
 
     class Meta:
         model = CompanyEvent
@@ -90,7 +142,20 @@ class CompanyEventSerializer(serializers.ModelSerializer):
             "all_day",
             "location",
             "attendees",
+            "status",
+            "state",
+            "cancelled_at",
+            "cancellation_reason",
+            "organiser_name",
+            "is_organiser",
+            "agenda_count",
+            "decision_count",
+            "attendance_taken",
+            "minute_status",
         ]
+        # Called off through its own action, which tells the room. A PATCH that
+        # could flip the field would cancel a meeting silently.
+        read_only_fields = ["status", "cancelled_at", "cancellation_reason"]
 
     def validate(self, attrs):
         start = attrs.get("start_datetime", getattr(self.instance, "start_datetime", None))

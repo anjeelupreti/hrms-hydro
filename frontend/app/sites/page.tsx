@@ -6,19 +6,16 @@ import PlaceIcon from "@mui/icons-material/Place";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
 import Chip from "@mui/material/Chip";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
+import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
-import Table from "@mui/material/Table";
-import TableBody from "@mui/material/TableBody";
-import TableCell from "@mui/material/TableCell";
-import TableHead from "@mui/material/TableHead";
-import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -111,41 +108,89 @@ export default function SitesPage() {
           No sites yet. {canManage ? "Add one so travel orders can be routed to the people who know it." : ""}
         </Alert>
       ) : (
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Site</TableCell>
-                <TableCell>Where</TableCell>
-                <TableCell>Company</TableCell>
-                <TableCell>Who approves trips here</TableCell>
-                <TableCell align="right">Visits</TableCell>
-                {canManage ? <TableCell align="right" /> : null}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {sites.map((site) => (
-                <TableRow key={site.id} hover sx={{ opacity: site.is_active ? 1 : 0.55 }}>
-                  <TableCell>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+        // **Cards, not a table row.** A site is a *place*, and the one thing
+        // that tells an approver whether a trip there is a morning or two days
+        // on a jeep track is what it looks like — which a row of text columns
+        // cannot carry. The photograph is the reason this page changed shape:
+        // `Site.photo` has always been there and was shown nowhere.
+        <Grid container spacing={2}>
+          {sites.map((site) => (
+            <Grid key={site.id} size={{ xs: 12, sm: 6, lg: 4 }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  opacity: site.is_active ? 1 : 0.6,
+                }}
+              >
+                {/* A fixed 150px band whether or not there is a photograph, so
+                    a grid of cards does not go ragged the moment one site has
+                    no picture. Without one it takes the module's own gradient
+                    and shows the initials, the same answer `PersonAvatar` gives
+                    for somebody with no face on file. */}
+                <Box
+                  sx={{
+                    height: 150,
+                    position: "relative",
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: site.photo_url
+                      ? `url(${site.photo_url}) center/cover`
+                      : "linear-gradient(135deg, var(--mui-palette-primary-light), var(--mui-palette-primary-dark))",
+                  }}
+                >
+                  {!site.photo_url ? (
+                    <PlaceIcon sx={{ fontSize: 52, color: "common.white", opacity: 0.75 }} />
+                  ) : null}
+                  {!site.is_active ? (
+                    <Chip
+                      size="small"
+                      label="Retired"
+                      sx={{ position: "absolute", top: 8, right: 8, bgcolor: "background.paper" }}
+                    />
+                  ) : null}
+                  {site.code ? (
+                    <Chip
+                      size="small"
+                      label={site.code}
+                      sx={{ position: "absolute", top: 8, left: 8, bgcolor: "background.paper" }}
+                    />
+                  ) : null}
+                </Box>
+
+                <Box sx={{ p: 2, flex: 1, display: "flex", flexDirection: "column", gap: 1 }}>
+                  <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.25 }}>
                         {site.name}
                       </Typography>
-                      {site.code ? <Chip size="small" variant="outlined" label={site.code} /> : null}
-                      {!site.is_active ? <Chip size="small" label="Retired" /> : null}
-                    </Stack>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">
-                      {[site.address, site.district, site.province].filter(Boolean).join(", ") || "—"}
+                      <Typography variant="body2" color="text.secondary">
+                        {[site.address, site.district, site.province].filter(Boolean).join(", ") || "—"}
+                      </Typography>
+                    </Box>
+                    {canManage ? (
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => setEditing(site)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : null}
+                  </Stack>
+
+                  {site.company_name ? (
+                    <Typography variant="caption" color="text.secondary">
+                      {site.company_name}
                     </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary">
-                      {site.company_name ?? "—"}
+                  ) : null}
+
+                  <Box sx={{ mt: "auto", pt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                      Who signs off going there
                     </Typography>
-                  </TableCell>
-                  <TableCell>
                     {site.supervisor_names.length === 0 ? (
                       // Worth saying plainly: a site with nobody on it cannot
                       // be the reason a travel order is approvable, so trips
@@ -165,22 +210,15 @@ export default function SitesPage() {
                         ))}
                       </Stack>
                     )}
-                  </TableCell>
-                  <TableCell align="right">{site.visit_count}</TableCell>
-                  {canManage ? (
-                    <TableCell align="right">
-                      <Tooltip title="Edit">
-                        <IconButton size="small" onClick={() => setEditing(site)}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+                      {site.visit_count} {site.visit_count === 1 ? "visit" : "visits"} recorded
+                    </Typography>
+                  </Box>
+                </Box>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       )}
 
       <SiteDialog
