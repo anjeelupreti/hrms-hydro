@@ -24,7 +24,6 @@ import PersonIcon from "@mui/icons-material/Person";
 import PhoneIcon from "@mui/icons-material/Phone";
 import PrintIcon from "@mui/icons-material/Print";
 import SchoolIcon from "@mui/icons-material/School";
-import SupervisorAccountIcon from "@mui/icons-material/SupervisorAccount";
 import TimelineIcon from "@mui/icons-material/Timeline";
 import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
 import Alert from "@mui/material/Alert";
@@ -41,6 +40,7 @@ import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Typography from "@mui/material/Typography";
+import MuiLink from "@mui/material/Link";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
@@ -460,6 +460,23 @@ function ProfileInner() {
                         Supervisor 1 is the maker and is notified; the last is
                         the checker and decides. Order is the whole meaning, so
                         it is numbered rather than listed. */}
+                    {/* **The reporting line, which is not a contact detail.**
+                        It sat in the About card as an icon and a name, with
+                        nothing saying what the name meant — and a line manager
+                        is a different thing from the supervisors who approve
+                        leave, which is exactly why both need saying. */}
+                    <Fact
+                      label="Reports to"
+                      value={
+                        p.manager_name && p.manager_id != null ? (
+                          <MuiLink href={employeeHref(p.manager_id)} component={Link} variant="body2">
+                            {p.manager_name}
+                          </MuiLink>
+                        ) : (
+                          "Nobody set"
+                        )
+                      }
+                    />
                     <Fact
                       label="Supervisors"
                       value={
@@ -549,18 +566,6 @@ function ProfileInner() {
                         value={`${record.blood_group} · on file for site emergencies`}
                       />
                     ) : null}
-                    <Row
-                      icon={<SupervisorAccountIcon fontSize="small" />}
-                      value={
-                        p.manager_name && p.manager_id != null ? (
-                          <Link href={employeeHref(p.manager_id)} style={{ color: "inherit" }}>
-                            {p.manager_name}
-                          </Link>
-                        ) : (
-                          "No manager"
-                        )
-                      }
-                    />
                   </Stack>
                 </CardContent>
               </Card>
