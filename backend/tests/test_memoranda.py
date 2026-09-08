@@ -1239,3 +1239,276 @@ def test_a_decided_memorandum_cannot_be_signed(memo, cast, recommend):
     response = _client(cast["a"]).post(f"{LIST}{memo.pk}/sign/", {}, format="json")
 
     assert response.status_code == 400, response.data
+
+
+# ── A file travels with an action ────────────────────────────────────────
+#
+# **The chain answers a memorandum, and the answer can have a document in it.**
+# "Approved, subject to the revised estimate" is not something the record can
+# hold unless the estimate is on it. `MemorandumAttachment.event` drew that line
+# from the start and only the standalone comment box ever wrote it, so the paper
+# said "approved" and the estimate went by email.
+
+
+def _to_approver(memo, cast, recommend):
+    """Walk it up to the approver's desk."""
+    submit(memo)
+    for who in ("a", "b", "c"):
+        proceed(memo, cast[who], action=recommend)
+    return memo
+
+
+def _attachment(name):
+    from memoranda.models import MemorandumAttachment
+
+    return MemorandumAttachment.objects.get(file__endswith=name)
+
+
+def test_a_file_can_travel_with_a_decision(memo, cast, recommend):
+    """It lands on the entry the decision wrote, not loose on the memorandum."""
+    _to_approver(memo, cast, recommend)
+
+    response = _client(cast["approver"]).post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "Approved on the revised figure.", "files": _upload("estimate.pdf")},
+        format="multipart",
+    )
+
+    assert response.status_code == 200, response.data
+    row = _attachment("estimate.pdf")
+    assert row.event is not None
+    assert row.event.kind == MemorandumEvent.Kind.APPROVED
+    assert row.uploaded_by == cast["approver"].user
+
+
+def test_a_file_can_travel_with_a_recommendation(memo, cast, recommend):
+    """Not only the final decision — every step in the chain can answer with a
+    document."""
+    submit(memo)
+
+    response = _client(cast["a"]).post(
+        f"{LIST}{memo.id}/proceed/",
+        {
+            "action": str(recommend.pk),
+            "comment": "Recommended — see the survey.",
+            "files": _upload("survey.pdf"),
+        },
+        format="multipart",
+    )
+
+    assert response.status_code == 200, response.data
+    assert _attachment("survey.pdf").event.kind == MemorandumEvent.Kind.PROCEEDED
+
+
+def test_a_file_that_came_with_an_action_is_not_one_of_the_annexes(memo, cast, recommend):
+    """🔒 The freeze rule again, from the other side.
+
+    Annexes are the proposal and are fixed at submission. A file somebody sent
+    with their recommendation is part of their answer, so it belongs to the log
+    entry and must not turn up beneath the initiator's signatures as a fourth
+    annexe nobody agreed to.
+    """
+    submit(memo)
+    _client(cast["a"]).post(
+        f"{LIST}{memo.id}/proceed/",
+        {"action": str(recommend.pk), "comment": "", "files": _upload("late.pdf")},
+        format="multipart",
+    )
+
+    detail = _client(cast["initiator"]).get(f"{LIST}{memo.id}/").data
+    assert detail["attachments"] == []
+    assert detail["events"][-1]["attachments"] != []
+
+
+def test_whoever_attached_it_can_rename_it(memo, cast, recommend):
+    """A file arrives called `scan_0012.pdf` and what the chain needs to read is
+    "the revised estimate" — a label on the record, not a change to it, and it
+    stays open after submission because the record itself does not move."""
+    _to_approver(memo, cast, recommend)
+    client = _client(cast["approver"])
+    client.post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "", "files": _upload("scan_0012.pdf")},
+        format="multipart",
+    )
+    row = _attachment("scan_0012.pdf")
+
+    response = client.patch(
+        f"{LIST}{memo.id}/attachments/{row.pk}/",
+        {"caption": "The revised estimate"},
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    row.refresh_from_db()
+    assert row.caption == "The revised estimate"
+
+
+def test_somebody_else_cannot_rename_it(memo, cast, recommend):
+    """Not even the initiator. The label says what the document is, and the
+    person who attached it is the one who knows."""
+    _to_approver(memo, cast, recommend)
+    _client(cast["approver"]).post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "", "files": _upload("theirs.pdf")},
+        format="multipart",
+    )
+    row = _attachment("theirs.pdf")
+
+    response = _client(cast["initiator"]).patch(
+        f"{LIST}{memo.id}/attachments/{row.pk}/",
+        {"caption": "Mine now"},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    row.refresh_from_db()
+    assert row.caption == ""
+
+
+def test_a_file_that_came_with_an_action_stays_on_the_record(memo, cast, recommend):
+    """Removing it would leave the log saying somebody answered with a document
+    that is no longer there."""
+    from memoranda.models import MemorandumAttachment
+
+    _to_approver(memo, cast, recommend)
+    client = _client(cast["approver"])
+    client.post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "", "files": _upload("evidence.pdf")},
+        format="multipart",
+    )
+    row = _attachment("evidence.pdf")
+
+    response = client.delete(f"{LIST}{memo.id}/attachments/{row.pk}/")
+
+    assert response.status_code == 400
+    assert MemorandumAttachment.objects.filter(pk=row.pk).exists()
+
+
+# ── Filing one away ──────────────────────────────────────────────────────
+
+
+def test_archiving_takes_it_off_the_working_lists(memo, cast, recommend):
+    """🔴 **It did not.** `workflow.archive` says a filed memorandum "need not
+    sit in anybody's working list any longer", and `my-desk` went on returning
+    it under `mine` — so the status changed, the desk looked identical, and the
+    button read as broken."""
+    _to_approver(memo, cast, recommend)
+    decide(memo, cast["approver"], approve=True)
+    client = _client(cast["initiator"])
+    assert any(m["id"] == memo.id for m in client.get(f"{LIST}my-desk/").data["mine"])
+
+    response = client.post(f"{LIST}{memo.id}/archive/", {}, format="json")
+
+    assert response.status_code == 200, response.data
+    desk = client.get(f"{LIST}my-desk/").data
+    assert not any(m["id"] == memo.id for m in desk["mine"])
+    assert [m["id"] for m in desk["archived"]] == [memo.id]
+
+
+def test_a_recommender_stops_seeing_a_filed_one_too(memo, cast, recommend):
+    """`handled` is a working list as well — it is what somebody scans to see
+    where the things they signed have got to."""
+    _to_approver(memo, cast, recommend)
+    decide(memo, cast["approver"], approve=True)
+    assert any(
+        m["id"] == memo.id
+        for m in _client(cast["a"]).get(f"{LIST}my-desk/").data["handled"]
+    )
+
+    _client(cast["initiator"]).post(f"{LIST}{memo.id}/archive/", {}, format="json")
+
+    desk = _client(cast["a"]).get(f"{LIST}my-desk/").data
+    assert not any(m["id"] == memo.id for m in desk["handled"])
+    # And it is not in theirs to file either — the drawer is the initiator's.
+    assert desk["archived"] == []
+
+
+def test_only_the_initiator_files_one_away(memo, cast, recommend):
+    _to_approver(memo, cast, recommend)
+    decide(memo, cast["approver"], approve=True)
+
+    response = _client(cast["approver"]).post(f"{LIST}{memo.id}/archive/", {}, format="json")
+
+    assert response.status_code == 403
+    memo.refresh_from_db()
+    assert memo.status != Memorandum.Status.ARCHIVED
+
+
+def test_one_still_travelling_cannot_be_filed_away(memo, cast):
+    """That would take it off the desk of whoever is holding it and leave them
+    with no way to act — a cancellation wearing the wrong word."""
+    submit(memo)
+
+    response = _client(cast["initiator"]).post(f"{LIST}{memo.id}/archive/", {}, format="json")
+
+    assert response.status_code == 400
+    assert any(
+        m["id"] == memo.id
+        for m in _client(cast["a"]).get(f"{LIST}my-desk/").data["awaiting_me"]
+    )
+
+
+def test_filing_leaves_the_decision_exactly_as_it_was(memo, cast, recommend):
+    """🔒 Archiving says the matter is closed, not that the decision changed.
+    An approved memorandum is evidence."""
+    _to_approver(memo, cast, recommend)
+    decide(memo, cast["approver"], approve=True)
+    before = memo.events.count()
+
+    _client(cast["initiator"]).post(f"{LIST}{memo.id}/archive/", {}, format="json")
+
+    detail = _client(cast["initiator"]).get(f"{LIST}{memo.id}/").data
+    assert detail["status"] == "archived"
+    assert detail["decided_at"] is not None
+    assert memo.events.count() == before + 1
+    assert memo.events.order_by("created_at", "id").last().kind == (
+        MemorandumEvent.Kind.ARCHIVED
+    )
+
+
+def test_the_record_says_who_may_relabel_each_file(memo, cast, recommend):
+    """The page draws the pencil from this rather than working it out.
+
+    It cannot work it out: the uploader is a *user* and everything the page
+    knows about people is an *employee*, so deriving it on the client would
+    mean shipping user ids to do a comparison the server has already done.
+    """
+    _to_approver(memo, cast, recommend)
+    _client(cast["approver"]).post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "", "files": _upload("mine.pdf")},
+        format="multipart",
+    )
+
+    def flag(employee):
+        detail = _client(employee).get(f"{LIST}{memo.id}/").data
+        return detail["events"][-1]["attachments"][0]["can_rename"]
+
+    assert flag(cast["approver"]) is True
+    assert flag(cast["initiator"]) is False
+
+
+def test_the_flag_survives_the_rename_that_sets_it(memo, cast, recommend):
+    """🔴 **The three attachment endpoints served it without a request.**
+
+    `can_rename` is computed from who is asking, so a serializer built without
+    the request in its context answers `false` for everybody — including, on
+    the response to a rename, the person who had just successfully renamed it.
+    """
+    _to_approver(memo, cast, recommend)
+    client = _client(cast["approver"])
+    client.post(
+        f"{LIST}{memo.id}/approve/",
+        {"comment": "", "files": _upload("theirs.pdf")},
+        format="multipart",
+    )
+    row = _attachment("theirs.pdf")
+
+    response = client.patch(
+        f"{LIST}{memo.id}/attachments/{row.pk}/", {"caption": "Named"}, format="json"
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["can_rename"] is True

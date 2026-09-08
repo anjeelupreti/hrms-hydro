@@ -119,14 +119,28 @@ class MemorandumRecommenderSerializer(serializers.ModelSerializer):
 class MemorandumAttachmentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField()
     uploaded_by_name = serializers.SerializerMethodField()
+    #: Whether this reader may relabel it.
+    #:
+    #: **Sent rather than worked out on the client.** The rule is "whoever
+    #: attached it", and the uploader is a *user* while everything the page
+    #: knows about people is an *employee* — so the frontend cannot compare
+    #: them without being told the user id, which is worse than being told the
+    #: answer. The endpoint enforces this either way; this only decides whether
+    #: a control that would 403 is drawn at all.
+    can_rename = serializers.SerializerMethodField()
 
     class Meta:
         model = MemorandumAttachment
         fields = [
             "id", "memorandum", "event", "file", "file_url", "caption",
-            "uploaded_by_name", "created_at",
+            "uploaded_by_name", "can_rename", "created_at",
         ]
         read_only_fields = ["memorandum", "event", "created_at"]
+
+    def get_can_rename(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return bool(user and user.is_authenticated and obj.uploaded_by_id == user.id)
 
     def get_file_url(self, obj):
         return obj.file.url if obj.file else None

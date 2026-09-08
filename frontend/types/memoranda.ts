@@ -24,7 +24,17 @@ export type MemorandumAction = {
   for_approver: boolean;
 };
 
-export type MemorandumStatus = "draft" | "in_progress" | "approved" | "rejected";
+/** 🔴 `archived` was missing here while `Memorandum.Status.ARCHIVED` and
+ *  `workflow.archive` had existed on the server all along — so the one
+ *  state the initiator can put a memorandum into was unrepresentable in
+ *  the UI, and comparing against it was a type error rather than a
+ *  feature. */
+export type MemorandumStatus =
+  | "draft"
+  | "in_progress"
+  | "approved"
+  | "rejected"
+  | "archived";
 export type MemorandumStage = "draft" | "recommend" | "approve" | "closed";
 
 export type MemorandumRecommender = {
@@ -56,6 +66,9 @@ export type MemorandumAttachment = {
   file_url: string | null;
   caption: string;
   uploaded_by_name: string | null;
+  /** Whether *this* reader may relabel it — the server's answer, not a rule
+   *  restated here. Only whoever attached it can. */
+  can_rename: boolean;
   created_at: string;
 };
 
@@ -182,6 +195,9 @@ export type MemorandumDesk = {
   mine: MemorandumListItem[];
   /** Anything they have put a word on, whatever became of it. */
   handled: MemorandumListItem[];
+  /** Filed by this reader as initiator, and kept out of the three working
+   *  lists above — taking it off the desk is what archiving is *for*. */
+  archived: MemorandumListItem[];
 };
 
 export type MemorandumFormValues = {
@@ -201,6 +217,10 @@ export const MEMO_STATUS_TONE: Record<
   in_progress: "caution",
   approved: "normal",
   rejected: "alarm",
+  // Muted like a draft: a filed memorandum is not a state anybody has to act
+  // on, and colouring it would make a closed matter compete for attention with
+  // the ones still moving.
+  archived: "muted",
 };
 
 

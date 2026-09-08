@@ -5,6 +5,7 @@ import AssignmentIcon from "@mui/icons-material/Assignment";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import HistoryIcon from "@mui/icons-material/History";
 import InboxIcon from "@mui/icons-material/Inbox";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
 import SettingsIcon from "@mui/icons-material/Settings";
 import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
@@ -140,6 +141,20 @@ export default function MemorandaPage() {
             onOpen={setOpenId}
             muted
           />
+          {/* **Only where there is something in it.** An empty "Filed away"
+              heading on every desk would be a permanent reminder of a drawer
+              nobody has put anything in; the three above are the working lists
+              and are worth showing empty, because empty is the good state. */}
+          {(desk?.archived ?? []).length > 0 ? (
+            <Section
+              title="Filed away"
+              icon={<Inventory2Icon fontSize="small" />}
+              items={desk?.archived ?? []}
+              emptyText="Nothing filed."
+              onOpen={setOpenId}
+              muted
+            />
+          ) : null}
         </Stack>
       )}
 

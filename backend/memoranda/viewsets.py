@@ -288,16 +288,24 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         base = self.get_queryset()
         if me is None:
             empty = MemorandumListSerializer([], many=True).data
-            return Response({"awaiting_me": empty, "mine": empty, "handled": empty})
+            return Response(
+                {"awaiting_me": empty, "mine": empty, "handled": empty, "archived": empty}
+            )
 
         awaiting = base.filter(
             current_holder=me, status=Memorandum.Status.IN_PROGRESS
         ).order_by("submitted_at")
 
+        # 🔴 **Archiving has to actually take it off the working list.**
+        # `workflow.archive` says a filed memorandum "need not sit in anybody's
+        # working list any longer" and this endpoint went on returning it in
+        # `mine` and `handled` — so the status changed and the desk looked
+        # identical, which makes the button read as broken. Filed ones come back
+        # in their own list instead.
         mine = base.filter(initiator=me).exclude(
             # Already at the top of the page if it is on their own desk.
             Q(current_holder=me) & Q(status=Memorandum.Status.IN_PROGRESS)
-        )
+        ).exclude(status=Memorandum.Status.ARCHIVED)
 
         # Anything they have put a word on, whatever became of it. Read from the
         # log rather than from the chain, so somebody removed from a later
@@ -310,7 +318,16 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
                 MemorandumEvent.Kind.APPROVED,
                 MemorandumEvent.Kind.REJECTED,
             ],
-        ).exclude(current_holder=me).distinct()
+        ).exclude(current_holder=me).exclude(
+            status=Memorandum.Status.ARCHIVED
+        ).distinct()
+
+        # Theirs to file, so theirs to find again. Anybody else who worked on
+        # one can still reach it by searching — this list is the initiator's
+        # own drawer, not a company-wide archive view.
+        archived = base.filter(
+            initiator=me, status=Memorandum.Status.ARCHIVED
+        ).order_by("-updated_at")
 
         serialize = lambda qs: MemorandumListSerializer(  # noqa: E731
             qs[:100], many=True, context=self.get_serializer_context()
@@ -319,11 +336,29 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             "awaiting_me": serialize(awaiting),
             "mine": serialize(mine),
             "handled": serialize(handled),
+            "archived": serialize(archived),
         })
 
     # ── Transitions ──────────────────────────────────────────────────────
 
-    def _run(self, fn, *args, **kwargs):
+    def _run(self, fn, *args, request=None, **kwargs):
+        """Run a workflow step, and hang anything it came with on its own entry.
+
+        **A file arrives with an action, not on its own.** The chain reads a
+        memorandum and answers it — "approved, subject to the revised estimate"
+        — and the revised estimate is part of that answer. Before this the only
+        way to put one on the record was the standalone comment box, so the
+        paper said "approved" and the estimate went by email.
+
+        Attached to the event the step just logged rather than to the
+        memorandum: the annexes are the proposal and are fixed at submission,
+        while this is somebody answering mid-flight, and the log has to be able
+        to show which answer a file came with. `MemorandumAttachment.event`
+        already draws that line — nothing wrote it except the comment endpoint.
+
+        Taken as the newest event on the memorandum because every workflow step
+        logs exactly one, last, inside the same transaction.
+        """
         try:
             memo = fn(*args, **kwargs)
         except NotYourTurn as exc:
@@ -332,6 +367,26 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
         except MemorandumError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist("files") if request is not None else []
+        if files:
+            event = memo.events.order_by("created_at", "id").last()
+            captions = (
+                request.data.getlist("captions")
+                if hasattr(request.data, "getlist")
+                else []
+            )
+            for index, upload in enumerate(files):
+                MemorandumAttachment.objects.create(
+                    memorandum=memo,
+                    event=event,
+                    file=upload,
+                    caption=captions[index] if index < len(captions) else "",
+                    uploaded_by=request.user,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+
         memo.refresh_from_db()
         return Response(self.get_serializer(memo).data)
 
@@ -345,7 +400,8 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             )
         return self._run(workflow.submit, memo, actor=request.user)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"],
+        parser_classes=[JSONParser, MultiPartParser, FormParser])
     def proceed(self, request, *args, **kwargs):
         memo = self.get_object()
         action_row = MemorandumAction.objects.filter(pk=request.data.get("action")).first()
@@ -356,9 +412,11 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             action=action_row,
             comment=request.data.get("comment", ""),
             actor=request.user,
+            request=request,
         )
 
-    @action(detail=True, methods=["post"], url_path="send-back")
+    @action(detail=True, methods=["post"],
+        parser_classes=[JSONParser, MultiPartParser, FormParser], url_path="send-back")
     def send_back(self, request, *args, **kwargs):
         memo = self.get_object()
         target = Employee.objects.filter(pk=request.data.get("to")).first()
@@ -371,9 +429,11 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             action=action_row,
             comment=request.data.get("comment", ""),
             actor=request.user,
+            request=request,
         )
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"],
+        parser_classes=[JSONParser, MultiPartParser, FormParser])
     def resubmit(self, request, *args, **kwargs):
         memo = self.get_object()
         return self._run(
@@ -382,6 +442,7 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             self._me(),
             comment=request.data.get("comment", ""),
             actor=request.user,
+            request=request,
         )
 
     @action(detail=True, methods=["post"])
@@ -428,20 +489,24 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         memo = self.get_object()
         return self._run(workflow.archive, memo, self._me(), actor=request.user)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"],
+        parser_classes=[JSONParser, MultiPartParser, FormParser])
     def approve(self, request, *args, **kwargs):
         memo = self.get_object()
         return self._run(
             workflow.decide, memo, self._me(),
             approve=True, comment=request.data.get("comment", ""), actor=request.user,
+            request=request,
         )
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"],
+        parser_classes=[JSONParser, MultiPartParser, FormParser])
     def reject(self, request, *args, **kwargs):
         memo = self.get_object()
         return self._run(
             workflow.decide, memo, self._me(),
             approve=False, comment=request.data.get("comment", ""), actor=request.user,
+            request=request,
         )
 
     @action(
@@ -517,7 +582,10 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         memo = self.get_object()
         if request.method == "GET":
             return Response(
-                MemorandumAttachmentSerializer(memo.attachments.all(), many=True).data
+                MemorandumAttachmentSerializer(
+                    memo.attachments.all(), many=True,
+                    context=self.get_serializer_context(),
+                ).data
             )
         me = self._me()
         # Fixed at submission, like everything else that is not the content: a
@@ -533,7 +601,9 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
                 {"detail": "Only the initiator attaches to their memorandum."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        serializer = MemorandumAttachmentSerializer(data=request.data)
+        serializer = MemorandumAttachmentSerializer(
+            data=request.data, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save(
             memorandum=memo,
@@ -543,9 +613,50 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
         )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[0-9]+)")
+    @action(
+        detail=True,
+        methods=["delete", "patch"],
+        url_path=r"attachments/(?P<attachment_id>[0-9]+)",
+    )
     def attachment_detail(self, request, attachment_id=None, *args, **kwargs):
+        """Rename one, or take an annexe back off a draft.
+
+        **Renaming is the uploader's, and stays open after submission.** A file
+        arrives called `scan_0012.pdf` and what the chain needs to read is "the
+        revised estimate" — that is a label on the record, not a change to the
+        record, and the person who attached it is the one who knows what it is.
+        Removing a file is the opposite: an annexe is part of the proposal, so
+        it is fixed at submission exactly as before, and a file that came with
+        somebody's action is part of that action and is not removable at all.
+        """
         memo = self.get_object()
+        row = memo.attachments.filter(pk=attachment_id).first()
+        if row is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == "PATCH":
+            if row.uploaded_by_id != request.user.id:
+                return Response(
+                    {"detail": "Only whoever attached it can rename it."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            row.caption = (request.data.get("caption") or "").strip()[:200]
+            row.updated_by = request.user
+            row.save(update_fields=["caption", "updated_by", "updated_at"])
+            return Response(
+                MemorandumAttachmentSerializer(
+                    row, context=self.get_serializer_context()
+                ).data
+            )
+
+        # A file that came with an action is part of that action. Removing it
+        # would leave the log saying somebody answered with a document that is
+        # no longer there.
+        if row.event_id is not None:
+            return Response(
+                {"detail": "This came with an action and stays on the record."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if memo.status != Memorandum.Status.DRAFT:
             return Response(
                 {"detail": "Attachments are fixed once the memorandum is submitted."},
@@ -553,8 +664,5 @@ class MemorandumViewSet(AuditViewSetMixin, ModelViewSet):
             )
         if memo.initiator_id != getattr(self._me(), "pk", None):
             return Response(status=status.HTTP_403_FORBIDDEN)
-        row = memo.attachments.filter(pk=attachment_id).first()
-        if row is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         row.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

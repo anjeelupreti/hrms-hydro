@@ -1,12 +1,15 @@
 "use client";
 
 import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
 import PrintIcon from "@mui/icons-material/Print";
 import RemoveIcon from "@mui/icons-material/Remove";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import InputBase from "@mui/material/InputBase";
 import MenuItem from "@mui/material/MenuItem";
 import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
@@ -21,6 +24,7 @@ import StateChip from "@/components/common/StateChip";
 import {
   MEMO_STATUS_TONE,
   type Memorandum,
+  type MemorandumAttachment,
   type MemorandumEvent,
   type MemorandumSignature,
 } from "@/types/memoranda";
@@ -88,6 +92,7 @@ export default function MemorandumLetter({
   history,
   meId,
   onMoveSignature,
+  onRenameAttachment,
 }: {
   memo: Memorandum | null;
   draft?: {
@@ -162,6 +167,14 @@ export default function MemorandumLetter({
    * mark draggable at all.
    */
   onMoveSignature?: (x: number, y: number, page: number) => void;
+  /**
+   * Called to relabel one of the log's attachments.
+   *
+   * Passed only where the letter is being *worked on* rather than read — the
+   * list preview and the printed sheet get nothing, and the pencil is not
+   * drawn. Its absence is what makes the names plain text.
+   */
+  onRenameAttachment?: (attachmentId: number, caption: string) => void;
 }) {
   const subject = draft?.subject ?? memo?.subject ?? "";
   const content = draft?.content ?? memo?.content ?? "";
@@ -774,12 +787,29 @@ export default function MemorandumLetter({
                     <Box component="td">
                       {/* The caption when there is one, otherwise the file's
                           own name off the end of its path — which is what
-                          somebody who attached it will recognise. */}
-                      {event.attachments.length > 0
-                        ? event.attachments
-                            .map((file) => file.caption || file.file.split("/").pop() || "file")
-                            .join(", ")
-                        : "—"}
+                          somebody who attached it will recognise.
+
+                          **Relabelling lives here because this is where the
+                          name is read.** A file that came with an action is
+                          part of that action and cannot be removed or replaced;
+                          what it is *called* on the page is a different thing,
+                          and the person who attached it is the one who knows.
+                          The pencil is drawn only where the server has already
+                          said yes (`can_rename`), so it never offers a control
+                          that would come back 403. */}
+                      {event.attachments.length > 0 ? (
+                        <Stack spacing={0.25}>
+                          {event.attachments.map((file) => (
+                            <AttachmentName
+                              key={file.id}
+                              file={file}
+                              onRename={onRenameAttachment}
+                            />
+                          ))}
+                        </Stack>
+                      ) : (
+                        "—"
+                      )}
                     </Box>
                   </Box>
                 ))}
@@ -988,6 +1018,99 @@ function Muted({ children }: { children: ReactNode }) {
   return (
     <Box component="span" sx={{ color: "#8b91a1", fontStyle: "italic" }}>
       {children}
+    </Box>
+  );
+}
+
+
+/**
+ * One file's name in the log, and the relabelling of it.
+ *
+ * **The name is the only part of an attachment that can still change.** The
+ * file itself came with somebody's action and stays on the record — removing
+ * it would leave the log saying they answered with a document that is no
+ * longer there. What it is *called* is a label the reader needs and the
+ * uploader is the one who can write it: `scan_0012.pdf` tells the chain
+ * nothing, "the revised estimate" tells it everything.
+ *
+ * Edits in place rather than in a dialog. It is one short string being
+ * corrected where it is read, and a modal over a document to change six words
+ * makes the correction feel like a decision.
+ */
+function AttachmentName({
+  file,
+  onRename,
+}: {
+  file: MemorandumAttachment;
+  onRename?: (attachmentId: number, caption: string) => void;
+}) {
+  const fallback = file.file.split("/").pop() || "file";
+  const shown = file.caption || fallback;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(file.caption);
+
+  // The server is the source of the name: after a rename lands, the memorandum
+  // is refetched and the prop is what the box should show — not whatever was
+  // last typed into it.
+  useEffect(() => setDraft(file.caption), [file.caption]);
+
+  const commit = () => {
+    setEditing(false);
+    if (draft.trim() !== file.caption) onRename?.(file.id, draft.trim());
+  };
+
+  if (editing) {
+    return (
+      <InputBase
+        autoFocus
+        value={draft}
+        placeholder={fallback}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") commit();
+          // Leaves it as it was: escape is how somebody says "I did not mean
+          // to start typing here".
+          if (event.key === "Escape") {
+            setDraft(file.caption);
+            setEditing(false);
+          }
+        }}
+        inputProps={{ maxLength: 200, "aria-label": "Rename this attachment" }}
+        sx={{ fontSize: "inherit", width: "100%" }}
+      />
+    );
+  }
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, minWidth: 0 }}>
+      <Box
+        component={file.file_url ? "a" : "span"}
+        href={file.file_url ?? undefined}
+        target={file.file_url ? "_blank" : undefined}
+        rel={file.file_url ? "noopener" : undefined}
+        sx={{
+          color: "inherit",
+          textDecoration: file.file_url ? "underline" : "none",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {shown}
+      </Box>
+      {onRename && file.can_rename ? (
+        <IconButton
+          size="small"
+          aria-label={`Rename ${shown}`}
+          onClick={() => setEditing(true)}
+          // Off the printed sheet: a button is not part of the document.
+          className="no-print"
+          sx={{ p: 0.25 }}
+        >
+          <EditIcon sx={{ fontSize: ".85rem" }} />
+        </IconButton>
+      ) : null}
     </Box>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import AttachFileIcon from "@mui/icons-material/AttachFile";
+import Inventory2Icon from "@mui/icons-material/Inventory2";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutlined";
 import DescriptionIcon from "@mui/icons-material/Description";
@@ -31,7 +32,7 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { alpha } from "@mui/material/styles";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import DateField from "@/components/common/DateField";
 import DateText from "@/components/common/DateText";
@@ -54,6 +55,8 @@ import {
   useResubmitMemorandum,
   usePlaceSignature,
   useSignMemorandum,
+  useArchiveMemorandum,
+  useRenameMemorandumAttachment,
   useSkipMemorandum,
   useSaveMemorandum,
   useSendBackMemorandum,
@@ -171,6 +174,8 @@ export default function MemorandumDialog({
   const sendBack = useSendBackMemorandum();
   const resubmit = useResubmitMemorandum();
   const skipHolder = useSkipMemorandum();
+  const archive = useArchiveMemorandum();
+  const renameAttachment = useRenameMemorandumAttachment();
   const signMemo = useSignMemorandum();
   const placeSignature = usePlaceSignature();
   const approve = useApproveMemorandum();
@@ -183,6 +188,12 @@ export default function MemorandumDialog({
 
   const [values, setValues] = useState<MemorandumFormValues>(EMPTY);
   const [comment, setComment] = useState("");
+  /** Files chosen to travel with whichever button is pressed next. They
+   *  are not uploaded until then: an attachment belongs to an action, and
+   *  one uploaded before the action would sit on the record attached to
+   *  nothing if the reader changed their mind. */
+  const [actionFiles, setActionFiles] = useState<File[]>([]);
+  const actionFileInput = useRef<HTMLInputElement>(null);
   const [actionId, setActionId] = useState<number | "">("");
   const [returnTo, setReturnTo] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
@@ -399,8 +410,37 @@ export default function MemorandumDialog({
           </Alert>
         ) : null}
 
-        {locked ? (
-          <Alert severity="success" icon={<CheckCircleIcon />} sx={{ mb: 2 }}>
+        {memo?.status === "archived" ? (
+          <Alert severity="info" icon={<Inventory2Icon />} sx={{ mb: 2 }}>
+            Filed away by the initiator. It stays exactly as it was — archiving
+            says the matter is closed, not that the decision changed.
+          </Alert>
+        ) : locked ? (
+          <Alert
+            severity="success"
+            icon={<CheckCircleIcon />}
+            sx={{ mb: 2 }}
+            // **The initiator's, and only once it has stopped travelling.**
+            // The approver signed a request, not an outcome — the initiator is
+            // the one who knows whether the thing it asked for actually
+            // happened, or whether it went through every step and then turned
+            // out to be unintended. Archiving a memorandum still on somebody's
+            // desk would take it off that desk with no way to act on it, which
+            // is a cancellation wearing the wrong word; `workflow.archive`
+            // refuses that and this only offers it here.
+            action={
+              memo?.my_role === "initiator" ? (
+                <Button
+                  size="small"
+                  startIcon={<Inventory2Icon />}
+                  disabled={busy}
+                  onClick={() => run(archive.mutateAsync({ id: memo.id }), onClose)}
+                >
+                  File it away
+                </Button>
+              ) : null
+            }
+          >
             This memorandum was {memo?.status === "approved" ? "approved" : "rejected"} on{" "}
             <DateText value={memo?.decided_at ?? ""} />. It is a record now — nothing
             on it can be changed.
@@ -548,6 +588,16 @@ export default function MemorandumDialog({
                   onMoveSignature={
                     memo && memo.has_signed && !locked
                       ? (x, y, page) => placeSignature.mutate({ id: memo.id, x, y, page })
+                      : undefined
+                  }
+                  // **Not gated on the memorandum being open.** Relabelling is
+                  // a label on the record, not a change to it, so it stays
+                  // available on a decided one — the server decides per file
+                  // whether this reader attached it and sends `can_rename`.
+                  onRenameAttachment={
+                    memo
+                      ? (attachmentId, caption) =>
+                          renameAttachment.mutate({ id: memo.id, attachmentId, caption })
                       : undefined
                   }
                   fields={
@@ -700,15 +750,18 @@ export default function MemorandumDialog({
                 : "It is your turn"}
             </Typography>
 
-            {/* One note, and it says what it is for.
+            {/* **A comment, and it says what it is for.**
                 There used to be a box labelled "Comment" here and a second
                 composer labelled "Add a comment" immediately underneath, which
                 left the reader to work out which of two identical-looking boxes
-                did what. This one travels with the decision; the other one is
-                for saying something *without* moving the memorandum, and both
-                now say so. */}
+                did what. Only this one remains, and it travels with the
+                decision. It was then labelled "Note", which is worse than
+                either: the log column, the model field and the whole vocabulary
+                of the module say *comment*, and a form that calls the same
+                thing something else makes a reader wonder if it is a third
+                thing. */}
             <TextField
-              label="Note to go with your decision"
+              label="Comment to go with your decision"
               placeholder="Optional — it is recorded against whichever button you press."
               fullWidth
               multiline
@@ -719,6 +772,58 @@ export default function MemorandumDialog({
               sx={{ mt: 1.5 }}
             />
 
+            {/* **A file can travel with the answer.** "Approved, subject to the
+                revised estimate" is not an answer the record can hold unless
+                the estimate is on it — and before this the only way to put one
+                there was the standalone comment box, so the paper said
+                "approved" and the estimate went by email. Held until the button
+                is pressed: an attachment belongs to an action, and one uploaded
+                first would sit on the record attached to nothing. */}
+            <Stack
+              direction="row"
+              spacing={1}
+              sx={{ mt: 1, alignItems: "center", flexWrap: "wrap" }}
+              useFlexGap
+            >
+              <Button
+                size="small"
+                startIcon={<AttachFileIcon />}
+                onClick={() => actionFileInput.current?.click()}
+              >
+                Attach a file
+              </Button>
+              {actionFiles.map((file, index) => (
+                <Chip
+                  key={`${file.name}-${index}`}
+                  size="small"
+                  label={file.name}
+                  onDelete={() =>
+                    setActionFiles((current) => current.filter((_f, i) => i !== index))
+                  }
+                />
+              ))}
+              <input
+                ref={actionFileInput}
+                type="file"
+                multiple
+                hidden
+                onChange={(event) => {
+                  const chosen = Array.from(event.target.files ?? []);
+                  // Cleared either way: picking the same file twice in a row
+                  // fires no change event unless the input is reset.
+                  event.target.value = "";
+                  if (chosen.length) setActionFiles((current) => [...current, ...chosen]);
+                }}
+              />
+            </Stack>
+            {actionFiles.length > 0 ? (
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                {actionFiles.length === 1 ? "It goes" : "They go"} on the record with the
+                action you press. You can rename {actionFiles.length === 1 ? "it" : "them"}{" "}
+                in the log afterwards.
+              </Typography>
+            ) : null}
+
             {memo.my_role === "initiator" ? (
               <Button
                 variant="contained"
@@ -726,7 +831,7 @@ export default function MemorandumDialog({
                 sx={{ mt: 2 }}
                 disabled={busy}
                 onClick={() =>
-                  run(resubmit.mutateAsync({ id: memo.id, comment }), onClose)
+                  run(resubmit.mutateAsync({ id: memo.id, comment, files: actionFiles }), onClose)
                 }
               >
                 Send forward again
@@ -753,7 +858,7 @@ export default function MemorandumDialog({
                         color="success"
                         startIcon={<CheckCircleIcon />}
                         disabled={busy}
-                        onClick={() => run(approve.mutateAsync({ id: memo.id, comment }), onClose)}
+                        onClick={() => run(approve.mutateAsync({ id: memo.id, comment, files: actionFiles }), onClose)}
                       >
                         Approve
                       </Button>
@@ -761,7 +866,7 @@ export default function MemorandumDialog({
                         variant="outlined"
                         color="error"
                         disabled={busy}
-                        onClick={() => run(reject.mutateAsync({ id: memo.id, comment }), onClose)}
+                        onClick={() => run(reject.mutateAsync({ id: memo.id, comment, files: actionFiles }), onClose)}
                       >
                         Reject
                       </Button>
@@ -796,6 +901,7 @@ export default function MemorandumDialog({
                               id: memo.id,
                               action: Number(actionId),
                               comment,
+                              files: actionFiles,
                             }),
                             onClose
                           )
@@ -848,6 +954,7 @@ export default function MemorandumDialog({
                             to: Number(returnTo),
                             action: returnActions[0]?.id ?? null,
                             comment,
+                            files: actionFiles,
                           }),
                           onClose
                         )

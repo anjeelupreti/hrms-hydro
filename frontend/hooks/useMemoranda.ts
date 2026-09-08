@@ -28,6 +28,33 @@ function useInvalidate() {
 
 /* ── The vocabulary ──────────────────────────────────────────────────────── */
 
+/**
+ * The body for a workflow step, as JSON or as multipart.
+ *
+ * **A file arrives with an action, not on its own.** The chain answers a
+ * memorandum — "approved, subject to the revised estimate" — and the estimate
+ * is part of that answer, so it travels with the button that was pressed and
+ * lands on that entry in the log. Where there are no files this stays JSON,
+ * because multipart for a two-field payload is noise on the wire and in the
+ * network tab.
+ */
+function stepBody(
+  values: Record<string, unknown>,
+  files?: File[],
+  captions?: string[]
+): BodyInit {
+  if (!files || files.length === 0) return JSON.stringify(values);
+  const form = new FormData();
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  }
+  files.forEach((file, index) => {
+    form.append("files", file);
+    form.append("captions", captions?.[index] ?? "");
+  });
+  return form;
+}
+
 export function useMemorandumActions() {
   return useQuery({
     queryKey: ["memorandum-actions"],
@@ -140,15 +167,34 @@ function transition<TBody extends object>(path: string) {
   return function useTransition() {
     const invalidate = useInvalidate();
     return useMutation({
-      mutationFn: ({ id, ...body }: { id: number } & TBody) =>
+      // `files` and `captions` are lifted out of the body: they are not fields
+      // of the step, they are what came with it. Every step accepts them, so
+      // the handling sits here once rather than in each of the five.
+      mutationFn: ({
+        id,
+        files,
+        captions,
+        ...body
+      }: { id: number; files?: File[]; captions?: string[] } & TBody) =>
         fetchJson<Memorandum>(`${BASE}/${id}/${path}`, {
           method: "POST",
-          body: JSON.stringify(body),
+          body: stepBody(body as Record<string, unknown>, files, captions),
         }),
       onSuccess: (memo) => invalidate(memo.id),
     });
   };
 }
+
+/**
+ * File it away — the initiator only.
+ *
+ * **Not a decision.** An approved or rejected memorandum is evidence and stays
+ * as it is; archiving says the matter it concerned is closed and it need not
+ * sit in a working list any longer. The initiator is the one who can say that,
+ * because the approver signed a *request*, not an outcome — see
+ * `workflow.archive`.
+ */
+export const useArchiveMemorandum = transition<{ /* no body */ }>("archive");
 
 /** Takes nothing but the id — the empty object is what "no body" looks like
  *  to the generic above. */
@@ -249,6 +295,34 @@ export function useAddMemorandumAttachment() {
         body: form,
       });
     },
+    onSuccess: (_row, variables) => invalidate(variables.id),
+  });
+}
+
+/**
+ * Relabel one — the caption, not the file.
+ *
+ * **A label on the record, not a change to the record.** A file arrives called
+ * `scan_0012.pdf` and what the chain needs to read is "the revised estimate",
+ * so this stays open after submission when adding and removing do not. Only
+ * whoever attached it: they are the one who knows what it is.
+ */
+export function useRenameMemorandumAttachment() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: ({
+      id,
+      attachmentId,
+      caption,
+    }: {
+      id: number;
+      attachmentId: number;
+      caption: string;
+    }) =>
+      fetchJson<MemorandumAttachment>(`${BASE}/${id}/attachments/${attachmentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ caption }),
+      }),
     onSuccess: (_row, variables) => invalidate(variables.id),
   });
 }
