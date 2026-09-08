@@ -287,15 +287,33 @@ class FieldVisit(AuditModel):
         zero. Only meaningful within a single day: across two dates the hours
         between a start time and an end time are not the hours worked, they are
         the hours elapsed including a night's sleep.
-        """
-        from datetime import datetime
 
-        if not (self.starts_at and self.ends_at):
+        🔴 **The clock fields are not always `time` objects.** Django coerces
+        them when a row is loaded, and does not when one is *constructed*:
+        `FieldVisit.objects.create(starts_at="09:30")` leaves the string in
+        place on the instance it hands back. A property that assumed the
+        parsed type crashed with `combine() argument 2 must be datetime.time`
+        depending on how the object in front of it had been built — which is
+        the sort of thing that passes every test that reads from the database
+        and fails the first caller that does not.
+        """
+        from datetime import datetime, time
+
+        from django.utils.dateparse import parse_time
+
+        def clock(value):
+            """A `time`, whatever the field is currently holding."""
+            if value is None or isinstance(value, time):
+                return value
+            return parse_time(str(value))
+
+        start_at, end_at = clock(self.starts_at), clock(self.ends_at)
+        if not (start_at and end_at):
             return None
         if self.starts_on != self.ends_on:
             return None
-        start = datetime.combine(self.starts_on, self.starts_at)
-        end = datetime.combine(self.ends_on, self.ends_at)
+        start = datetime.combine(self.starts_on, start_at)
+        end = datetime.combine(self.ends_on, end_at)
         if end <= start:
             return None
         return round((end - start).total_seconds() / 3600, 2)

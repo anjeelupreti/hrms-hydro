@@ -82,6 +82,77 @@ export function useDeleteCompanyEvent() {
  * the answer does not depend on how many rows happened to be fetched — "my
  * cancelled meetings" has to mean all of them, not all of the first hundred.
  */
+/**
+ * Files on a calendar entry.
+ *
+ * The same `EventAttachment` the meeting record calls papers — a meeting *is*
+ * a `CompanyEvent`, so the agenda pack for a board meeting and the map on a
+ * site inspection are one object with one upload path. Only the meeting side
+ * had a UI; the calendar could be uploaded to by the API and by nothing else.
+ */
+export type EventAttachment = {
+  id: number;
+  file_url: string;
+  filename: string;
+  caption: string;
+  uploaded_by_name: string | null;
+  uploaded_at: string;
+};
+
+const EVENTS = "/api/proxy/notifications/company-events";
+
+export function useEventAttachments(eventId: number | null) {
+  return useQuery({
+    queryKey: ["company-event", eventId, "attachments"],
+    queryFn: () => fetchJson<EventAttachment[]>(`${EVENTS}/${eventId}/attachments/`),
+    enabled: eventId !== null,
+  });
+}
+
+function useEventAttachmentsInvalidate() {
+  const queryClient = useQueryClient();
+  return (eventId: number) => {
+    queryClient.invalidateQueries({ queryKey: ["company-event", eventId, "attachments"] });
+    // The entry itself carries the list too, so a count on the calendar and
+    // the panel inside the dialog cannot disagree.
+    queryClient.invalidateQueries({ queryKey: ["company-events"] });
+  };
+}
+
+export function useUploadEventAttachment() {
+  const invalidate = useEventAttachmentsInvalidate();
+  return useMutation({
+    mutationFn: ({
+      eventId,
+      file,
+      caption,
+    }: {
+      eventId: number;
+      file: File;
+      caption?: string;
+    }) => {
+      const form = new FormData();
+      form.append("file", file);
+      if (caption) form.append("caption", caption);
+      // No Content-Type: the boundary is the browser's to set — see fetchJson.
+      return fetchJson<EventAttachment>(`${EVENTS}/${eventId}/attachments/`, {
+        method: "POST",
+        body: form,
+      });
+    },
+    onSuccess: (_row, { eventId }) => invalidate(eventId),
+  });
+}
+
+export function useRemoveEventAttachment() {
+  const invalidate = useEventAttachmentsInvalidate();
+  return useMutation({
+    mutationFn: ({ eventId, id }: { eventId: number; id: number }) =>
+      fetchJson<void>(`${EVENTS}/${eventId}/attachments/${id}/`, { method: "DELETE" }),
+    onSuccess: (_void, { eventId }) => invalidate(eventId),
+  });
+}
+
 export function useMeetings(filters: { state?: string; role?: string } = {}) {
   const query = new URLSearchParams({ page_size: "100" });
   if (filters.state) query.set("state", filters.state);

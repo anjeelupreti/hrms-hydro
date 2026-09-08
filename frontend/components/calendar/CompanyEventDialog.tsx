@@ -4,6 +4,8 @@ import Alert from "@mui/material/Alert";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
+import Divider from "@mui/material/Divider";
+import Typography from "@mui/material/Typography";
 import DialogContent from "@mui/material/DialogContent";
 import DialogTitle from "@mui/material/DialogTitle";
 import MenuItem from "@mui/material/MenuItem";
@@ -12,6 +14,7 @@ import TextField from "@mui/material/TextField";
 import { useState } from "react";
 
 import DateTimeField from "@/components/common/DateTimeField";
+import EventAttachments from "@/components/calendar/EventAttachments";
 import { useCreateCompanyEvent, useDeleteCompanyEvent, useUpdateCompanyEvent } from "@/hooks/useCalendar";
 import type { CompanyEvent, CompanyEventType } from "@/types/calendar";
 
@@ -54,7 +57,7 @@ export default function CompanyEventDialog({
 }: Props) {
   const formKey = editingEvent ? `edit-${editingEvent.id}` : `new-${initialStart?.toISOString() ?? "blank"}`;
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <CompanyEventForm
         key={formKey}
         onClose={onClose}
@@ -153,6 +156,16 @@ function CompanyEventForm({ onClose, initialStart, initialEnd, editingEvent, rea
             onChange={(e) => setDescription(e.target.value)}
           />
         </Stack>
+        {/* **Files, which the calendar could not hold.** The model and the
+            endpoints were added for meeting papers and hung on `CompanyEvent`
+            so both surfaces could share them — then only the meeting record
+            grew a UI. A capability the API accepts and the screen cannot reach
+            is worse than one that was never built. */}
+        <Divider sx={{ my: 2 }} />
+        <Typography variant="overline" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          Attachments
+        </Typography>
+        <EventAttachments eventId={editingEvent?.id ?? null} readOnly={readOnly} />
       </DialogContent>
       <DialogActions>
         {editingEvent && !readOnly && (
