@@ -42,7 +42,7 @@ import { CompanyPicker, EmployeePicker } from "@/components/common/pickers";
 import MemorandumLetter from "@/components/memoranda/MemorandumLetter";
 import { withCode } from "@/lib/people";
 import { useCompanies } from "@/hooks/useCompanies";
-import { useEmployees } from "@/hooks/useEmployees";
+import { useEmployeesByIds } from "@/hooks/useEmployees";
 import { useMe } from "@/hooks/useMe";
 import {
   useAddMemorandumAttachment,
@@ -255,7 +255,6 @@ export default function MemorandumDialog({
   const { data: companyPage } = useCompanies();
   const companyName =
     companyPage?.results?.find((c) => c.id === values.company)?.name ?? memo?.company_name ?? null;
-  const approverName = memo?.approver === values.approver ? memo?.approver_name ?? null : null;
 
   /**
    * The Through line, in the order the chain will see it.
@@ -264,15 +263,61 @@ export default function MemorandumDialog({
    * picking recommenders watches them appear on the page. Falls back to the
    * saved row's name when the directory page has not loaded that person.
    */
-  const { data: staffPage } = useEmployees({ page: 1, pageSize: 200 });
+  /**
+   * The people named on the routing lines, asked for by id.
+   *
+   * 🔴 **This was the first page of the directory, 200 rows.** The pickers
+   * search on the server, so they can offer anybody in the company — and
+   * anybody past row 200 came back unresolved: the approver's name was blank
+   * and a recommender simply *vanished* from the Through line, because names
+   * that did not resolve were filtered out. `?ids=` asks for exactly the rows
+   * being named, which is what the pickers themselves do.
+   */
+  const { data: named } = useEmployeesByIds([
+    ...values.recommender_ids,
+    ...(typeof values.approver === "number" ? [values.approver] : []),
+  ]);
+  const person = (id: number) => named?.results?.find((row) => row.id === id);
+
   const throughNames = values.recommender_ids
     .map((id) => {
-      const person = staffPage?.results?.find((row) => row.id === id);
-      if (person) return withCode(person.full_name, person.employee_code);
-      const saved = memo?.recommenders.find((row) => row.employee === id);
+      const row = person(id);
+      if (row) return withCode(row.full_name, row.employee_code);
+      const saved = memo?.recommenders.find((r) => r.employee === id);
       return saved ? withCode(saved.employee_name, saved.employee_code) : null;
     })
     .filter((name): name is string => Boolean(name));
+
+  /**
+   * The To line, read the same way the Through line is.
+   *
+   * 🔴 **It used to require a save.** This was
+   * `memo?.approver === values.approver ? memo.approver_name : null` — the
+   * saved record and nothing else — so choosing an approver left the To line
+   * reading "no approver chosen yet" until the draft was written, while the
+   * recommenders picked in the same breath appeared on the page immediately.
+   * The whole point of composing on the sheet is that the sheet says what it
+   * is going to say, and a blank in the most important line of the address
+   * block reads as a picker that did not take.
+   *
+   * The post comes from the directory too, with the same precedence the server
+   * uses in `_post`: the chair somebody holds, then their job title. A
+   * memorandum is addressed to an office.
+   */
+  const approverPerson =
+    typeof values.approver === "number" ? person(values.approver) : undefined;
+  // Only when the pick still *is* what was saved — otherwise the old approver's
+  // code and post would sit beside the new approver's name.
+  const approverSaved = memo !== null && memo.approver === values.approver;
+  const approverName =
+    approverPerson?.full_name ?? (approverSaved ? memo.approver_name ?? null : null);
+  const approverCode =
+    approverPerson?.employee_code ?? (approverSaved ? memo.approver_code ?? null : null);
+  const approverPost = approverPerson
+    ? approverPerson.corporate_post_name || approverPerson.designation_title || null
+    : approverSaved
+      ? memo.approver_post ?? null
+      : null;
 
   useEffect(() => {
     if (!open) return;
@@ -640,6 +685,8 @@ export default function MemorandumDialog({
                     memo_date: values.memo_date,
                     companyName,
                     approverName,
+                    approverCode,
+                    approverPost,
                     throughNames,
                     fromName: me ? withCode(me.full_name, me.employee_code) : null,
                   }}

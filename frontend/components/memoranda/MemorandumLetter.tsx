@@ -101,6 +101,11 @@ export default function MemorandumLetter({
     memo_date?: string;
     companyName?: string | null;
     approverName?: string | null;
+    /** The code and office that go on the To line beside the name. Carried
+     *  with it rather than read off the saved record, or a name chosen just
+     *  now would print beside the previous approver's code. */
+    approverCode?: string | null;
+    approverPost?: string | null;
     /** Names in chain order, for the Through line while it is being chosen. */
     throughNames?: string[];
     /**
@@ -181,6 +186,8 @@ export default function MemorandumLetter({
   const date = draft?.memo_date ?? memo?.memo_date ?? "";
   const company = draft?.companyName ?? memo?.company_name ?? "";
   const approver = draft?.approverName ?? memo?.approver_name ?? "";
+  const approverCode = draft?.approverCode ?? memo?.approver_code ?? null;
+  const approverPost = draft?.approverPost ?? memo?.approver_post ?? null;
 
   const through =
     draft?.throughNames ??
@@ -640,8 +647,8 @@ export default function MemorandumLetter({
           <LetterLine label="To" width={70}>
             {approver ? (
               <>
-                {withCode(approver, memo?.approver_code)}
-                {memo?.approver_post ? `, ${memo.approver_post}` : ""}
+                {withCode(approver, approverCode)}
+                {approverPost ? `, ${approverPost}` : ""}
               </>
             ) : (
               <Muted>no approver chosen yet</Muted>

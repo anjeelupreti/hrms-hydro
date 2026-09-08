@@ -70,6 +70,32 @@ export function useEmployees(filters: EmployeeFilters) {
   });
 }
 
+/**
+ * Name a handful of people you already hold the ids of.
+ *
+ * **A page is the wrong thing to look names up in.** Pickers search on the
+ * server, so the person a form has selected is usually not in whatever page a
+ * list request happened to return — pick #204 out of a search and a caller
+ * resolving names against page one finds nothing and renders a blank where a
+ * name should be. `?ids=` is the endpoint's answer to exactly that
+ * (`core.filters.IdsLookupMixin`), and it is what the pickers themselves use.
+ *
+ * Sorted into the key so `[3, 1]` and `[1, 3]` share one cache entry, and idle
+ * while there is nothing to resolve.
+ */
+export function useEmployeesByIds(ids: number[]) {
+  const key = [...new Set(ids)].sort((a, b) => a - b).join(",");
+  return useQuery({
+    queryKey: ["employees", "by-ids", key],
+    queryFn: () =>
+      fetchJson<PaginatedResponse<EmployeeListItem>>(
+        `/api/proxy/employees/employees?ids=${key}`
+      ),
+    enabled: key.length > 0,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useEmployeeDetail(id: number | null) {
   return useQuery({
     queryKey: ["employees", "detail", id],
