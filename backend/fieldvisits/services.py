@@ -214,8 +214,11 @@ def eligible_approvers(employee, site=None):
     than letting it be raised into a queue nobody owns.
     """
     seen = {}
-    for link in employee.supervisor_links.select_related("supervisor__user").all():
-        seen[link.supervisor_id] = link.supervisor
+    # `approvers` rather than the links directly: somebody with no supervisors
+    # of their own falls back to their department head, so a trip can be raised
+    # without HR having filled in a per-person chain first.
+    for supervisor in employee.approvers():
+        seen[supervisor.pk] = supervisor
     if site is not None:
         for supervisor in site.supervisors.select_related("user").all():
             seen.setdefault(supervisor.pk, supervisor)

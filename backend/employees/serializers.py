@@ -31,10 +31,24 @@ User = get_user_model()
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
+    #: Named, not just numbered — every list that shows a department shows who
+    #: runs it, and a bare id would mean a second request per row.
+    head_name = serializers.SerializerMethodField()
+    head_code = serializers.CharField(source="head.employee_code", read_only=True, default=None)
+
     class Meta:
         model = Department
-        fields = ["id", "name", "code", "description", "created_at", "updated_at"]
+        fields = [
+            "id", "name", "code", "description",
+            "head", "head_name", "head_code",
+            "created_at", "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_head_name(self, obj):
+        if obj.head is None:
+            return None
+        return obj.head.user.get_full_name() or obj.head.user.get_username()
 
 
 class DesignationSerializer(serializers.ModelSerializer):

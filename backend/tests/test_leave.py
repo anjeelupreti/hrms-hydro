@@ -808,3 +808,84 @@ def test_a_supervisor_is_notified_when_the_leave_reaches_them(
     submit_leave_request(staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, "")
 
     assert Notification.objects.filter(recipient=boss.user, verb="leave_requested").exists()
+
+
+# ── The department head, when nobody was named ───────────────────────────
+#
+# **The chain always assumed this person existed.** `_supervisors_of` has said
+# "supervisor 2 the department head" since it was written, and there was
+# nowhere to record one — so anybody whose supervisors had not been filled in
+# had the supervisor step skipped and their leave went straight to HR.
+
+
+def _department(head=None, name="Engineering", code="ENG"):
+    from employees.models import Department
+
+    return Department.objects.create(name=name, code=code, head=head)
+
+
+def test_the_department_head_signs_when_nobody_was_named(company, staff, boss, annual):
+    staff.department = _department(head=boss)
+    staff.save(update_fields=["department"])
+
+    request = submit_leave_request(
+        staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, ""
+    )
+
+    steps = effective_chain(request)
+    assert [row[1] for row in steps] == [
+        ApprovalStep.ApproverRole.SUPERVISOR,
+        ApprovalStep.ApproverRole.HR_ADMIN,
+    ]
+    assert steps[0][2] == boss
+
+
+def test_a_named_supervisor_still_wins(company, staff, boss, company_probationer, annual):
+    """A fallback, not an addition. Somebody who has taken the trouble to write
+    a chain down has already answered the question, and quietly appending the
+    department head would change a routing HR chose on purpose."""
+    EmployeeSupervisor.objects.create(employee=staff, supervisor=company_probationer, order=0)
+    staff.department = _department(head=boss)
+    staff.save(update_fields=["department"])
+
+    request = submit_leave_request(
+        staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, ""
+    )
+
+    assert effective_chain(request)[0][2] == company_probationer
+
+
+def test_a_department_with_no_head_changes_nothing(company, staff, boss, annual):
+    """A department can genuinely be between heads, and the old behaviour is
+    what should happen then — not a step pointing at nobody."""
+    staff.department = _department()
+    staff.manager = boss
+    staff.save(update_fields=["department", "manager"])
+
+    request = submit_leave_request(
+        staff, annual, date(2026, 3, 2), date(2026, 3, 2), False, ""
+    )
+
+    assert [row[1] for row in effective_chain(request)] == [
+        ApprovalStep.ApproverRole.MANAGER,
+        ApprovalStep.ApproverRole.HR_ADMIN,
+    ]
+
+
+def test_the_head_does_not_approve_their_own_leave(company, boss, annual):
+    """🔒 The database refuses a *configured* supervisor who is the employee
+    (`supervisor_is_not_self`), and a defaulted one is no more acceptable. They
+    fall through to the manager step, which is the honest answer: who signs for
+    the head of a department is a question only HR can settle."""
+    boss.department = _department(head=boss)
+    boss.save(update_fields=["department"])
+
+    assert boss.approvers() == []
+
+    request = submit_leave_request(
+        boss, annual, date(2026, 3, 2), date(2026, 3, 2), False, ""
+    )
+    assert [row[1] for row in effective_chain(request)] == [
+        ApprovalStep.ApproverRole.MANAGER,
+        ApprovalStep.ApproverRole.HR_ADMIN,
+    ]

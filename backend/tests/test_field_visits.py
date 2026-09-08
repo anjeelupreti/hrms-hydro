@@ -563,3 +563,37 @@ def test_an_untimed_visit_still_bills_a_working_day(traveller, approver, company
 
     entry = TimeEntry.objects.get(employee=traveller, date=date(2026, 8, 3))
     assert float(entry.hours) == 8.0
+
+
+def test_the_department_head_can_approve_a_trip_when_nobody_else_can(db, traveller, approver):
+    """🔴 **This used to be refused outright.** Somebody with no supervisors got
+    "There is nobody who can approve this trip. Ask HR to give you a
+    supervisor" — a dead end for the ordinary case of an employee whose
+    per-person chain had never been filled in. Their department has a head, and
+    the head signs."""
+    from employees.models import Department
+    from fieldvisits.services import eligible_approvers
+
+    traveller.department = Department.objects.create(
+        name="Civil", code="CIV", head=approver
+    )
+    traveller.save(update_fields=["department"])
+
+    assert [p.pk for p in eligible_approvers(traveller, None)] == [approver.pk]
+
+
+def test_a_named_supervisor_beats_the_department_head_for_a_trip(db, traveller, approver, company):
+    from employees.models import Department, Employee, EmployeeSupervisor
+    from fieldvisits.services import eligible_approvers
+
+    head = Employee.objects.create(
+        user=get_user_model().objects.create_user(username="dept_head", password="x"),
+        employee_code="EMP-FV8",
+        date_joined=date(2026, 1, 1),
+        primary_company=company,
+    )
+    EmployeeSupervisor.objects.create(employee=traveller, supervisor=approver, order=0)
+    traveller.department = Department.objects.create(name="Civil", code="CIV", head=head)
+    traveller.save(update_fields=["department"])
+
+    assert [p.pk for p in eligible_approvers(traveller, None)] == [approver.pk]

@@ -80,7 +80,9 @@ from employees.serializers import (
 
 
 class DepartmentViewSet(IdsLookupMixin, AuditViewSetMixin, ModelViewSet):
-    queryset = Department.objects.all()
+    # Joined for `head_name`, which every row carries — without it the list
+    # fires one query per department to name its head.
+    queryset = Department.objects.select_related("head", "head__user")
     serializer_class = DepartmentSerializer
     permission_classes = [IsAuthenticated, IsHRAdminOrReadOnly]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]

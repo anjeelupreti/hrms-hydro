@@ -31,6 +31,7 @@ import Typography from "@mui/material/Typography";
 import { useState } from "react";
 
 import EmptyState from "@/components/common/EmptyState";
+import { EmployeePicker } from "@/components/common/pickers";
 import PageContainer from "@/components/shell/PageContainer";
 import PageHeader from "@/components/shell/PageHeader";
 import NextLink from "next/link";
@@ -44,6 +45,8 @@ import {
   useSaveCorporateRole,
 } from "@/hooks/useEmployeeRecords";
 import { useCan } from "@/hooks/useMe";
+import { withCode } from "@/lib/people";
+import type { Department } from "@/types/employees";
 import {
   useCreateDepartment,
   useCreateDesignation,
@@ -151,6 +154,12 @@ export default function OrgStructurePage() {
         <Link component={NextLink} href="/employees/org-chart">
           Open the chart
         </Link>
+        <Box component="span" sx={{ display: "block", mt: 1 }}>
+          A department&rsquo;s <strong>head</strong> is different again: they
+          sign for anybody in the department who has no supervisors of their
+          own, so leave and field visits have somewhere to go before HR fills
+          in a chain per person.
+        </Box>
       </Alert>
 
       {error ? (
@@ -183,17 +192,27 @@ export default function OrgStructurePage() {
 
             <Stack spacing={0} sx={{ mt: 1 }}>
               {depts.map((row) => (
-                <EditableRow
-                  key={row.id}
-                  value={row.name}
-                  secondary={row.code || undefined}
-                  canManage={canManage}
-                  saving={updateDept.isPending}
-                  placeholder="Engineering"
-                  onSave={(name) => run(() => updateDept.mutateAsync({ id: row.id, values: { name } }))}
-                  onRemove={() => run(() => removeDept.mutateAsync(row.id))}
-                  removeHint="Remove — refused if anybody is still in it"
-                />
+                <Box key={row.id}>
+                  <EditableRow
+                    value={row.name}
+                    secondary={row.code || undefined}
+                    canManage={canManage}
+                    saving={updateDept.isPending}
+                    placeholder="Engineering"
+                    onSave={(name) =>
+                      run(() => updateDept.mutateAsync({ id: row.id, values: { name } }))
+                    }
+                    onRemove={() => run(() => removeDept.mutateAsync(row.id))}
+                    removeHint="Remove — refused if anybody is still in it"
+                  />
+                  <DepartmentHead
+                    department={row}
+                    canManage={canManage}
+                    onSave={(head) =>
+                      run(() => updateDept.mutateAsync({ id: row.id, values: { head } }))
+                    }
+                  />
+                </Box>
               ))}
             </Stack>
 
@@ -407,4 +426,71 @@ function codeFrom(name: string) {
     .join("")
     .toUpperCase();
   return (initials || name.slice(0, 3)).toUpperCase().slice(0, 20);
+}
+
+/**
+ * Who runs a department, set where the department is.
+ *
+ * **It is not decoration.** `Employee.approvers` falls back to this person for
+ * anybody in the department with no supervisors of their own — which, before
+ * there was anywhere to record a head, meant their leave skipped the
+ * supervisor step and they could not raise a field visit at all. So the empty
+ * state says what is missing rather than showing a blank.
+ *
+ * Opened one row at a time, like the rename beside it: a picker searches the
+ * server on mount, and rendering one per department would fire a query per row
+ * to show a name that is already on the record.
+ */
+function DepartmentHead({
+  department,
+  canManage,
+  onSave,
+}: {
+  department: Department;
+  canManage: boolean;
+  onSave: (head: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+
+  if (editing) {
+    return (
+      <Box sx={{ pb: 1.5, pl: 0.5, maxWidth: 420 }}>
+        <EmployeePicker
+          label="Department head"
+          value={department.head}
+          autoFocus
+          onChange={(id) => {
+            onSave(typeof id === "number" ? id : null);
+            setEditing(false);
+          }}
+          helperText="Signs for anybody here with no supervisors of their own."
+        />
+        <Button size="small" onClick={() => setEditing(false)} sx={{ mt: 0.5 }}>
+          Cancel
+        </Button>
+      </Box>
+    );
+  }
+
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "center", pb: 1, pl: 0.5 }}>
+      <Typography variant="caption" color="text.secondary">
+        Head:
+      </Typography>
+      {department.head_name ? (
+        <Typography variant="caption" sx={{ fontWeight: 600 }}>
+          {withCode(department.head_name, department.head_code)}
+        </Typography>
+      ) : (
+        <Typography variant="caption" color="warning.main">
+          nobody — leave here has no first approver
+        </Typography>
+      )}
+      {canManage ? (
+        <Button size="small" onClick={() => setEditing(true)} sx={{ minWidth: 0, px: 0.75 }}>
+          {department.head_name ? "Change" : "Set"}
+        </Button>
+      ) : null}
+    </Stack>
+  );
 }

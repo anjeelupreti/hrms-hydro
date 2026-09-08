@@ -13,7 +13,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiErrorMessage } from "@/lib/apiError";
 import type { PaginatedResponse } from "@/types/crm";
 
-export type Department = { id: number; name: string; code: string };
+// 🔴 **There were two `Department` types.** This one — id, name, code — and
+// the fuller one in `types/employees`, which is what the endpoint actually
+// returns. A field added to the API reached only whichever of them somebody
+// happened to edit, and a page reading this one could not see it: adding
+// `head` here was the second time that bit. Re-exported rather than
+// redeclared, so there is one shape and it lives with the other record types.
+export type { Department } from "@/types/employees";
+import type { Department } from "@/types/employees";
 export type Designation = {
   id: number;
   title: string;
@@ -105,7 +112,15 @@ export function useCreateDesignation() {
 export function useUpdateDepartment() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: ({ id, values }: { id: number; values: { name?: string; code?: string } }) =>
+    mutationFn: ({
+      id,
+      values,
+    }: {
+      id: number;
+      // `head` takes null deliberately — clearing it is a real edit, and an
+      // optional field could not express "no head" as distinct from "leave it".
+      values: { name?: string; code?: string; head?: number | null };
+    }) =>
       fetchJson<Department>(`${BASE}/departments/${id}/`, {
         method: "PATCH",
         body: JSON.stringify(values),

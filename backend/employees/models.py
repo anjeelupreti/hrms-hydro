@@ -31,6 +31,32 @@ class Department(AuditModel):
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=20, unique=True)
     description = models.TextField(blank=True)
+    #: Who runs it — and, failing anything more specific, who signs for it.
+    #:
+    #: **The approval chain already assumed this person existed.** The comments
+    #: in `leave.services` have always read "supervisor 1 is the site
+    #: in-charge, supervisor 2 the department head", and there was nowhere to
+    #: record a department head — so somebody whose supervisors had not been
+    #: filled in had their leave step skipped entirely, and could not raise a
+    #: field visit at all ("Ask HR to give you a supervisor"). A department
+    #: always has somebody at the top of it; naming them here means the common
+    #: case needs no per-person setup.
+    #:
+    #: `SET_NULL` rather than `CASCADE`: a department outlives the person
+    #: running it, and deleting a leaver must not delete their department.
+    #: Nullable because a department can genuinely be between heads, and the
+    #: fallback simply does not apply then — see `Employee.approvers`.
+    head = models.ForeignKey(
+        "employees.Employee",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="heads_departments",
+        help_text=(
+            "Signs for anybody in this department who has no supervisors of "
+            "their own."
+        ),
+    )
 
     class Meta:
         ordering = ["name"]
@@ -443,6 +469,43 @@ class Employee(AuditModel):
 
     def is_on_probation(self, on_date):
         return self.probation_end_date is not None and on_date < self.probation_end_date
+
+    def approvers(self):
+        """Who signs for this person, nearest first.
+
+        **The configured chain, and the department head when there is none.**
+        `supervisors` is the deliberate answer to "who has to agree" and is
+        always used when somebody has taken the trouble to fill it in. Most
+        people never get one filled in, and before this that meant their leave
+        skipped the supervisor step altogether and they could not raise a field
+        visit at all — the request was refused with "Ask HR to give you a
+        supervisor". A department has somebody at the top of it, so the common
+        case needs no per-person setup: the head signs.
+
+        A fallback rather than an addition. Somebody with two supervisors
+        already has an answer, and quietly appending their department head to
+        it would change a chain HR wrote on purpose.
+
+        Never yourself: a department head with no supervisors of their own
+        would otherwise approve their own leave, which the database refuses for
+        a configured supervisor (`supervisor_is_not_self`) and which is no more
+        acceptable for a defaulted one. They fall through to an empty list,
+        which is the honest answer — whoever signs for the head of a department
+        is a question only HR can answer, by giving them a supervisor.
+
+        A list, ordered, so callers can keep reading it the way they read the
+        configured chain: nearest first, and the last one decides.
+        """
+        configured = [
+            link.supervisor
+            for link in self.supervisor_links.select_related("supervisor__user").all()
+        ]
+        if configured:
+            return configured
+        head = getattr(self.department, "head", None)
+        if head is None or head.pk == self.pk:
+            return []
+        return [head]
 
 
 class EmployeeExperience(AuditModel):

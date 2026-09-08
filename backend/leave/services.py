@@ -170,11 +170,15 @@ def _supervisors_of(employee):
     Nearest first: supervisor 1 is the site in-charge, supervisor 2 the
     department head. `effective_chain` takes the last of them as the one whose
     approval is required; the notifier writes to all of them.
+
+    🔴 **The department head used to be a comment, not a record.** This
+    docstring has always said supervisor 2 is the department head, and there
+    was nowhere to write one down — so anybody whose supervisors had not been
+    filled in had the supervisor step skipped and their leave went straight to
+    HR. `Employee.approvers` is the one place that rule now lives, shared with
+    field visits so the two cannot drift.
     """
-    return [
-        link.supervisor
-        for link in employee.supervisor_links.select_related("supervisor__user").all()
-    ]
+    return employee.approvers()
 
 
 def effective_chain(leave_request):

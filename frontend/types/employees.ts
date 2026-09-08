@@ -17,6 +17,11 @@ export type Department = {
   name: string;
   code: string;
   description: string;
+  /** Who runs it — and who signs for anybody in it with no supervisors of
+   *  their own. See `Employee.approvers` on the backend. */
+  head: number | null;
+  head_name: string | null;
+  head_code: string | null;
 };
 
 export type Designation = {
