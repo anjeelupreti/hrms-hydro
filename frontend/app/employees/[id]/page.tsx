@@ -79,6 +79,7 @@ import { useEmployeeProfile } from "@/hooks/useEmployeeProfile";
 import { useCan, useMe } from "@/hooks/useMe";
 import { useLifecycleEvents } from "@/hooks/useLifecycle";
 import { useMyProfile, type ExperienceKind, type ProfileExperience } from "@/hooks/useProfile";
+import ProfileSheet from "@/components/employees/ProfileSheet";
 import { employeeHref } from "@/lib/employeeProfile";
 import { withCode } from "@/lib/people";
 
@@ -233,6 +234,11 @@ function ProfileInner() {
 
   return (
     <PageContainer>
+      {/* On paper this is the whole document — see `ProfileSheet`. The screen
+          view is a tabbed workspace and prints as whichever tab was open,
+          which is not a record. */}
+      <ProfileSheet profile={p} record={record} />
+
       <Breadcrumbs />
       {!isSelf && (
         <Button component={Link} href="/employees" startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 2 }}>
@@ -357,11 +363,15 @@ function ProfileInner() {
                   CV
                 </Button>
               ) : null}
-              {isSelf && (
-                <Button startIcon={<PrintIcon />} onClick={() => window.print()}>
-                  Print
-                </Button>
-              )}
+              {/* Printing was offered to `isSelf` alone, so the people who
+                  keep the record — and are the ones who file a printed copy —
+                  had no way to produce one. Anybody who may read the record
+                  may print what they can already see; the sheet renders from
+                  the same objects, so a colleague's copy is missing the
+                  statutory half exactly as their screen is. */}
+              <Button startIcon={<PrintIcon />} onClick={() => window.print()}>
+                Print
+              </Button>
               {canManage && (
                 <>
                   <Button startIcon={<PaymentsIcon />} onClick={() => setSalaryOpen(true)}>

@@ -3,6 +3,8 @@
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import PlaceIcon from "@mui/icons-material/Place";
+import ViewListIcon from "@mui/icons-material/ViewList";
+import ViewModuleIcon from "@mui/icons-material/ViewModule";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -15,6 +17,13 @@ import DialogTitle from "@mui/material/DialogTitle";
 import Grid from "@mui/material/Grid";
 import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
@@ -61,6 +70,14 @@ const EMPTY: SiteFormValues = {
 export default function SitesPage() {
   const [search, setSearch] = useState("");
   const [showRetired, setShowRetired] = useState(false);
+  /**
+   * **Cards or a list, because the two answer different questions.**
+   * A card shows what a place *looks* like, which is what somebody
+   * approving a trip there wants. A list compares fifteen of them on
+   * district, company and who signs off — which a grid of photographs
+   * cannot do at all. Replacing the table with cards took that away.
+   */
+  const [view, setView] = useState<"cards" | "list">("cards");
   const [editing, setEditing] = useState<Site | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -78,11 +95,27 @@ export default function SitesPage() {
         subtitle="Where people are sent, and who signs off going there"
         icon={<PlaceIcon />}
         actions={
-          canManage ? (
-            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
-              New site
-            </Button>
-          ) : null
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={view}
+              onChange={(_e, v) => v && setView(v)}
+              aria-label="Sites view"
+            >
+              <ToggleButton value="cards" aria-label="Cards">
+                <ViewModuleIcon fontSize="small" sx={{ mr: 0.5 }} /> Cards
+              </ToggleButton>
+              <ToggleButton value="list" aria-label="List">
+                <ViewListIcon fontSize="small" sx={{ mr: 0.5 }} /> List
+              </ToggleButton>
+            </ToggleButtonGroup>
+            {canManage ? (
+              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)}>
+                New site
+              </Button>
+            ) : null}
+          </Stack>
         }
       />
 
@@ -107,6 +140,105 @@ export default function SitesPage() {
         <Alert severity="info">
           No sites yet. {canManage ? "Add one so travel orders can be routed to the people who know it." : ""}
         </Alert>
+      ) : view === "list" ? (
+        // The comparison view: fifteen sites down a page, on the facts that
+        // distinguish them. The photograph is a thumbnail here rather than the
+        // subject — in a list it is an identifier, not the content.
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Site</TableCell>
+                <TableCell>Where</TableCell>
+                <TableCell>Company</TableCell>
+                <TableCell>Who signs off going there</TableCell>
+                <TableCell align="right">Visits</TableCell>
+                {canManage ? <TableCell align="right" /> : null}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {sites.map((site) => (
+                <TableRow key={site.id} hover sx={{ opacity: site.is_active ? 1 : 0.55 }}>
+                  <TableCell>
+                    <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+                      <Box
+                        sx={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: 1,
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: site.photo_url
+                            ? `url(${site.photo_url}) center/cover`
+                            : "linear-gradient(135deg, var(--mui-palette-primary-light), var(--mui-palette-primary-dark))",
+                        }}
+                      >
+                        {!site.photo_url ? (
+                          <PlaceIcon sx={{ fontSize: 18, color: "common.white", opacity: 0.8 }} />
+                        ) : null}
+                      </Box>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {site.name}
+                        </Typography>
+                        <Stack direction="row" spacing={0.5} sx={{ alignItems: "center" }}>
+                          {site.code ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {site.code}
+                            </Typography>
+                          ) : null}
+                          {!site.is_active ? (
+                            <Chip size="small" label="Retired" sx={{ height: 18 }} />
+                          ) : null}
+                        </Stack>
+                      </Box>
+                    </Stack>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {[site.address, site.district, site.province].filter(Boolean).join(", ") || "—"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary">
+                      {site.company_name ?? "—"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    {site.supervisor_names.length === 0 ? (
+                      <Typography variant="caption" color="warning.main">
+                        Nobody — falls back to the traveller&apos;s own
+                      </Typography>
+                    ) : (
+                      <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }} useFlexGap>
+                        {site.supervisor_names.map((person) => (
+                          <Chip
+                            key={person.id}
+                            size="small"
+                            variant="outlined"
+                            label={withCode(person.name, person.employee_code)}
+                          />
+                        ))}
+                      </Stack>
+                    )}
+                  </TableCell>
+                  <TableCell align="right">{site.visit_count}</TableCell>
+                  {canManage ? (
+                    <TableCell align="right">
+                      <Tooltip title="Edit">
+                        <IconButton size="small" onClick={() => setEditing(site)}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Box>
       ) : (
         // **Cards, not a table row.** A site is a *place*, and the one thing
         // that tells an approver whether a trip there is a morning or two days

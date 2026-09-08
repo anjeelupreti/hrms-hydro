@@ -354,6 +354,16 @@ export function buildTheme(accentColor: string, density: Density = "comfortable"
             thead: { display: "table-header-group" },
             // A URL after every link is noise on an internal document.
             "a[href]::after": { content: '""' },
+            // **A page may offer a different document to the printer.** Where
+            // a `.print-only` sheet exists, the interactive view beside it is
+            // suppressed: a tabbed workspace prints as whichever tab happened
+            // to be open, which is a screenshot rather than a record. Pages
+            // without such a sheet are untouched and print as they always did.
+            // Everything after the sheet is the interactive view, and
+            // `PageContainer` renders its children as direct siblings — so the
+            // sheet suppresses the page it sits above without every element on
+            // that page having to be marked.
+            "body:has(.print-only) .print-only ~ *": { display: "none !important" },
             "@page": { margin: "14mm" },
           },
           "@media (prefers-reduced-motion: reduce)": {

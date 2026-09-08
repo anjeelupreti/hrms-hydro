@@ -203,3 +203,51 @@ def test_an_announcement_is_edited_by_whoever_wrote_it(notice, cast):
         f"{LIST}{notice.pk}/", {"title": "Mine now"}, format="json"
     )
     assert refused.status_code == 403, refused.data
+
+
+def test_the_count_and_the_list_measure_the_same_people(db, company, hr_user, employee_user):
+    """🔴 **They did not, and disagreed in public.**
+
+    A receipt is written for anybody who renders the card — including an
+    administrator reading a notice addressed to one department. `seen` counted
+    every receipt while `audience` counted only the people addressed, so a
+    departmental notice read by nobody in that department still reported
+    "2 of 16 opened" while the read-receipts list showed all sixteen as not yet.
+    """
+    from django.utils import timezone
+
+    from employees.models import Department, Employee
+    from notifications.models import Announcement, AnnouncementReceipt
+
+    accounts = Department.objects.create(name="Accounts")
+    inside = Employee.objects.create(
+        user=employee_user, employee_code="ANN-IN",
+        date_joined=timezone.now().date(), primary_company=company,
+        department=accounts,
+    )
+    # An administrator, deliberately not in the department.
+    outsider = Employee.objects.create(
+        user=hr_user, employee_code="ANN-OUT",
+        date_joined=timezone.now().date(), primary_company=company,
+    )
+
+    notice = Announcement.objects.create(
+        title="Ledger cut-off", body="Close the ledger by Friday.", department=accounts
+    )
+    AnnouncementReceipt.objects.create(
+        announcement=notice, employee=outsider, seen_at=timezone.now()
+    )
+
+    from notifications.serializers import AnnouncementSerializer
+
+    metrics = AnnouncementSerializer(notice).data["metrics"]
+
+    assert metrics["audience"] == 1
+    # The outsider's receipt is kept, and is not evidence the notice landed.
+    assert metrics["seen"] == 0
+    assert AnnouncementReceipt.objects.count() == 1
+
+    AnnouncementReceipt.objects.create(
+        announcement=notice, employee=inside, seen_at=timezone.now()
+    )
+    assert AnnouncementSerializer(notice).data["metrics"]["seen"] == 1

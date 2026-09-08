@@ -302,10 +302,26 @@ class AnnouncementSerializer(serializers.ModelSerializer):
         """**Reach, not a vanity number.** `audience` is who it was addressed
         to, which is what "12 of 40 have read it" needs as its denominator —
         counting only the people who happened to open it would make every
-        announcement look fully read."""
-        receipts = list(obj.receipts.all())
+        announcement look fully read.
+
+        🔴 **The numerator has to be the same population as the denominator.**
+        It was not: `audience` counted the people addressed, while `seen`
+        counted *every* receipt — and a receipt is written for anybody who
+        renders the card, including an HR admin or the owner reading a notice
+        addressed to one department. So a departmental notice read by nobody in
+        that department still said "2 of 16 opened", and the read-receipts list
+        — which correctly walks the audience — showed all sixteen as not yet.
+        The number and the list were measuring different things and disagreeing
+        in public.
+
+        Receipts from outside the audience are still *recorded*: that an
+        administrator opened a notice is true and worth keeping. It is simply
+        not evidence that the notice reached the people it was for.
+        """
+        audience_ids = set(obj.audience().values_list("pk", flat=True))
+        receipts = [r for r in obj.receipts.all() if r.employee_id in audience_ids]
         return {
-            "audience": obj.audience().count(),
+            "audience": len(audience_ids),
             "seen": sum(1 for r in receipts if r.seen_at is not None),
             "acknowledged": sum(1 for r in receipts if r.acknowledged_at is not None),
         }
